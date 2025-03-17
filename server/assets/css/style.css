@@ -10,7 +10,8 @@
     max-width: 1200px;
     margin: 0 auto;
     padding: 2rem;
-    height: calc(100vh - 2.5rem);
+    padding-bottom: 3rem; /* Add padding at the bottom to account for the footer */
+    min-height: calc(100vh - 2.5rem);
 }
 
 .breadcrumbs {
@@ -153,7 +154,7 @@ footer {
     width: 100%;
     text-align: center;
     padding: 0.5rem;
-    /*background-color: var(--pico-contrast-inverse, #f8f9fa);*/
+    background-color: var(--pico-background-color, #fff); /* Add background color to prevent content showing through */
     color: var(--pico-color, #212529);
     font-size: 0.85rem;
     line-height: 1;
