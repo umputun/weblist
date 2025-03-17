@@ -49,6 +49,13 @@ Download the latest release from the [releases page](https://github.com/umputun/
 go install github.com/umputun/weblist@latest
 ```
 
+**Install from homebrew (macOS)**
+
+```bash
+brew tap umputun/apps
+brew install umputun/apps/weblist
+```
+
 ## Usage
 
 ```
