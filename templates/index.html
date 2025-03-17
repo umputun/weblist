@@ -12,16 +12,20 @@
 </head>
 
 <body>
+
 <main class="container">
     <div id="page-content">
         {{ template "page-content" . }}
     </div>
 </main>
 
+{{ if not .HideFooter }}
 <footer>
     <a href="https://github.com/umputun/weblist">weblist</a> by <a href="https://umputun.dev">umputun</a> •
     <a href="https://github.com/umputun/weblist">open source</a>
 </footer>
+{{ end }}
+
 </body>
 </html>
 

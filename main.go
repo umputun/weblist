@@ -58,89 +58,114 @@ func (f FileInfo) TimeString() string {
 type Config struct {
 	ListenAddr string
 	Theme      string
+	HideFooter bool
+	RootDir    string
+}
+
+// App holds the application state and dependencies
+type App struct {
+	Config Config
+	FS     fs.FS
 }
 
 func main() {
-	// Parse command-line flags
+	// parse command-line flags
 	cfg := Config{}
 	flag.StringVar(&cfg.ListenAddr, "listen", ":8080", "Address to listen on")
 	flag.StringVar(&cfg.Theme, "theme", "light", "Theme to use (light or dark)")
+	flag.BoolVar(&cfg.HideFooter, "hide-footer", false, "Hide footer (true or false)")
+	flag.StringVar(&cfg.RootDir, "root", ".", "Root directory to serve")
 	flag.Parse()
 
-	// Validate theme
+	// validate theme
 	if cfg.Theme != "light" && cfg.Theme != "dark" {
 		log.Printf("Warning: Invalid theme '%s'. Using 'light' instead.", cfg.Theme)
 		cfg.Theme = "light"
 	}
 
-	// Create router and set up routes
+	// get absolute path for root directory
+	absRootDir, err := filepath.Abs(cfg.RootDir)
+	if err != nil {
+		log.Fatalf("Failed to get absolute path for root directory: %v", err)
+	}
+	cfg.RootDir = absRootDir
+
+	// create OS filesystem locked to the root directory
+	rootFS := os.DirFS(cfg.RootDir)
+
+	app := &App{
+		Config: cfg,
+		FS:     rootFS,
+	}
+
+	// create router and set up routes
 	mux := http.NewServeMux()
 	router := routegroup.New(mux)
 
-	// Serve static assets from embedded filesystem
+	// serve static assets from embedded filesystem
 	assetsFS, err := fs.Sub(content, "assets")
 	if err != nil {
 		log.Fatalf("Failed to load embedded assets: %v", err)
 	}
 	router.HandleFiles("/assets/", http.FS(assetsFS))
 
-	// Route registration in correct order
-	router.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
-		handleRoot(w, r, cfg)
-	})
-	router.HandleFunc("GET /partials/dir-contents", func(w http.ResponseWriter, r *http.Request) {
-		handleDirContents(w, r, cfg)
-	})
-	router.HandleFunc("GET /download/", handleDownload)
+	// route registration in correct order
+	router.HandleFunc("GET /", app.handleRoot)
+	router.HandleFunc("GET /partials/dir-contents", app.handleDirContents)
+	router.HandleFunc("GET /download/", app.handleDownload)
 
-	// Start server
-	log.Printf("Starting server on %s with theme: %s", cfg.ListenAddr, cfg.Theme)
+	// start server
+	log.Printf("Starting server on %s with theme: %s, serving from: %s", cfg.ListenAddr, cfg.Theme, cfg.RootDir)
 	if err := http.ListenAndServe(cfg.ListenAddr, router); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }
 
 // handleRoot displays the root directory listing
-func handleRoot(w http.ResponseWriter, r *http.Request, cfg Config) {
-	// Get path from query parameter, default to current directory
+func (app *App) handleRoot(w http.ResponseWriter, r *http.Request) {
+	// get path from query parameter, default to empty string (root of locked filesystem)
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		path = "."
 	}
 
-	// Clean the path to avoid directory traversal
-	path = filepath.Clean(path)
-	renderFullPage(w, r, path, cfg.Theme)
+	// clean the path to avoid directory traversal
+	path = filepath.ToSlash(filepath.Clean(path))
+	app.renderFullPage(w, r, path)
 }
 
 // handleDownload serves file downloads
-func handleDownload(w http.ResponseWriter, r *http.Request) {
-	// Extract the file path from the URL
+func (app *App) handleDownload(w http.ResponseWriter, r *http.Request) {
+	// extract the file path from the URL
 	filePath := strings.TrimPrefix(r.URL.Path, "/download/")
 
-	// Remove trailing slash if present - this helps handle URLs like /download/templates/
+	// remove trailing slash if present - this helps handle URLs like /download/templates/
 	filePath = strings.TrimSuffix(filePath, "/")
 
-	// Clean the path to avoid directory traversal
-	filePath = filepath.Clean(filePath)
+	// clean the path to avoid directory traversal
+	filePath = filepath.ToSlash(filepath.Clean(filePath))
+	if filePath == "." {
+		filePath = ""
+	}
 
-	// Log the request for debugging
+	// log the request for debugging
 	log.Printf("Download request for: %s", filePath)
 
-	// Check if the file exists and is not a directory
-	fileInfo, err := os.Stat(filePath)
+	// check if the file exists and is not a directory
+	fileInfo, err := fs.Stat(app.FS, filePath)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("File not found: %s", filepath.Base(filePath)), http.StatusNotFound)
 		return
 	}
 
 	if fileInfo.IsDir() {
-		// Check if index.html exists in this directory
+		// check if index.html exists in this directory
 		indexPath := filepath.Join(filePath, "index.html")
-		indexInfo, err := os.Stat(indexPath)
+		indexInfo, err := fs.Stat(app.FS, indexPath)
 		if err == nil && !indexInfo.IsDir() {
-			// Serve index.html
-			file, err := os.Open(indexPath)
+			// Create the physical file path for index.html
+			physicalIndexPath := filepath.Join(app.Config.RootDir, indexPath)
+			file, err := os.Open(physicalIndexPath)
 			if err != nil {
 				http.Error(w, "Error opening file", http.StatusInternalServerError)
 				return
@@ -155,31 +180,33 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// If no index.html or it's also a directory, return error
+		// if no index.html or it's also a directory, return error
 		http.Error(w, "Cannot download directories", http.StatusBadRequest)
 		return
 	}
 
-	// Open the file
-	file, err := os.Open(filePath)
+	// Because we need an io.ReadSeeker for ServeContent, we need to use the actual OS file
+	// Create the physical file path by joining the root directory with the relative path
+	physicalPath := filepath.Join(app.Config.RootDir, filePath)
+	file, err := os.Open(physicalPath)
 	if err != nil {
 		http.Error(w, "Error opening file", http.StatusInternalServerError)
 		return
 	}
 	defer file.Close()
 
-	// Force all files to download instead of being displayed in browser
+	// force all files to download instead of being displayed in browser
 	w.Header().Set("Content-Type", "application/octet-stream")
 	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileInfo.Name()))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
 
-	// Copy the file to the response
+	// copy the file to the response
 	http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file)
 }
 
 // handleDirContents renders partial directory contents for HTMX requests
-func handleDirContents(w http.ResponseWriter, r *http.Request, cfg Config) {
-	// Get directory path from query parameters
+func (app *App) handleDirContents(w http.ResponseWriter, r *http.Request) {
+	// get directory path from query parameters
 	path := r.URL.Query().Get("path")
 	if path == "" {
 		path = "."
@@ -188,16 +215,19 @@ func handleDirContents(w http.ResponseWriter, r *http.Request, cfg Config) {
 	sortBy := r.URL.Query().Get("sort")
 	sortDir := r.URL.Query().Get("dir")
 	if sortBy == "" {
-		sortBy = "name" // Default sort
+		sortBy = "name" // default sort
 	}
 	if sortDir == "" {
-		sortDir = "asc" // Default direction
+		sortDir = "asc" // default direction
 	}
 
-	// Check if the path exists and is a directory
-	fileInfo, err := os.Stat(path)
+	// clean the path to avoid directory traversal
+	path = filepath.ToSlash(filepath.Clean(path))
+
+	// check if the path exists and is a directory
+	fileInfo, err := fs.Stat(app.FS, path)
 	if err != nil {
-		http.Error(w, "Directory not found: "+err.Error(), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("Directory not found: %v", err), http.StatusNotFound)
 		return
 	}
 
@@ -206,21 +236,21 @@ func handleDirContents(w http.ResponseWriter, r *http.Request, cfg Config) {
 		return
 	}
 
-	// Get the file list
-	fileList, err := getFileList(path, sortBy, sortDir)
+	// get the file list
+	fileList, err := app.getFileList(path, sortBy, sortDir)
 	if err != nil {
 		http.Error(w, "Error reading directory: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Parse template
+	// parse template
 	tmpl, err := template.ParseFS(content, "templates/index.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Create a display path that looks nicer in the UI
+	// create a display path that looks nicer in the UI
 	displayPath := path
 	if path == "." {
 		displayPath = ""
@@ -229,38 +259,38 @@ func handleDirContents(w http.ResponseWriter, r *http.Request, cfg Config) {
 	data := map[string]interface{}{
 		"Files":       fileList,
 		"Path":        path,
-		"DisplayPath": displayPath, // Use for display purposes
+		"DisplayPath": displayPath, // use for display purposes
 		"SortBy":      sortBy,
 		"SortDir":     sortDir,
-		"PathParts":   getPathParts(path),
-		"Theme":       cfg.Theme, // Always use the CLI-specified theme
+		"PathParts":   app.getPathParts(path),
+		"Theme":       app.Config.Theme, // always use the CLI-specified theme
 	}
 
-	// Execute the page-content template for HTMX requests
+	// execute the page-content template for HTMX requests
 	if err := tmpl.ExecuteTemplate(w, "page-content", data); err != nil {
 		http.Error(w, "Template rendering error: "+err.Error(), http.StatusInternalServerError)
 	}
 }
 
 // renderFullPage renders the complete HTML page
-func renderFullPage(w http.ResponseWriter, r *http.Request, path string, theme string) {
-	// Clean the path to avoid directory traversal attacks
-	path = filepath.Clean(path)
+func (app *App) renderFullPage(w http.ResponseWriter, r *http.Request, path string) {
+	// clean the path to avoid directory traversal attacks
+	path = filepath.ToSlash(filepath.Clean(path))
 
-	// Check if the path exists
-	fileInfo, err := os.Stat(path)
+	// check if the path exists
+	fileInfo, err := fs.Stat(app.FS, path)
 	if err != nil {
 		http.Error(w, fmt.Sprintf("Path not found: %s - %v", path, err), http.StatusNotFound)
 		return
 	}
 
-	// If it's not a directory, redirect to download handler
+	// if it's not a directory, redirect to download handler
 	if !fileInfo.IsDir() {
 		http.Redirect(w, r, "/download/"+path, http.StatusSeeOther)
 		return
 	}
 
-	// Parse templates from embedded filesystem
+	// parse templates from embedded filesystem
 	tmpl, err := template.ParseFS(content, "templates/index.html")
 	if err != nil {
 		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
@@ -270,19 +300,19 @@ func renderFullPage(w http.ResponseWriter, r *http.Request, path string, theme s
 	sortBy := r.URL.Query().Get("sort")
 	sortDir := r.URL.Query().Get("dir")
 	if sortBy == "" {
-		sortBy = "name" // Default sort
+		sortBy = "name" // default sort
 	}
 	if sortDir == "" {
-		sortDir = "asc" // Default direction
+		sortDir = "asc" // default direction
 	}
 
-	fileList, err := getFileList(path, sortBy, sortDir)
+	fileList, err := app.getFileList(path, sortBy, sortDir)
 	if err != nil {
 		http.Error(w, "Error reading directory: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Create a display path that looks nicer in the UI
+	// create a display path that looks nicer in the UI
 	displayPath := path
 	if path == "." {
 		displayPath = ""
@@ -291,11 +321,12 @@ func renderFullPage(w http.ResponseWriter, r *http.Request, path string, theme s
 	data := map[string]interface{}{
 		"Files":       fileList,
 		"Path":        path,
-		"DisplayPath": displayPath, // Use for display purposes
+		"DisplayPath": displayPath, // use for display purposes
 		"SortBy":      sortBy,
 		"SortDir":     sortDir,
-		"PathParts":   getPathParts(path),
-		"Theme":       theme, // Use the CLI-specified theme
+		"PathParts":   app.getPathParts(path),
+		"Theme":       app.Config.Theme, // use the CLI-specified theme
+		"HideFooter":  app.Config.HideFooter,
 	}
 
 	if err := tmpl.Execute(w, data); err != nil {
@@ -304,8 +335,13 @@ func renderFullPage(w http.ResponseWriter, r *http.Request, path string, theme s
 }
 
 // getFileList returns a list of files in the given directory
-func getFileList(path string, sortBy, sortDir string) ([]FileInfo, error) {
-	entries, err := os.ReadDir(path)
+func (app *App) getFileList(path string, sortBy, sortDir string) ([]FileInfo, error) {
+	// Ensure the path is properly formatted for fs.ReadDir
+	if path == "" {
+		path = "."
+	}
+
+	entries, err := fs.ReadDir(app.FS, path)
 	if err != nil {
 		return nil, err
 	}
@@ -314,57 +350,47 @@ func getFileList(path string, sortBy, sortDir string) ([]FileInfo, error) {
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
-			continue // Skip files that can't be stat'd
+			continue // skip files that can't be stat'd
 		}
+
+		entryPath := filepath.Join(path, entry.Name())
+		// Convert to slash for consistent paths
+		entryPath = filepath.ToSlash(entryPath)
 
 		fileInfo := FileInfo{
 			Name:         entry.Name(),
 			IsDir:        entry.IsDir(),
 			Size:         info.Size(),
 			LastModified: info.ModTime(),
-			Path:         filepath.Join(path, entry.Name()),
+			Path:         entryPath,
 		}
 		files = append(files, fileInfo)
 	}
 
-	// Sort the file list
-	sortFiles(files, sortBy, sortDir)
+	// sort the file list
+	app.sortFiles(files, sortBy, sortDir)
 
-	// Special case: Add parent directory if not in root
+	// special case: Add parent directory if not in root
 	if path != "." {
-		// Get absolute paths to ensure we can stat the parent correctly
-		absPath, err := filepath.Abs(path)
-		if err != nil {
-			absPath = path // Fallback to the original path
-		}
-
 		parentPath := filepath.Dir(path)
-		absParentPath := filepath.Dir(absPath)
 
-		// For Windows compatibility, convert backslashes to forward slashes
+		// Convert to slash for consistent paths
 		parentPath = filepath.ToSlash(parentPath)
 		if parentPath == "." {
 			parentPath = ""
 		}
 
-		// Get the actual modification time of the parent directory
+		// Get parent directory info if possible
 		var lastModified time.Time
-		parentInfo, err := os.Stat(absParentPath)
+		parentInfo, err := fs.Stat(app.FS, parentPath)
 		if err == nil {
 			lastModified = parentInfo.ModTime()
 		} else {
-			// Try the non-absolute path as a fallback
-			parentInfo, err = os.Stat(parentPath)
-			if err == nil {
-				lastModified = parentInfo.ModTime()
-			} else {
-				// Last resort - use current time
-				log.Printf("Failed to get parent directory info for %s: %v", parentPath, err)
-				lastModified = time.Now()
-			}
+			// Use current time as fallback
+			lastModified = time.Now()
 		}
 
-		// Create parent directory entry with correct timestamp
+		// create parent directory entry
 		parentDir := FileInfo{
 			Name:         "..",
 			IsDir:        true,
@@ -373,7 +399,7 @@ func getFileList(path string, sortBy, sortDir string) ([]FileInfo, error) {
 			Size:         0,
 		}
 
-		// Insert at the beginning
+		// insert at the beginning
 		files = append([]FileInfo{parentDir}, files...)
 	}
 
@@ -381,9 +407,17 @@ func getFileList(path string, sortBy, sortDir string) ([]FileInfo, error) {
 }
 
 // sortFiles sorts the file list based on the specified criteria
-func sortFiles(files []FileInfo, sortBy, sortDir string) {
-	// First separate directories and files
+func (app *App) sortFiles(files []FileInfo, sortBy, sortDir string) {
+	// first separate directories and files
 	sort.SliceStable(files, func(i, j int) bool {
+		// Special case: ".." always comes first
+		if files[i].Name == ".." {
+			return true
+		}
+		if files[j].Name == ".." {
+			return false
+		}
+
 		if files[i].IsDir && !files[j].IsDir {
 			return true
 		}
@@ -391,10 +425,10 @@ func sortFiles(files []FileInfo, sortBy, sortDir string) {
 			return false
 		}
 
-		// Both are directories or both are files
+		// both are directories or both are files
 		var result bool
 
-		// Sort based on the specified field
+		// sort based on the specified field
 		switch sortBy {
 		case "name":
 			result = strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
@@ -406,7 +440,7 @@ func sortFiles(files []FileInfo, sortBy, sortDir string) {
 			result = strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
 		}
 
-		// Reverse if descending order is requested
+		// reverse if descending order is requested
 		if sortDir == "desc" {
 			result = !result
 		}
@@ -416,20 +450,30 @@ func sortFiles(files []FileInfo, sortBy, sortDir string) {
 }
 
 // getPathParts splits a path into parts for breadcrumb navigation
-func getPathParts(path string) []map[string]string {
+func (app *App) getPathParts(path string) []map[string]string {
 	if path == "." {
 		return []map[string]string{}
 	}
 
-	parts := strings.Split(path, string(os.PathSeparator))
+	// Convert path separators to slashes for consistent handling
+	path = filepath.ToSlash(path)
+
+	parts := strings.Split(path, "/")
 	result := make([]map[string]string, 0, len(parts))
 
-	for i, part := range parts {
+	// Build the breadcrumb parts
+	var currentPath string
+	for _, part := range parts {
 		if part == "" {
 			continue
 		}
 
-		currentPath := strings.Join(parts[:i+1], string(os.PathSeparator))
+		if currentPath == "" {
+			currentPath = part
+		} else {
+			currentPath = currentPath + "/" + part
+		}
+
 		result = append(result, map[string]string{
 			"Name": part,
 			"Path": currentPath,
