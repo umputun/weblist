@@ -1,117 +1,126 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="{{ .Theme }}">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Index of {{ if eq .DisplayPath "" }}/{{ else }}/{{ .DisplayPath }}{{ end }}</title>
+
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
     <link rel="stylesheet" href="/assets/css/style.css">
+
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
+
 <body>
-<div class="container">
+<main class="container">
     <div id="page-content">
         {{ template "page-content" . }}
     </div>
+</main>
 
-    <footer>
-        <p>Simple File Server</p>
-    </footer>
-</div>
+<footer>
+    <a href="https://github.com/umputun/weblist">weblist</a> by <a href="https://umputun.dev">umputun</a> •
+    <a href="https://github.com/umputun/weblist">open source</a>
+</footer>
 </body>
 </html>
 
 {{ define "page-content" }}
-<header>
+<hgroup>
     <h1>Index of {{ if eq .DisplayPath "" }}/{{ else }}/{{ .DisplayPath }}{{ end }}</h1>
+</hgroup>
 
-    <nav class="breadcrumbs">
-        <!-- Home link with HTMX - with URL push -->
-        <a href="#"
-           hx-get="/partials/dir-contents"
-           hx-vals='{"path": "."}'
-           hx-target="#page-content"
-           hx-push-url="/?path=.">Home</a>
+<div class="breadcrumbs">
+    <!-- Home link with HTMX - no URL push -->
+    <a href="#"
+       hx-get="/partials/dir-contents"
+       hx-vals='{"path": "."}'
+       hx-target="#page-content">
+        <svg class="icon dir-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+            <path d="M8.707 1.5a1 1 0 0 0-1.414 0L.646 8.146a.5.5 0 0 0 .708.708L8 2.207l6.646 6.647a.5.5 0 0 0 .708-.708L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.707 1.5Z"/>
+            <path d="m8 3.293 6 6V13.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5V9.293l6-6Z"/>
+        </svg>
+        Home
+    </a>
 
-        <!-- Breadcrumb navigation with HTMX - with URL push -->
-        {{ range .PathParts }}
-        <span>/</span>
-        <a href="#"
-           hx-get="/partials/dir-contents"
-           hx-vals='{"path": "{{ .Path }}"}'
-           hx-target="#page-content"
-           hx-push-url="/?path={{ .Path }}">{{ .Name }}</a>
-        {{ end }}
-    </nav>
-</header>
-
-<main>
-    <div id="file-list-container">
-        {{ template "file-list" . }}
-    </div>
-</main>
-{{ end }}
-
-{{ define "file-list" }}
-<input type="hidden" name="path" value="{{ .Path }}">
-<input type="hidden" name="sort" value="{{ .SortBy }}">
-<input type="hidden" name="dir" value="{{ .SortDir }}">
-
-<table class="file-list">
-    <thead>
-    <tr>
-        <!-- Sortable table headers -->
-        <th hx-get="/partials/dir-contents"
-            hx-vals='{"path": "{{ .Path }}", "sort": "name", "dir": {{ if and (eq .SortBy "name") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
-            hx-target="#page-content"
-            hx-push-url="/?path={{ .Path }}&sort=name&dir={{ if and (eq .SortBy "name") (eq .SortDir "asc") }}desc{{ else }}asc{{ end }}"
-        class="{{ if eq .SortBy "name" }}sorted {{ if eq .SortDir "asc" }}asc{{ else }}desc{{ end }}{{ end }}">
-        Name
-        {{ if eq .SortBy "name" }}{{ if eq .SortDir "asc" }}↑{{ else }}↓{{ end }}{{ end }}
-        </th>
-        <th hx-get="/partials/dir-contents"
-            hx-vals='{"path": "{{ .Path }}", "sort": "date", "dir": {{ if and (eq .SortBy "date") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
-            hx-target="#page-content"
-            hx-push-url="/?path={{ .Path }}&sort=date&dir={{ if and (eq .SortBy "date") (eq .SortDir "asc") }}desc{{ else }}asc{{ end }}"
-        class="{{ if eq .SortBy "date" }}sorted {{ if eq .SortDir "asc" }}asc{{ else }}desc{{ end }}{{ end }}">
-        Last Modified
-        {{ if eq .SortBy "date" }}{{ if eq .SortDir "asc" }}↑{{ else }}↓{{ end }}{{ end }}
-        </th>
-        <th hx-get="/partials/dir-contents"
-            hx-vals='{"path": "{{ .Path }}", "sort": "size", "dir": {{ if and (eq .SortBy "size") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
-            hx-target="#page-content"
-            hx-push-url="/?path={{ .Path }}&sort=size&dir={{ if and (eq .SortBy "size") (eq .SortDir "asc") }}desc{{ else }}asc{{ end }}"
-        class="{{ if eq .SortBy "size" }}sorted {{ if eq .SortDir "asc" }}asc{{ else }}desc{{ end }}{{ end }}">
-        Size
-        {{ if eq .SortBy "size" }}{{ if eq .SortDir "asc" }}↑{{ else }}↓{{ end }}{{ end }}
-        </th>
-    </tr>
-    </thead>
-    <tbody>
-    {{ range .Files }}
-    <tr>
-        <td class="name-cell">
-            {{ if .IsDir }}
-            <!-- Directory: Use HTMX to trigger a partial update - with URL push -->
-            <a href="#"
-               hx-get="/partials/dir-contents"
-               hx-vals='{"path": "{{ .Path }}"}'
-               hx-target="#page-content"
-               hx-push-url="/?path={{ .Path }}">
-                <span class="icon">📁</span>
-                {{ .Name }}
-            </a>
-            {{ else }}
-            <!-- File: Link to download handler -->
-            <a href="/download/{{ .Path }}">
-                <span class="icon">📄</span>
-                {{ .Name }}
-            </a>
-            {{ end }}
-        </td>
-        <td>{{ .TimeString }}</td>
-        <td>{{ .SizeToString }}</td>
-    </tr>
+    {{ if .PathParts }}
+    {{ range .PathParts }}
+    <span>/</span>
+    <a href="#"
+       hx-get="/partials/dir-contents"
+       hx-vals='{"path": "{{ .Path }}"}'
+       hx-target="#page-content">{{ .Name }}</a>
     {{ end }}
-    </tbody>
-</table>
+    {{ end }}
+</div>
+
+<article>
+    <table role="grid">
+        <thead>
+        <tr>
+            <th hx-get="/partials/dir-contents"
+                hx-vals='{"path": "{{ .Path }}", "sort": "name", "dir": {{ if and (eq .SortBy "name") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
+                hx-target="#page-content"
+                class="{{ if eq .SortBy "name" }}sorted {{ if eq .SortDir "asc" }}asc{{ else }}desc{{ end }}{{ end }}">
+            Name
+            {{ if eq .SortBy "name" }}{{ if eq .SortDir "asc" }}↑{{ else }}↓{{ end }}{{ end }}
+            </th>
+            <th class="date-col" hx-get="/partials/dir-contents"
+                hx-vals='{"path": "{{ .Path }}", "sort": "date", "dir": {{ if and (eq .SortBy "date") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
+                hx-target="#page-content"
+                class="{{ if eq .SortBy "date" }}sorted {{ if eq .SortDir "asc" }}asc{{ else }}desc{{ end }}{{ end }}">
+            Last Modified
+            {{ if eq .SortBy "date" }}{{ if eq .SortDir "asc" }}↑{{ else }}↓{{ end }}{{ end }}
+            </th>
+            <th class="size-col" hx-get="/partials/dir-contents"
+                hx-vals='{"path": "{{ .Path }}", "sort": "size", "dir": {{ if and (eq .SortBy "size") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
+                hx-target="#page-content"
+                class="{{ if eq .SortBy "size" }}sorted {{ if eq .SortDir "asc" }}asc{{ else }}desc{{ end }}{{ end }}">
+            Size
+            {{ if eq .SortBy "size" }}{{ if eq .SortDir "asc" }}↑{{ else }}↓{{ end }}{{ end }}
+            </th>
+        </tr>
+        </thead>
+        <tbody>
+        {{ range .Files }}
+        <tr>
+            <td class="name-cell">
+                {{ if .IsDir }}
+                <!-- Directory: Use HTMX to trigger a partial update - no URL push -->
+                <a href="#"
+                   hx-get="/partials/dir-contents"
+                   hx-vals='{"path": "{{ .Path }}"}'
+                   hx-target="#page-content">
+                    {{ if eq .Name ".." }}
+                    <!-- Parent directory icon -->
+                    <svg class="icon dir-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path fill-rule="evenodd" d="M8 15a.5.5 0 0 0 .5-.5V2.707l3.146 3.147a.5.5 0 0 0 .708-.708l-4-4a.5.5 0 0 0-.708 0l-4 4a.5.5 0 1 0 .708.708L7.5 2.707V14.5a.5.5 0 0 0 .5.5z"/>
+                    </svg>
+                    {{ else }}
+                    <!-- Regular directory icon -->
+                    <svg class="icon dir-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M.54 3.87.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31zM2.19 4a1 1 0 0 0-.996 1.09l.637 7a1 1 0 0 0 .995.91h10.348a1 1 0 0 0 .995-.91l.637-7A1 1 0 0 0 13.81 4H2.19zm4.69-1.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981l.006.139C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707z"/>
+                    </svg>
+                    {{ end }}
+                    {{ .Name }}
+                </a>
+                {{ else }}
+                <!-- File: Link to download handler -->
+                <a href="/download/{{ .Path }}">
+                    <!-- File icon -->
+                    <svg class="icon file-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                        <path d="M5 4a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm-.5 2.5A.5.5 0 0 1 5 6h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zM5 8a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm0 2a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1H5z"/>
+                        <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm10-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1z"/>
+                    </svg>
+                    {{ .Name }}
+                </a>
+                {{ end }}
+            </td>
+            <td class="date-col">{{ .TimeString }}</td>
+            <td class="size-col">{{ .SizeToString }}</td>
+        </tr>
+        {{ end }}
+        </tbody>
+    </table>
+</article>
 {{ end }}

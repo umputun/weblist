@@ -54,10 +54,24 @@ func (f FileInfo) TimeString() string {
 	return f.LastModified.Format("02-Jan-2006 15:04:05")
 }
 
+// Config represents application configuration
+type Config struct {
+	ListenAddr string
+	Theme      string
+}
+
 func main() {
 	// Parse command-line flags
-	listenAddr := flag.String("listen", ":8080", "Address to listen on")
+	cfg := Config{}
+	flag.StringVar(&cfg.ListenAddr, "listen", ":8080", "Address to listen on")
+	flag.StringVar(&cfg.Theme, "theme", "light", "Theme to use (light or dark)")
 	flag.Parse()
+
+	// Validate theme
+	if cfg.Theme != "light" && cfg.Theme != "dark" {
+		log.Printf("Warning: Invalid theme '%s'. Using 'light' instead.", cfg.Theme)
+		cfg.Theme = "light"
+	}
 
 	// Create router and set up routes
 	mux := http.NewServeMux()
@@ -71,19 +85,23 @@ func main() {
 	router.HandleFiles("/assets/", http.FS(assetsFS))
 
 	// Route registration in correct order
-	router.HandleFunc("GET /", handleRoot)
-	router.HandleFunc("GET /partials/dir-contents", handleDirContents)
+	router.HandleFunc("GET /", func(w http.ResponseWriter, r *http.Request) {
+		handleRoot(w, r, cfg)
+	})
+	router.HandleFunc("GET /partials/dir-contents", func(w http.ResponseWriter, r *http.Request) {
+		handleDirContents(w, r, cfg)
+	})
 	router.HandleFunc("GET /download/", handleDownload)
 
 	// Start server
-	log.Printf("Starting server on %s", *listenAddr)
-	if err := http.ListenAndServe(*listenAddr, router); err != nil {
+	log.Printf("Starting server on %s with theme: %s", cfg.ListenAddr, cfg.Theme)
+	if err := http.ListenAndServe(cfg.ListenAddr, router); err != nil {
 		log.Fatalf("Server error: %v", err)
 	}
 }
 
 // handleRoot displays the root directory listing
-func handleRoot(w http.ResponseWriter, r *http.Request) {
+func handleRoot(w http.ResponseWriter, r *http.Request, cfg Config) {
 	// Get path from query parameter, default to current directory
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -92,7 +110,7 @@ func handleRoot(w http.ResponseWriter, r *http.Request) {
 
 	// Clean the path to avoid directory traversal
 	path = filepath.Clean(path)
-	renderFullPage(w, r, path)
+	renderFullPage(w, r, path, cfg.Theme)
 }
 
 // handleDownload serves file downloads
@@ -100,30 +118,67 @@ func handleDownload(w http.ResponseWriter, r *http.Request) {
 	// Extract the file path from the URL
 	filePath := strings.TrimPrefix(r.URL.Path, "/download/")
 
+	// Remove trailing slash if present - this helps handle URLs like /download/templates/
+	filePath = strings.TrimSuffix(filePath, "/")
+
+	// Clean the path to avoid directory traversal
+	filePath = filepath.Clean(filePath)
+
 	// Log the request for debugging
 	log.Printf("Download request for: %s", filePath)
 
 	// Check if the file exists and is not a directory
 	fileInfo, err := os.Stat(filePath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("File not found: %s - %v", filePath, err), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("File not found: %s", filepath.Base(filePath)), http.StatusNotFound)
 		return
 	}
 
 	if fileInfo.IsDir() {
+		// Check if index.html exists in this directory
+		indexPath := filepath.Join(filePath, "index.html")
+		indexInfo, err := os.Stat(indexPath)
+		if err == nil && !indexInfo.IsDir() {
+			// Serve index.html
+			file, err := os.Open(indexPath)
+			if err != nil {
+				http.Error(w, "Error opening file", http.StatusInternalServerError)
+				return
+			}
+			defer file.Close()
+
+			w.Header().Set("Content-Type", "application/octet-stream")
+			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", "index.html"))
+			w.Header().Set("Content-Length", fmt.Sprintf("%d", indexInfo.Size()))
+
+			http.ServeContent(w, r, "index.html", indexInfo.ModTime(), file)
+			return
+		}
+
+		// If no index.html or it's also a directory, return error
 		http.Error(w, "Cannot download directories", http.StatusBadRequest)
 		return
 	}
 
-	// Set content-disposition header for download
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileInfo.Name()))
+	// Open the file
+	file, err := os.Open(filePath)
+	if err != nil {
+		http.Error(w, "Error opening file", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
 
-	// Serve the file
-	http.ServeFile(w, r, filePath)
+	// Force all files to download instead of being displayed in browser
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileInfo.Name()))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+
+	// Copy the file to the response
+	http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file)
 }
 
 // handleDirContents renders partial directory contents for HTMX requests
-func handleDirContents(w http.ResponseWriter, r *http.Request) {
+func handleDirContents(w http.ResponseWriter, r *http.Request, cfg Config) {
 	// Get directory path from query parameters
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -178,6 +233,7 @@ func handleDirContents(w http.ResponseWriter, r *http.Request) {
 		"SortBy":      sortBy,
 		"SortDir":     sortDir,
 		"PathParts":   getPathParts(path),
+		"Theme":       cfg.Theme, // Always use the CLI-specified theme
 	}
 
 	// Execute the page-content template for HTMX requests
@@ -187,7 +243,7 @@ func handleDirContents(w http.ResponseWriter, r *http.Request) {
 }
 
 // renderFullPage renders the complete HTML page
-func renderFullPage(w http.ResponseWriter, r *http.Request, path string) {
+func renderFullPage(w http.ResponseWriter, r *http.Request, path string, theme string) {
 	// Clean the path to avoid directory traversal attacks
 	path = filepath.Clean(path)
 
@@ -239,6 +295,7 @@ func renderFullPage(w http.ResponseWriter, r *http.Request, path string) {
 		"SortBy":      sortBy,
 		"SortDir":     sortDir,
 		"PathParts":   getPathParts(path),
+		"Theme":       theme, // Use the CLI-specified theme
 	}
 
 	if err := tmpl.Execute(w, data); err != nil {
@@ -275,33 +332,49 @@ func getFileList(path string, sortBy, sortDir string) ([]FileInfo, error) {
 
 	// Special case: Add parent directory if not in root
 	if path != "." {
+		// Get absolute paths to ensure we can stat the parent correctly
+		absPath, err := filepath.Abs(path)
+		if err != nil {
+			absPath = path // Fallback to the original path
+		}
+
 		parentPath := filepath.Dir(path)
+		absParentPath := filepath.Dir(absPath)
+
 		// For Windows compatibility, convert backslashes to forward slashes
 		parentPath = filepath.ToSlash(parentPath)
 		if parentPath == "." {
 			parentPath = ""
 		}
 
-		// Get the parent directory info to use its actual timestamp
+		// Get the actual modification time of the parent directory
 		var lastModified time.Time
-		parentStat, err := os.Stat(parentPath)
+		parentInfo, err := os.Stat(absParentPath)
 		if err == nil {
-			lastModified = parentStat.ModTime()
+			lastModified = parentInfo.ModTime()
 		} else {
-			// If we can't stat the parent directory, use current time as fallback
-			lastModified = time.Now()
-			log.Printf("Warning: couldn't get info for parent directory %s: %v", parentPath, err)
+			// Try the non-absolute path as a fallback
+			parentInfo, err = os.Stat(parentPath)
+			if err == nil {
+				lastModified = parentInfo.ModTime()
+			} else {
+				// Last resort - use current time
+				log.Printf("Failed to get parent directory info for %s: %v", parentPath, err)
+				lastModified = time.Now()
+			}
 		}
 
-		// Create parent directory entry with proper timestamp
-		parentInfo := FileInfo{
+		// Create parent directory entry with correct timestamp
+		parentDir := FileInfo{
 			Name:         "..",
 			IsDir:        true,
 			Path:         parentPath,
 			LastModified: lastModified,
+			Size:         0,
 		}
+
 		// Insert at the beginning
-		files = append([]FileInfo{parentInfo}, files...)
+		files = append([]FileInfo{parentDir}, files...)
 	}
 
 	return files, nil

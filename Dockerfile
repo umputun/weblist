@@ -39,4 +39,4 @@ EXPOSE 8080
 
 # Run the application
 ENTRYPOINT ["/app/file-server"]
-CMD ["--listen=:8080"]
+CMD ["--listen=:8080", "--theme=light"]

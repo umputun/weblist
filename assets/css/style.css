@@ -1,15 +1,4 @@
-:root {
-    --background: #f8f9fa;
-    --foreground: #212529;
-    --primary: #0d6efd;
-    --primary-hover: #0a58ca;
-    --secondary: #6c757d;
-    --border: #dee2e6;
-    --success: #198754;
-    --hover-bg: #f0f0f0;
-    --header-bg: #343a40;
-    --header-color: #fff;
-}
+/* Simplified CSS that builds on Pico CSS theming */
 
 * {
     box-sizing: border-box;
@@ -17,30 +6,11 @@
     padding: 0;
 }
 
-body {
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen,
-    Ubuntu, Cantarell, "Open Sans", "Helvetica Neue", sans-serif;
-    line-height: 1.6;
-    color: var(--foreground);
-    background-color: var(--background);
-}
-
 .container {
     max-width: 1200px;
     margin: 0 auto;
     padding: 2rem;
-}
-
-header {
-    margin-bottom: 2rem;
-    padding-bottom: 1rem;
-    border-bottom: 1px solid var(--border);
-}
-
-h1 {
-    font-size: 1.8rem;
-    margin-bottom: 1rem;
-    color: var(--primary);
+    height: calc(100vh - 2.5rem);
 }
 
 .breadcrumbs {
@@ -48,92 +18,159 @@ h1 {
     flex-wrap: wrap;
     gap: 0.5rem;
     margin-bottom: 1rem;
-    color: var(--secondary);
     font-size: 0.9rem;
 }
 
 .breadcrumbs a {
-    color: var(--primary);
     text-decoration: none;
 }
 
 .breadcrumbs a:hover {
     text-decoration: underline;
-    color: var(--primary-hover);
 }
 
-.file-list {
+/* Base table styles */
+table {
     width: 100%;
-    border-collapse: collapse;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
-    border-radius: 8px;
-    overflow: hidden;
+    border-collapse: collapse !important;
+    margin: 0 !important;
+    table-layout: fixed; /* This forces the table to respect our column width settings */
 }
 
-.file-list th,
-.file-list td {
-    padding: 0.75rem 1rem;
-    text-align: left;
+/* Fix column width stability during navigation */
+table th:first-child,
+table td:first-child {
+    width: 60%; /* Name column takes 60% of the table width */
 }
 
-.file-list th {
-    background-color: var(--header-bg);
-    color: var(--header-color);
-    font-weight: 500;
+table th:nth-child(2),
+table td:nth-child(2) {
+    width: 25%; /* Date column takes 25% of the table width */
+}
+
+table th:nth-child(3),
+table td:nth-child(3) {
+    width: 15%; /* Size column takes 15% of the table width */
+}
+
+/* Header styling */
+table th {
     cursor: pointer;
+    padding: 0.5rem 1rem !important;
+    text-align: left;
+    vertical-align: middle;
+    font-size: 0.75rem;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.03em;
+    background-color: var(--pico-muted-color, #0a6efd) !important;
+    color: white !important;
+    border: none !important;
+    line-height: 1.5 !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.file-list th:hover {
-    background-color: #2d3339;
+/* Remove any spacing between header and body */
+table thead {
+    border-spacing: 0;
 }
 
-.file-list th.sorted {
-    background-color: var(--primary);
+table thead tr {
+    border-bottom: none !important;
+    margin-bottom: 0 !important;
 }
 
-.file-list tr {
-    background-color: white;
+/* Set row styling */
+table tbody tr {
+    border-bottom: 1px solid var(--pico-border-color-light, #eee) !important;
 }
 
-.file-list tr:nth-child(even) {
-    background-color: var(--background);
+/* Ensure first data row connects directly to header */
+table tbody tr:first-child td {
+    border-top: none !important;
+    padding-top: 0.5rem !important;
 }
 
-.file-list tr:hover {
-    background-color: var(--hover-bg);
+/* Data cell styling */
+table td {
+    padding: 0.5rem 1rem !important;
+    text-align: left;
+    vertical-align: middle;
+    /*border: none !important;*/
+    line-height: 1.5 !important;
+    overflow: hidden;
+    text-overflow: ellipsis;
 }
 
-.file-list .name-cell {
-    max-width: 50%;
+/* Name column styles */
+.name-cell {
+    max-width: 100%;
+    font-size: 0.95rem;
 }
 
-.file-list a {
+/* Secondary columns - smaller font */
+.date-col, .size-col,
+td:nth-child(2), td:nth-child(3) {
+    white-space: nowrap;
+    font-size: 0.85rem;
+    color: var(--pico-muted-color, #6c757d);
+}
+
+/* File/folder names and icons */
+table a {
     display: flex;
     align-items: center;
     text-decoration: none;
-    color: var(--primary);
     word-break: break-all;
 }
 
-.file-list a:hover {
+table a:hover {
     text-decoration: underline;
-    color: var(--primary-hover);
 }
 
+/* Icon styles - reduced size for more compact rows */
 .icon {
     margin-right: 0.5rem;
-    min-width: 1.5rem;
+    min-width: 1.2rem;
     display: inline-block;
     text-align: center;
+    flex-shrink: 0;
 }
 
+/* Ensure table goes edge to edge */
+article {
+    margin: 0 !important;
+    padding: 0 !important;
+    overflow: hidden !important;
+}
+
+/* Footer styles */
 footer {
-    margin-top: 2rem;
-    padding-top: 1rem;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    width: 100%;
     text-align: center;
-    color: var(--secondary);
-    font-size: 0.875rem;
-    border-top: 1px solid var(--border);
+    padding: 0.5rem;
+    background-color: var(--pico-contrast-inverse, #f8f9fa);
+    color: var(--pico-color, #212529);
+    font-size: 0.85rem;
+    line-height: 1;
+    box-sizing: border-box;
+    z-index: 100;
+    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
+}
+
+footer a {
+    text-decoration: none;
+    color: var(--pico-primary, #0d6efd);
+    padding: 0 0.2rem;
+}
+
+footer a:hover {
+    text-decoration: underline;
+    color: var(--pico-primary-hover, #0a58ca);
 }
 
 /* Responsive styles */
@@ -142,19 +179,36 @@ footer {
         padding: 1rem;
     }
 
-    .file-list th:nth-child(2),
-    .file-list td:nth-child(2) {
+    table th:nth-child(2),
+    table td:nth-child(2) {
         display: none;
+    }
+
+    /* Adjust column widths for responsive view */
+    table th:first-child,
+    table td:first-child {
+        width: 70%; /* Name column takes more space on smaller screens */
+    }
+
+    table th:nth-child(3),
+    table td:nth-child(3) {
+        width: 30%; /* Size column takes remaining space */
     }
 }
 
 @media (max-width: 480px) {
-    .file-list .name-cell {
-        max-width: 70%;
+    .name-cell {
+        max-width: 100%;
     }
 
-    .file-list th:nth-child(3),
-    .file-list td:nth-child(3) {
+    table th:nth-child(3),
+    table td:nth-child(3) {
         display: none;
+    }
+
+    /* With only one column visible, it takes full width */
+    table th:first-child,
+    table td:first-child {
+        width: 100%;
     }
 }
