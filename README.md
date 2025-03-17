@@ -4,7 +4,7 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 
 ## Why weblist?
 
-- **Beautiful Interface**: Clean, modern design that's easy on the eyes
+- **Clean, Modern Interface**: Simple design that improves readability and usability
 - **Security First**: Locked to the root directory - users can't access files outside the specified folder
 - **Intuitive Navigation**: Simple breadcrumb navigation makes it easy to move between directories
 - **Smart Sorting**: Sort files by name, size, or date with a single click
