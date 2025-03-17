@@ -74,6 +74,9 @@ func (wb *Web) Run(ctx context.Context) error {
 	router.HandleFunc("GET /assets/css/style.css", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, assetsFS, "css/style.css")
 	})
+	router.HandleFunc("GET /assets/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, assetsFS, "favicon.ico")
+	})
 	router.HandleFunc("GET /{path...}", wb.handleDownload) // handle file downloads with just the path
 
 	srv := &http.Server{
