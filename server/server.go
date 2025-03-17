@@ -39,6 +39,7 @@ type Config struct {
 	RootDir    string
 	Version    string
 	Exclude    []string
+	Auth       string // Password for basic authentication
 }
 
 // Run starts the web server.
@@ -58,6 +59,13 @@ func (wb *Web) Run(ctx context.Context) error {
 	assetsFS, err := fs.Sub(content, "assets")
 	if err != nil {
 		return fmt.Errorf("failed to load embedded assets: %w", err)
+	}
+
+	// Add authentication middleware if Auth is set
+	if wb.Auth != "" {
+		router.HandleFunc("GET /login", wb.handleLoginPage)
+		router.HandleFunc("POST /login", wb.handleLoginSubmit)
+		router.Use(wb.authMiddleware)
 	}
 
 	router.HandleFunc("GET /", wb.handleRoot)
@@ -470,4 +478,106 @@ func (wb *Web) getPathParts(path, sortBy, sortDir string) []map[string]string {
 	}
 
 	return result
+}
+
+// authMiddleware checks if the user is authenticated
+func (wb *Web) authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Skip authentication for login page and assets
+		if r.URL.Path == "/login" || strings.HasPrefix(r.URL.Path, "/assets/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if user is authenticated via cookie
+		cookie, err := r.Cookie("auth")
+		if err == nil && cookie.Value == wb.Auth {
+			// User is authenticated, proceed
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// Check if user is authenticated via basic auth
+		username, password, ok := r.BasicAuth()
+		if ok && username == "weblist" && password == wb.Auth {
+			// Set cookie for future requests
+			http.SetCookie(w, &http.Cookie{
+				Name:     "auth",
+				Value:    wb.Auth,
+				Path:     "/",
+				HttpOnly: true,
+				Secure:   r.TLS != nil,
+				MaxAge:   3600 * 24, // 24 hours
+			})
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// User is not authenticated, redirect to login page
+		http.Redirect(w, r, "/login", http.StatusSeeOther)
+	})
+}
+
+// handleLoginPage renders the login page
+func (wb *Web) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+	tmpl, err := template.ParseFS(content, "templates/login.html")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	data := map[string]interface{}{
+		"Theme":      wb.Theme,
+		"HideFooter": wb.HideFooter,
+	}
+
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, fmt.Sprintf("failed to execute template: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleLoginSubmit handles the login form submission
+func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+
+	if username != "weblist" || password != wb.Auth {
+		// Authentication failed, show error
+		tmpl, err := template.ParseFS(content, "templates/login.html")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		data := map[string]interface{}{
+			"Theme":      wb.Theme,
+			"HideFooter": wb.HideFooter,
+			"Error":      "Invalid username or password",
+		}
+
+		if err := tmpl.Execute(w, data); err != nil {
+			http.Error(w, fmt.Sprintf("failed to execute template: %v", err), http.StatusInternalServerError)
+			return
+		}
+		return
+	}
+
+	// Authentication successful, set cookie and redirect
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth",
+		Value:    wb.Auth,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		MaxAge:   3600 * 24, // 24 hours
+	})
+
+	// Redirect to the home page
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }

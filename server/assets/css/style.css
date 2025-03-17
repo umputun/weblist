@@ -213,3 +213,30 @@ footer a:hover {
         width: 100%;
     }
 }
+
+/* Login page styles */
+.grid {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 2rem;
+    margin: 2rem 0;
+}
+
+@media (min-width: 992px) {
+    .grid {
+        grid-template-columns: 1fr 1fr;
+    }
+}
+
+.grid > div {
+    padding: 2rem;
+    background-color: var(--pico-card-background-color, #fff);
+    border-radius: var(--pico-border-radius, 0.25rem);
+    box-shadow: var(--pico-card-box-shadow, 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24));
+}
+
+.error {
+    color: var(--pico-del-color, #e03131);
+    margin-bottom: 1rem;
+    display: block;
+}

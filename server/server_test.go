@@ -1611,3 +1611,105 @@ func TestExcludedFilesIntegration(t *testing.T) {
 		t.Fatal("Server did not shut down within expected time")
 	}
 }
+
+func TestAuthentication(t *testing.T) {
+	// Create a server with authentication
+	srv := &Web{
+		Config: Config{
+			RootDir: "testdata",
+			Auth:    "testpassword",
+		},
+		FS: os.DirFS("testdata"),
+	}
+
+	t.Run("redirect to login page when not authenticated", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := srv.authMiddleware(http.HandlerFunc(srv.handleRoot))
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusSeeOther, rr.Code)
+		assert.Equal(t, "/login", rr.Header().Get("Location"))
+	})
+
+	t.Run("access allowed with basic auth", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/", nil)
+		require.NoError(t, err)
+		req.SetBasicAuth("weblist", "testpassword")
+
+		rr := httptest.NewRecorder()
+		handler := srv.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("success"))
+		}))
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "success", rr.Body.String())
+		assert.Contains(t, rr.Header().Get("Set-Cookie"), "auth=testpassword")
+	})
+
+	t.Run("access allowed with cookie", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/", nil)
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{
+			Name:  "auth",
+			Value: "testpassword",
+		})
+
+		rr := httptest.NewRecorder()
+		handler := srv.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("success"))
+		}))
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "success", rr.Body.String())
+	})
+
+	t.Run("access denied with wrong password", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/", nil)
+		require.NoError(t, err)
+		req.SetBasicAuth("weblist", "wrongpassword")
+
+		rr := httptest.NewRecorder()
+		handler := srv.authMiddleware(http.HandlerFunc(srv.handleRoot))
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusSeeOther, rr.Code)
+		assert.Equal(t, "/login", rr.Header().Get("Location"))
+	})
+
+	t.Run("login page accessible without auth", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/login", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := srv.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("login page"))
+		}))
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "login page", rr.Body.String())
+	})
+
+	t.Run("assets accessible without auth", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/assets/css/style.css", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := srv.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("css content"))
+		}))
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "css content", rr.Body.String())
+	})
+}
