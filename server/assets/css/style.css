@@ -18,6 +18,15 @@ table th {
   white-space: nowrap;
 }
 
+/* Remove underline from table links by default, only show on hover */
+table a {
+  text-decoration: none;
+}
+
+table a:hover {
+  text-decoration: underline;
+}
+
 /* Secondary column styles */
 td:nth-child(2), td:nth-child(3) {
   white-space: nowrap;
@@ -45,6 +54,14 @@ td:nth-child(2), td:nth-child(3) {
   gap: 0.25rem;
   overflow: hidden;
   white-space: nowrap;
+}
+
+.path-parts a {
+  text-decoration: none;
+}
+
+.path-parts a:hover {
+  text-decoration: underline;
 }
 
 /* Logout button */
