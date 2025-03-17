@@ -18,9 +18,10 @@ import (
 )
 
 type options struct {
-	Listen  string `short:"l" long:"listen" env:"LISTEN" default:":8080" description:"address to listen on"`
-	Theme   string `short:"t" long:"theme" env:"THEME" default:"light" description:"theme to use (light or dark)"`
-	RootDir string `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
+	Listen  string   `short:"l" long:"listen" env:"LISTEN" default:":8080" description:"address to listen on"`
+	Theme   string   `short:"t" long:"theme" env:"THEME" default:"light" description:"theme to use (light or dark)"`
+	RootDir string   `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
+	Exclude []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
 
 	HideFooter bool `short:"f" long:"hide-footer" env:"HIDE_FOOTER"  description:"hide footer"`
 	Version    bool `short:"v" long:"version" env:"VERSION" description:"show version and exit"`
@@ -72,6 +73,7 @@ func main() {
 			HideFooter: opts.HideFooter,
 			RootDir:    opts.RootDir,
 			Version:    versionInfo(),
+			Exclude:    opts.Exclude,
 		},
 		FS: os.DirFS(opts.RootDir), // create OS filesystem locked to the root directory
 	}

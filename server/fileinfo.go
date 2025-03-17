@@ -21,6 +21,13 @@ func (f FileInfo) SizeToString() string {
 		return "-"
 	}
 
+	// handle negative sizes (should not happen, but just in case)
+	if f.Size < 0 {
+		return "0B"
+	}
+
+	// safe conversion for positive sizes
+	// #nosec G115 - we've checked that f.Size is not negative
 	return humanize.Bytes(uint64(f.Size))
 }
 

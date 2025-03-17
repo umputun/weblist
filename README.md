@@ -27,6 +27,9 @@ weblist --theme dark
 
 # Specify a different port
 weblist --listen :9000
+
+# Exclude specific files and directories
+weblist --exclude .git --exclude .env
 ```
 
 ## Installation
@@ -52,6 +55,7 @@ weblist [options]
 - `-l, --listen`: Address to listen on (default: `:8080`) - env: `LISTEN`
 - `-t, --theme`: Theme to use, "light" or "dark" (default: `light`) - env: `THEME`
 - `-r, --root`: Root directory to serve (default: current directory) - env: `ROOT_DIR`
+- `-e, --exclude`: Files and directories to exclude (can be repeated) - env: `EXCLUDE`
 - `-f, --hide-footer`: Hide footer - env: `HIDE_FOOTER`
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
@@ -81,6 +85,7 @@ services:
       - LISTEN=:8080
       - THEME=light
       - ROOT_DIR=/srv
+      - EXCLUDE=.git,.env
 ```
 
 ## License

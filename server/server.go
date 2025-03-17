@@ -38,6 +38,7 @@ type Config struct {
 	HideFooter bool
 	RootDir    string
 	Version    string
+	Exclude    []string
 }
 
 // Run starts the web server.
@@ -127,6 +128,12 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 	}
 
 	log.Printf("[DEBUG] download request for: %s", filePath)
+
+	// check if the file should be excluded
+	if wb.shouldExclude(filePath) {
+		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(filePath)), http.StatusForbidden)
+		return
+	}
 
 	// check if the file exists and is not a directory
 	fileInfo, err := fs.Stat(wb.FS, filePath)
@@ -288,76 +295,89 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	}
 }
 
-// getFileList returns a list of files in the given directory
+// getFileList returns a list of files in the specified directory
 func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
-	// ensure the path is properly formatted for fs.ReadDir
-	if path == "" {
-		path = "."
-	}
-
+	// get the list of files in the directory
 	entries, err := fs.ReadDir(wb.FS, path)
 	if err != nil {
 		return nil, err
 	}
 
-	var files []FileInfo //nolint // we can't preallocate the size here
+	// convert the entries to FileInfo
+	files := make([]FileInfo, 0, len(entries))
+
+	// add a parent directory entry if we're not at the root
+	if path != "." {
+		files = append(files, FileInfo{
+			Name:  "..",
+			IsDir: true,
+			Path:  filepath.Dir(path),
+		})
+	}
+
 	for _, entry := range entries {
+		entryPath := filepath.Join(path, entry.Name())
+
+		// skip excluded files and directories
+		if wb.shouldExclude(entryPath) {
+			continue
+		}
+
 		info, err := entry.Info()
 		if err != nil {
-			continue // skip files that can't be stat'd
+			log.Printf("[WARN] failed to get info for %s: %v", entry.Name(), err)
+			continue
 		}
 
-		entryPath := filepath.Join(path, entry.Name())
-		// convert to slash for consistent paths
-		entryPath = filepath.ToSlash(entryPath)
-
-		fileInfo := FileInfo{
+		files = append(files, FileInfo{
 			Name:         entry.Name(),
-			IsDir:        entry.IsDir(),
 			Size:         info.Size(),
 			LastModified: info.ModTime(),
+			IsDir:        entry.IsDir(),
 			Path:         entryPath,
-		}
-		files = append(files, fileInfo)
+		})
 	}
 
 	// sort the file list
 	wb.sortFiles(files, sortBy, sortDir)
 
-	// special case: Add parent directory if not in root
-	if path != "." {
-		parentPath := filepath.Dir(path)
+	return files, nil
+}
 
-		// convert to slash for consistent paths
-		parentPath = filepath.ToSlash(parentPath)
-		if parentPath == "." {
-			parentPath = ""
-		}
-
-		// get parent directory info if possible
-		var lastModified time.Time
-		parentInfo, err := fs.Stat(wb.FS, parentPath)
-		if err == nil {
-			lastModified = parentInfo.ModTime()
-		} else {
-			// use current time as fallback
-			lastModified = time.Now()
-		}
-
-		// create parent directory entry
-		parentDir := FileInfo{
-			Name:         "..",
-			IsDir:        true,
-			Path:         parentPath,
-			LastModified: lastModified,
-			Size:         0,
-		}
-
-		// insert at the beginning
-		files = append([]FileInfo{parentDir}, files...)
+// shouldExclude checks if a path should be excluded based on the Exclude patterns
+func (wb *Web) shouldExclude(path string) bool {
+	if len(wb.Config.Exclude) == 0 {
+		return false
 	}
 
-	return files, nil
+	// normalize path for matching
+	normalizedPath := filepath.ToSlash(path)
+
+	for _, pattern := range wb.Config.Exclude {
+		// convert pattern to use forward slashes for consistency
+		pattern = filepath.ToSlash(pattern)
+
+		// check if the path matches the pattern exactly
+		if normalizedPath == pattern {
+			return true
+		}
+
+		// check if the path contains the pattern as a directory component
+		// this handles cases like "some/git/path" when pattern is ".git"
+		parts := strings.Split(normalizedPath, "/")
+		for _, part := range parts {
+			if part == pattern {
+				return true
+			}
+		}
+
+		// check if the path ends with the pattern
+		if strings.HasSuffix(normalizedPath, "/"+pattern) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // sortFiles sorts the file list based on the specified criteria
