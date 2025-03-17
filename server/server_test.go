@@ -92,7 +92,7 @@ func TestHandleRoot(t *testing.T) {
 				assert.Contains(t, rr.Body.String(), tc.expectedBody)
 			}
 			if tc.expectedStatus == http.StatusSeeOther {
-				assert.Contains(t, rr.Header().Get("Location"), "/download/")
+				assert.Contains(t, rr.Header().Get("Location"), "/file1.txt")
 			}
 		})
 	}
@@ -110,7 +110,7 @@ func TestHandleDownload(t *testing.T) {
 	}{
 		{
 			name:           "download existing file",
-			path:           "/download/file1.txt",
+			path:           "/file1.txt",
 			expectedStatus: http.StatusOK,
 			expectedHeader: map[string]string{
 				"Content-Type":        "application/octet-stream",
@@ -120,7 +120,7 @@ func TestHandleDownload(t *testing.T) {
 		},
 		{
 			name:           "download file in subdirectory",
-			path:           "/download/dir1/file3.txt",
+			path:           "/dir1/file3.txt",
 			expectedStatus: http.StatusOK,
 			expectedHeader: map[string]string{
 				"Content-Type":        "application/octet-stream",
@@ -130,13 +130,13 @@ func TestHandleDownload(t *testing.T) {
 		},
 		{
 			name:           "download non-existent file",
-			path:           "/download/non-existent.txt",
+			path:           "/non-existent.txt",
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   "file not found",
 		},
 		{
 			name:           "cannot download directory",
-			path:           "/download/dir1",
+			path:           "/dir1",
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   "cannot download directories",
 		},
@@ -945,7 +945,7 @@ func TestServerIntegration(t *testing.T) {
 	})
 
 	t.Run("file download", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/download/file1.txt")
+		resp, err := client.Get(baseURL + "/file1.txt")
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -964,7 +964,7 @@ func TestServerIntegration(t *testing.T) {
 		defer resp.Body.Close()
 
 		assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
-		assert.Equal(t, "/download/file1.txt", resp.Header.Get("Location"))
+		assert.Equal(t, "/file1.txt", resp.Header.Get("Location"))
 	})
 
 	t.Run("htmx directory contents", func(t *testing.T) {
@@ -1010,7 +1010,7 @@ func TestServerIntegration(t *testing.T) {
 	})
 
 	t.Run("cannot download directory", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/download/dir1")
+		resp, err := client.Get(baseURL + "/dir1")
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -1066,7 +1066,7 @@ func TestDirectoryTraversalPrevention(t *testing.T) {
 		},
 		{
 			name:           "attempt to download file outside root via ../",
-			path:           "/download/../../../etc/passwd",
+			path:           "/../../../etc/passwd",
 			handlerName:    "handleDownload",
 			expectedStatus: http.StatusNotFound,
 			expectedBody:   "file not found",
@@ -1170,7 +1170,7 @@ func TestDirectoryTraversalIntegration(t *testing.T) {
 	})
 
 	t.Run("attempt to download file outside root", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/download/../../../etc/passwd")
+		resp, err := client.Get(baseURL + "/../../../etc/passwd")
 		require.NoError(t, err)
 		defer resp.Body.Close()
 

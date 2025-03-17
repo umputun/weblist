@@ -71,8 +71,10 @@ func (wb *Web) Run(ctx context.Context) error {
 
 	router.HandleFunc("GET /", wb.handleRoot)
 	router.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
-	router.HandleFunc("GET /download/", wb.handleDownload)
-	router.HandleFiles("/assets/", http.FS(assetsFS))
+	router.HandleFunc("GET /assets/css/style.css", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, assetsFS, "css/style.css")
+	})
+	router.HandleFunc("GET /{path...}", wb.handleDownload) // handle file downloads with just the path
 
 	srv := &http.Server{
 		Addr:              wb.ListenAddr,
@@ -125,7 +127,7 @@ func (wb *Web) handleRoot(w http.ResponseWriter, r *http.Request) {
 // handleDownload serves file downloads
 func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 	// extract the file path from the URL
-	filePath := strings.TrimPrefix(r.URL.Path, "/download/")
+	filePath := strings.TrimPrefix(r.URL.Path, "/")
 
 	// remove trailing slash if present - this helps handle URLs like /download/templates/
 	filePath = strings.TrimSuffix(filePath, "/")
@@ -135,7 +137,6 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 	if filePath == "." {
 		filePath = ""
 	}
-
 	log.Printf("[DEBUG] download request for: %s", filePath)
 
 	// check if the file should be excluded
@@ -248,7 +249,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 
 	// if it's not a directory, redirect to download handler
 	if !fileInfo.IsDir() {
-		http.Redirect(w, r, "/download/"+path, http.StatusSeeOther)
+		http.Redirect(w, r, "/"+path, http.StatusSeeOther)
 		return
 	}
 
