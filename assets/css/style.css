@@ -63,8 +63,8 @@ table th {
     font-weight: 600;
     text-transform: uppercase;
     letter-spacing: 0.03em;
-    background-color: var(--pico-muted-color, #0a6efd) !important;
-    color: white !important;
+    /*background-color: var(--pico-muted-color, #0a6efd) !important;*/
+    color: var(--pico-muted-color, #0a6efd) !important;
     border: none !important;
     line-height: 1.5 !important;
     overflow: hidden;
@@ -83,7 +83,7 @@ table thead tr {
 
 /* Set row styling */
 table tbody tr {
-    border-bottom: 1px solid var(--pico-border-color-light, #eee) !important;
+    border-bottom: 1px solid var(--pico-muted-border-color, #eee) !important;
 }
 
 /* Ensure first data row connects directly to header */
@@ -97,7 +97,7 @@ table td {
     padding: 0.5rem 1rem !important;
     text-align: left;
     vertical-align: middle;
-    /*border: none !important;*/
+    border: none !important;
     line-height: 1.5 !important;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -153,13 +153,13 @@ footer {
     width: 100%;
     text-align: center;
     padding: 0.5rem;
-    background-color: var(--pico-contrast-inverse, #f8f9fa);
+    /*background-color: var(--pico-contrast-inverse, #f8f9fa);*/
     color: var(--pico-color, #212529);
     font-size: 0.85rem;
     line-height: 1;
     box-sizing: border-box;
     z-index: 100;
-    box-shadow: 0 -2px 10px rgba(0, 0, 0, 0.05);
+    box-shadow: 0 -1px 1px var(--pico-muted-border-color, #212529);
 }
 
 footer a {
