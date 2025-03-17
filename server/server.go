@@ -540,7 +540,7 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 }
 
 // handleLoginPage renders the login page
-func (wb *Web) handleLoginPage(w http.ResponseWriter, r *http.Request) {
+func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
 	tmpl, err := template.ParseFS(content, "templates/login.html")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
