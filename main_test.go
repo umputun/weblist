@@ -288,7 +288,7 @@ func TestMainIntegration(t *testing.T) {
 	})
 
 	t.Run("file download", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/download/test1.txt")
+		resp, err := client.Get(baseURL + "/test1.txt")
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -307,7 +307,7 @@ func TestMainIntegration(t *testing.T) {
 		defer resp.Body.Close()
 
 		assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
-		assert.Equal(t, "/download/test1.txt", resp.Header.Get("Location"))
+		assert.Equal(t, "/test1.txt", resp.Header.Get("Location"))
 	})
 
 	t.Run("directory traversal prevention", func(t *testing.T) {
