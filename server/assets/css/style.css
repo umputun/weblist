@@ -1,368 +1,132 @@
-/* Simplified CSS that builds on Pico CSS theming */
+/* Minimal CSS that leverages PicoCSS defaults */
 
-* {
-    box-sizing: border-box;
-    margin: 0;
-    padding: 0;
+/* Table layout - required for fixed width columns */
+table {
+  table-layout: fixed;
+  width: 100%;
 }
 
-.container {
-    max-width: 1200px;
-    margin: 0 auto;
-    padding: 2rem;
-    padding-bottom: 3rem; /* Add padding at the bottom to account for the footer */
-    min-height: calc(100vh - 2.5rem);
+/* Column widths for consistency */
+table th:first-child, table td:first-child { width: 60%; }
+table th:nth-child(2), table td:nth-child(2) { width: 25%; }
+table th:nth-child(3), table td:nth-child(3) { width: 15%; }
+
+/* Make all table headers consistent */
+table th {
+  color: var(--pico-muted-color);
+  font-size: 0.85rem; 
+  white-space: nowrap;
 }
 
+/* Secondary column styles */
+td:nth-child(2), td:nth-child(3) {
+  white-space: nowrap;
+  font-size: 0.85rem;
+  color: var(--pico-muted-color);
+}
+
+/* Icons for files/folders */
+.icon {
+  margin-right: 0.5rem;
+  flex-shrink: 0;
+}
+
+/* Breadcrumbs */
 .breadcrumbs {
-    display: flex;
-    flex-wrap: nowrap;
-    margin-bottom: 1rem;
-    font-size: 0.9rem;
-    align-items: center;
-    justify-content: space-between;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1rem;
 }
 
 .path-parts {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 0.25rem;
-    overflow: hidden;
-    white-space: nowrap;
-    text-overflow: ellipsis;
-}
-
-.breadcrumbs a {
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-}
-
-.breadcrumbs a:hover {
-    text-decoration: underline;
-}
-
-.breadcrumbs > :not(.logout-button) {
-    display: flex;
-    flex-wrap: nowrap;
-    align-items: center;
-    gap: 0.25rem;
-    overflow: hidden;
-    white-space: nowrap;
-}
-
-/* Base table styles */
-table {
-    width: 100%;
-    border-collapse: collapse !important;
-    margin: 0 !important;
-    table-layout: fixed; /* This forces the table to respect our column width settings */
-}
-
-/* Fix column width stability during navigation */
-table th:first-child,
-table td:first-child {
-    width: 60%; /* Name column takes 60% of the table width */
-}
-
-table th:nth-child(2),
-table td:nth-child(2) {
-    width: 25%; /* Date column takes 25% of the table width */
-}
-
-table th:nth-child(3),
-table td:nth-child(3) {
-    width: 15%; /* Size column takes 15% of the table width */
-}
-
-/* Header styling */
-table th {
-    cursor: pointer;
-    padding: 0.5rem 1rem !important;
-    text-align: left;
-    vertical-align: middle;
-    font-size: 0.75rem;
-    font-weight: 600;
-    text-transform: uppercase;
-    letter-spacing: 0.03em;
-    /*background-color: var(--pico-muted-color, #0a6efd) !important;*/
-    color: var(--pico-muted-color, #0a6efd) !important;
-    border: none !important;
-    line-height: 1.5 !important;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Remove any spacing between header and body */
-table thead {
-    border-spacing: 0;
-}
-
-table thead tr {
-    border-bottom: none !important;
-    margin-bottom: 0 !important;
-}
-
-/* Set row styling */
-table tbody tr {
-    border-bottom: 1px solid var(--pico-muted-border-color, #eee) !important;
-}
-
-/* Ensure first data row connects directly to header */
-table tbody tr:first-child td {
-    border-top: none !important;
-    padding-top: 0.5rem !important;
-}
-
-/* Data cell styling */
-table td {
-    padding: 0.5rem 1rem !important;
-    text-align: left;
-    vertical-align: middle;
-    border: none !important;
-    line-height: 1.5 !important;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-
-/* Name column styles */
-.name-cell {
-    max-width: 100%;
-    font-size: 0.95rem;
-}
-
-/* Secondary columns - smaller font */
-.date-col, .size-col,
-td:nth-child(2), td:nth-child(3) {
-    white-space: nowrap;
-    font-size: 0.85rem;
-    color: var(--pico-muted-color, #6c757d);
-}
-
-/* File/folder names and icons */
-table a {
-    display: flex;
-    align-items: center;
-    text-decoration: none;
-    word-break: break-all;
-}
-
-table a:hover {
-    text-decoration: underline;
-}
-
-/* Icon styles - reduced size for more compact rows */
-.icon {
-    margin-right: 0.5rem;
-    min-width: 1.2rem;
-    display: inline-block;
-    text-align: center;
-    flex-shrink: 0;
-}
-
-/* Ensure table goes edge to edge */
-article {
-    margin: 0 !important;
-    padding: 0 !important;
-    overflow: hidden !important;
-}
-
-/* Footer styles */
-footer {
-    position: fixed;
-    bottom: 0;
-    left: 0;
-    width: 100%;
-    text-align: center;
-    padding: 0.75rem;
-    background-color: var(--pico-background-color, #fff);
-    color: var(--pico-color, #212529);
-    font-size: 0.85rem;
-    line-height: 1;
-    box-sizing: border-box;
-    z-index: 100;
-    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.05);
-    border-top: 1px solid var(--pico-muted-border-color, #eee);
-}
-
-.footer-content {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 0.5rem;
-}
-
-.footer-item {
-    display: flex;
-    align-items: center;
-}
-
-.footer-link {
-    display: flex;
-    align-items: center;
-    text-decoration: none;
-    color: var(--pico-primary, #0d6efd);
-    transition: color 0.2s ease;
-    font-weight: 500;
-}
-
-.footer-link:hover {
-    text-decoration: none;
-    color: var(--pico-primary-hover, #0a58ca);
-}
-
-.footer-icon {
-    margin-right: 0.35rem;
-    width: 16px;
-    height: 16px;
-}
-
-.footer-separator {
-    color: var(--pico-muted-color, #6c757d);
-    margin: 0 0.25rem;
-}
-
-/* Responsive styles */
-@media (max-width: 768px) {
-    .container {
-        padding: 1rem;
-    }
-
-    table th:nth-child(2),
-    table td:nth-child(2) {
-        display: none;
-    }
-
-    /* Adjust column widths for responsive view */
-    table th:first-child,
-    table td:first-child {
-        width: 70%; /* Name column takes more space on smaller screens */
-    }
-
-    table th:nth-child(3),
-    table td:nth-child(3) {
-        width: 30%; /* Size column takes remaining space */
-    }
-}
-
-@media (max-width: 480px) {
-    .name-cell {
-        max-width: 100%;
-    }
-
-    table th:nth-child(3),
-    table td:nth-child(3) {
-        display: none;
-    }
-    
-    /* With only one column visible, it takes full width */
-    table th:first-child,
-    table td:first-child {
-        width: 100%;
-    }
-    
-    footer {
-        padding: 0.5rem;
-    }
-    
-    .footer-content {
-        gap: 0.25rem;
-    }
-}
-
-/* Login page styles */
-.login-wrapper {
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    min-height: calc(100vh - 60px);
-    padding: 20px;
-}
-
-.login-box {
-    width: 100%;
-    max-width: 400px;
-    background-color: var(--pico-card-background-color, #fff);
-    border-radius: 8px;
-    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
-    padding: 30px;
-}
-
-.login-box h2 {
-    margin-top: 0;
-    margin-bottom: 25px;
-    text-align: center;
-    font-weight: 600;
-    font-size: 1.75rem;
-}
-
-.login-box form {
-    display: flex;
-    flex-direction: column;
-}
-
-.login-box label {
-    margin-bottom: 8px;
-    font-weight: 500;
-}
-
-.login-box input[type="password"] {
-    margin-bottom: 20px;
-    padding: 12px;
-    border: 1px solid var(--pico-muted-border-color, #e0e0e0);
-    border-radius: 4px;
-}
-
-.login-box .primary-button {
-    background-color: var(--pico-primary, #0d6efd);
-    color: white;
-    border: none;
-    border-radius: 4px;
-    padding: 12px;
-    font-size: 1rem;
-    cursor: pointer;
-    transition: background-color 0.2s;
-}
-
-.login-box .primary-button:hover {
-    background-color: var(--pico-primary-hover, #0a58ca);
-}
-
-.error-message {
-    background-color: var(--pico-del-background-color, #fff5f5);
-    color: var(--pico-del-color, #e03131);
-    padding: 12px;
-    border-radius: 4px;
-    margin-bottom: 20px;
-    border-left: 4px solid var(--pico-del-color, #e03131);
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  overflow: hidden;
+  white-space: nowrap;
 }
 
 /* Logout button */
-.logout-button {
-    margin-left: auto;
-    font-size: 0.85rem;
-}
-
 .logout-button a {
-    display: inline-flex;
-    align-items: center;
-    gap: 0.5rem;
-    padding: 0.3rem 0.6rem;
-    background-color: var(--pico-primary, #0d6efd);
-    color: white;
-    border-radius: 4px;
-    text-decoration: none;
-    transition: background-color 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.3rem 0.6rem;
+  background-color: var(--pico-primary);
+  color: white;
+  border-radius: 4px;
 }
 
-.logout-button a:hover {
-    background-color: var(--pico-primary-hover, #0a58ca);
-    text-decoration: none;
+/* Footer */
+footer {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  width: 100%;
+  padding: 0.75rem;
+  background-color: var(--pico-background-color);
+  border-top: 1px solid var(--pico-muted-border-color);
+  z-index: 100;
 }
 
-.logout-icon {
-    width: 1em;
-    height: 1em;
+.footer-content {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.footer-item {
+  display: flex;
+  align-items: center;
+}
+
+.footer-icon {
+  margin-right: 0.35rem;
+}
+
+.footer-separator {
+  color: var(--pico-muted-color);
+}
+
+/* Error message for login */
+.error-message {
+  background-color: var(--pico-del-background-color);
+  color: var(--pico-del-color);
+  padding: 0.75rem;
+  border-radius: 4px;
+  margin-bottom: 1rem;
+  border-left: 4px solid var(--pico-del-color);
+}
+
+
+.centered-login-box {
+  max-width: 400px;
+  margin: 2rem auto 0;
+  padding: 2rem;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  background-color: var(--pico-card-background-color);
+}
+
+main.container article.grid {
+  padding: 1.5rem 0;
+}
+
+/* Responsive design */
+@media (max-width: 768px) {
+  table th:nth-child(2), table td:nth-child(2) { display: none; }
+  table th:first-child, table td:first-child { width: 70%; }
+  table th:nth-child(3), table td:nth-child(3) { width: 30%; }
+  
+  .centered-login-box {
+    max-width: 100%;
+    margin: 0 1rem;
+  }
+}
+
+@media (max-width: 480px) {
+  table th:nth-child(3), table td:nth-child(3) { display: none; }
+  table th:first-child, table td:first-child { width: 100%; }
 }
