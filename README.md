@@ -13,6 +13,7 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 - **Fast & Lightweight**: Loads quickly even on slow connections
 - **No Setup Required**: Single binary that just works - no configuration needed
 - **Dark Mode**: Easy on the eyes with both light and dark themes
+- **Optional Authentication**: Password-protect your file listings when needed
 
 ## Quick Start
 
@@ -31,6 +32,9 @@ weblist --listen :9000
 
 # Exclude specific files and directories
 weblist --exclude .git --exclude .env
+
+# Enable password protection
+weblist --auth your_password
 ```
 
 ## Installation
@@ -58,8 +62,27 @@ weblist [options]
 - `-r, --root`: Root directory to serve (default: current directory) - env: `ROOT_DIR`
 - `-e, --exclude`: Files and directories to exclude (can be repeated) - env: `EXCLUDE`
 - `-f, --hide-footer`: Hide footer - env: `HIDE_FOOTER`
+- `-a, --auth`: Enable authentication with the specified password - env: `AUTH`
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
+
+## Authentication
+
+Weblist provides optional password protection for your file listings:
+
+```bash
+# Enable authentication with a password
+weblist --auth your_password
+```
+
+When authentication is enabled:
+- Users will be prompted with a login screen
+- The username is always "weblist" (hardcoded)
+- The password is whatever you specify with the `--auth` parameter
+- Sessions last for 24 hours by default
+- A logout button appears in the top right corner when logged in
+
+Authentication is completely optional and only activated when the `--auth` parameter is provided.
 
 ## Docker
 
@@ -87,4 +110,5 @@ services:
       - THEME=light
       - ROOT_DIR=/data
       - EXCLUDE=.git,.env
+      - AUTH=your_password  # Optional: Enable authentication
 ```

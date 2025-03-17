@@ -39,7 +39,7 @@ type Config struct {
 	RootDir    string
 	Version    string
 	Exclude    []string
-	Auth       string // Password for basic authentication
+	Auth       string // password for basic authentication
 }
 
 // Run starts the web server.
@@ -61,7 +61,7 @@ func (wb *Web) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to load embedded assets: %w", err)
 	}
 
-	// Add authentication middleware if Auth is set
+	// add authentication middleware if Auth is set
 	if wb.Auth != "" {
 		router.HandleFunc("GET /login", wb.handleLoginPage)
 		router.HandleFunc("POST /login", wb.handleLoginSubmit)
@@ -226,7 +226,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		displayPath = ""
 	}
 
-	// Check if user is authenticated (for showing logout button)
+	// check if user is authenticated (for showing logout button)
 	isAuthenticated := false
 	if wb.Auth != "" {
 		cookie, err := r.Cookie("auth")
@@ -298,7 +298,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		displayPath = ""
 	}
 
-	// Check if user is authenticated (for showing logout button)
+	// check if user is authenticated (for showing logout button)
 	isAuthenticated := false
 	if wb.Auth != "" {
 		cookie, err := r.Cookie("auth")
@@ -504,24 +504,24 @@ func (wb *Web) getPathParts(path, sortBy, sortDir string) []map[string]string {
 // authMiddleware checks if the user is authenticated
 func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Skip authentication for login page and assets
+		// skip authentication for login page and assets
 		if r.URL.Path == "/login" || strings.HasPrefix(r.URL.Path, "/assets/") {
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Check if user is authenticated via cookie
+		// check if user is authenticated via cookie
 		cookie, err := r.Cookie("auth")
 		if err == nil && cookie.Value == wb.Auth {
-			// User is authenticated, proceed
+			// user is authenticated, proceed
 			next.ServeHTTP(w, r)
 			return
 		}
 
-		// Check if user is authenticated via basic auth
+		// check if user is authenticated via basic auth
 		username, password, ok := r.BasicAuth()
 		if ok && username == "weblist" && password == wb.Auth {
-			// Set cookie for future requests
+			// set cookie for future requests
 			http.SetCookie(w, &http.Cookie{
 				Name:     "auth",
 				Value:    wb.Auth,
@@ -534,7 +534,7 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
-		// User is not authenticated, redirect to login page
+		// user is not authenticated, redirect to login page
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})
 }
@@ -569,7 +569,7 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
 
 	if username != "weblist" || password != wb.Auth {
-		// Authentication failed, show error
+		// authentication failed, show error
 		tmpl, err := template.ParseFS(content, "templates/login.html")
 		if err != nil {
 			http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
@@ -589,7 +589,7 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Authentication successful, set cookie and redirect
+	// authentication successful, set cookie and redirect
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth",
 		Value:    wb.Auth,
@@ -599,22 +599,22 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   3600 * 24, // 24 hours
 	})
 
-	// Redirect to the home page
+	// redirect to the home page
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // handleLogout handles the logout request
 func (wb *Web) handleLogout(w http.ResponseWriter, r *http.Request) {
-	// Clear the auth cookie
+	// clear the auth cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   r.TLS != nil,
-		MaxAge:   -1, // Delete the cookie
+		MaxAge:   -1, // delete the cookie
 	})
 
-	// Redirect to the login page
+	// redirect to the login page
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }

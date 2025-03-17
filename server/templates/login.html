@@ -11,27 +11,23 @@
 
 <body>
 
-<main class="container login-container">
-    <div class="login-card">
-        <hgroup>
-            <h1>Login</h1>
-            <h2>Please enter your password to access the file listing</h2>
-        </hgroup>
-        
-        <form action="/login" method="post">
-            <input type="hidden" name="username" value="weblist">
-            
-            <label for="password">
-                Password
-                <input type="password" id="password" name="password" placeholder="Enter your password" required>
-            </label>
+<main class="container">
+    <div class="login-wrapper">
+        <div class="login-box">
+            <h2>Login</h2>
             
             {{ if .Error }}
-            <small class="error">{{ .Error }}</small>
+            <div class="error-message">
+                {{ .Error }}
+            </div>
             {{ end }}
             
-            <button type="submit">Login</button>
-        </form>
+            <form action="/login" method="post">
+                <input type="hidden" name="username" value="weblist">
+                <input type="password" id="password" name="password" placeholder="Password" required autofocus>
+                <button type="submit" class="primary-button">Login</button>
+            </form>
+        </div>
     </div>
 </main>
 

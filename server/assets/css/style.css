@@ -20,6 +20,8 @@
     gap: 0.5rem;
     margin-bottom: 1rem;
     font-size: 0.9rem;
+    align-items: center;
+    justify-content: space-between;
 }
 
 .breadcrumbs a {
@@ -28,6 +30,13 @@
 
 .breadcrumbs a:hover {
     text-decoration: underline;
+}
+
+.breadcrumbs > :not(.logout-button) {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    align-items: center;
 }
 
 /* Base table styles */
@@ -215,43 +224,83 @@ footer a:hover {
 }
 
 /* Login page styles */
-.login-container {
+.login-wrapper {
     display: flex;
     justify-content: center;
     align-items: center;
-    min-height: calc(100vh - 2.5rem);
-    padding: 2rem;
+    min-height: calc(100vh - 60px);
+    padding: 20px;
 }
 
-.login-card {
+.login-box {
     width: 100%;
-    max-width: 500px;
-    padding: 2rem;
+    max-width: 400px;
     background-color: var(--pico-card-background-color, #fff);
-    border-radius: var(--pico-border-radius, 0.25rem);
-    box-shadow: var(--pico-card-box-shadow, 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24));
+    border-radius: 8px;
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+    padding: 30px;
 }
 
-.error {
+.login-box h2 {
+    margin-top: 0;
+    margin-bottom: 25px;
+    text-align: center;
+    font-weight: 600;
+    font-size: 1.75rem;
+}
+
+.login-box form {
+    display: flex;
+    flex-direction: column;
+}
+
+.login-box label {
+    margin-bottom: 8px;
+    font-weight: 500;
+}
+
+.login-box input[type="password"] {
+    margin-bottom: 20px;
+    padding: 12px;
+    border: 1px solid var(--pico-muted-border-color, #e0e0e0);
+    border-radius: 4px;
+}
+
+.login-box .primary-button {
+    background-color: var(--pico-primary, #0d6efd);
+    color: white;
+    border: none;
+    border-radius: 4px;
+    padding: 12px;
+    font-size: 1rem;
+    cursor: pointer;
+    transition: background-color 0.2s;
+}
+
+.login-box .primary-button:hover {
+    background-color: var(--pico-primary-hover, #0a58ca);
+}
+
+.error-message {
+    background-color: var(--pico-del-background-color, #fff5f5);
     color: var(--pico-del-color, #e03131);
-    margin-bottom: 1rem;
-    display: block;
+    padding: 12px;
+    border-radius: 4px;
+    margin-bottom: 20px;
+    border-left: 4px solid var(--pico-del-color, #e03131);
 }
 
 /* Logout button */
 .logout-button {
-    position: absolute;
-    top: 1rem;
-    right: 1rem;
-    font-size: 0.8rem;
-    z-index: 100;
+    margin-left: auto;
+    font-size: 0.85rem;
 }
 
 .logout-button a {
     display: inline-flex;
     align-items: center;
     gap: 0.5rem;
-    padding: 0.4rem 0.8rem;
+    padding: 0.3rem 0.6rem;
     background-color: var(--pico-primary, #0d6efd);
     color: white;
     border-radius: 4px;
@@ -267,9 +316,4 @@ footer a:hover {
 .logout-icon {
     width: 1em;
     height: 1em;
-}
-
-/* Remove old grid styles that are no longer needed */
-.grid {
-    display: none;
 }

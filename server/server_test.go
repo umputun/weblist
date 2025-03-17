@@ -1613,7 +1613,7 @@ func TestExcludedFilesIntegration(t *testing.T) {
 }
 
 func TestAuthentication(t *testing.T) {
-	// Create a server with authentication
+	// create a server with authentication
 	srv := &Web{
 		Config: Config{
 			RootDir: "testdata",
@@ -1728,7 +1728,7 @@ func TestAuthentication(t *testing.T) {
 		assert.Equal(t, http.StatusSeeOther, rr.Code)
 		assert.Equal(t, "/login", rr.Header().Get("Location"))
 
-		// Check that the cookie is cleared
+		// check that the cookie is cleared
 		cookies := rr.Result().Cookies()
 		var authCookie *http.Cookie
 		for _, cookie := range cookies {
