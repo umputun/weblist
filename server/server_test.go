@@ -36,6 +36,7 @@ func setupTestServer(t *testing.T) *Web {
 			HideFooter: false,
 			RootDir:    testdataDir,
 			Version:    "test-version",
+			Title:      "Test Title",
 		},
 		FS: os.DirFS(testdataDir),
 	}
@@ -1544,4 +1545,50 @@ func TestAuthentication(t *testing.T) {
 		assert.Equal(t, "", authCookie.Value, "Auth cookie value should be empty")
 		assert.True(t, authCookie.MaxAge < 0, "Auth cookie MaxAge should be negative to delete it")
 	})
+}
+
+func TestTitleFunctionality(t *testing.T) {
+	// create a server with a custom title
+	testdataDir, err := filepath.Abs("testdata")
+	require.NoError(t, err)
+
+	customTitleSrv := &Web{
+		Config: Config{
+			ListenAddr: ":0",
+			Theme:      "light",
+			HideFooter: false,
+			RootDir:    testdataDir,
+			Version:    "test-version",
+			Title:      "Custom Title",
+		},
+		FS: os.DirFS(testdataDir),
+	}
+
+	// test that the title appears in the rendered HTML
+	req, err := http.NewRequest("GET", "/", nil)
+	require.NoError(t, err)
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(customTitleSrv.handleRoot)
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// check that the custom title appears in the page
+	assert.Contains(t, rr.Body.String(), "Custom Title")
+	assert.Contains(t, rr.Body.String(), "<title>Custom Title</title>")
+
+	// also check it's used in the breadcrumb home link
+	assert.Contains(t, rr.Body.String(), "Custom Title\n        </a>")
+
+	// test login page also has the title
+	req, err = http.NewRequest("GET", "/login", nil)
+	require.NoError(t, err)
+
+	rr = httptest.NewRecorder()
+	handler = http.HandlerFunc(customTitleSrv.handleLoginPage)
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Contains(t, rr.Body.String(), "Login - Custom Title")
 }

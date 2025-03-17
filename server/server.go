@@ -40,6 +40,7 @@ type Config struct {
 	Version    string
 	Exclude    []string
 	Auth       string // password for basic authentication
+	Title      string // custom title for the site
 }
 
 // Run starts the web server.
@@ -303,6 +304,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		"Theme":           wb.Config.Theme,
 		"HideFooter":      wb.Config.HideFooter,
 		"IsAuthenticated": isAuthenticated,
+		"Title":           wb.Config.Title,
 	}
 
 	// execute the entire template
@@ -537,6 +539,7 @@ func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
 	data := map[string]interface{}{
 		"Theme":      wb.Theme,
 		"HideFooter": wb.HideFooter,
+		"Title":      wb.Title,
 	}
 
 	if err := tmpl.Execute(w, data); err != nil {
@@ -566,6 +569,7 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		data := map[string]interface{}{
 			"Theme":      wb.Theme,
 			"HideFooter": wb.HideFooter,
+			"Title":      wb.Title,
 			"Error":      "Invalid username or password",
 		}
 
@@ -630,5 +634,6 @@ func (wb *Web) prepareDirectoryData(path, sortBy, sortDir string) (map[string]in
 		"SortDir":     sortDir,
 		"PathParts":   wb.getPathParts(path, sortBy, sortDir),
 		"Theme":       wb.Config.Theme,
+		"Title":       wb.Config.Title,
 	}, nil
 }

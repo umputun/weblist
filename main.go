@@ -23,6 +23,7 @@ type options struct {
 	RootDir string   `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
 	Exclude []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
 	Auth    string   `short:"a" long:"auth" env:"AUTH" description:"password for basic authentication (username is 'weblist')"`
+	Title   string   `long:"title" env:"TITLE" description:"custom title for the site (used in browser title and breadcrumb home)"`
 
 	HideFooter bool `short:"f" long:"hide-footer" env:"HIDE_FOOTER"  description:"hide footer"`
 	Version    bool `short:"v" long:"version" env:"VERSION" description:"show version and exit"`
@@ -76,6 +77,7 @@ func main() {
 			Version:    versionInfo(),
 			Exclude:    opts.Exclude,
 			Auth:       opts.Auth,
+			Title:      opts.Title,
 		},
 		FS: os.DirFS(opts.RootDir), // create OS filesystem locked to the root directory
 	}
