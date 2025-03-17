@@ -16,16 +16,27 @@
 
 .breadcrumbs {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    flex-wrap: nowrap;
     margin-bottom: 1rem;
     font-size: 0.9rem;
     align-items: center;
     justify-content: space-between;
 }
 
+.path-parts {
+    display: flex;
+    flex-wrap: nowrap;
+    align-items: center;
+    gap: 0.25rem;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
 .breadcrumbs a {
     text-decoration: none;
+    display: inline-flex;
+    align-items: center;
 }
 
 .breadcrumbs a:hover {
@@ -34,9 +45,11 @@
 
 .breadcrumbs > :not(.logout-button) {
     display: flex;
-    flex-wrap: wrap;
-    gap: 0.5rem;
+    flex-wrap: nowrap;
     align-items: center;
+    gap: 0.25rem;
+    overflow: hidden;
+    white-space: nowrap;
 }
 
 /* Base table styles */

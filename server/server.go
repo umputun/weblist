@@ -213,14 +213,14 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Use the helper function to prepare data
+	// use the helper function to prepare data
 	data, err := wb.prepareDirectoryData(path, sortBy, sortDir)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	// Add authentication info
+	// add authentication info
 	if wb.Auth != "" {
 		cookie, err := r.Cookie("auth")
 		if err == nil && cookie.Value == wb.Auth {
@@ -228,7 +228,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Execute just the page-content template
+	// execute just the page-content template
 	if err := tmpl.ExecuteTemplate(w, "page-content", data); err != nil {
 		http.Error(w, "template rendering error: "+err.Error(), http.StatusInternalServerError)
 	}
@@ -301,7 +301,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		"IsAuthenticated": isAuthenticated,
 	}
 
-	// Execute the entire template
+	// execute the entire template
 	if err := tmpl.Execute(w, data); err != nil {
 		http.Error(w, "template rendering error: "+err.Error(), http.StatusInternalServerError)
 	}
@@ -604,7 +604,7 @@ func (wb *Web) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 // prepareDirectoryData prepares the data for directory rendering
 func (wb *Web) prepareDirectoryData(path, sortBy, sortDir string) (map[string]interface{}, error) {
-	// Clean the path to avoid directory traversal
+	// clean the path to avoid directory traversal
 	path = filepath.ToSlash(filepath.Clean(path))
 
 	fileList, err := wb.getFileList(path, sortBy, sortDir)
@@ -612,7 +612,7 @@ func (wb *Web) prepareDirectoryData(path, sortBy, sortDir string) (map[string]in
 		return nil, fmt.Errorf("error reading directory: %w", err)
 	}
 
-	// Create a display path that looks nicer in the UI
+	// create a display path that looks nicer in the UI
 	displayPath := path
 	if path == "." {
 		displayPath = ""
