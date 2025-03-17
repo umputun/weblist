@@ -15,3 +15,6 @@ weblist
 /tmp/
 *_test_*
 *_tmp_*
+*.bak
+profile.cov_tmp
+profile.cov
