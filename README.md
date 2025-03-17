@@ -66,7 +66,7 @@ weblist [options]
 Perfect for NAS devices or home servers:
 
 ```bash
-docker run -p 8080:8080 -v /path/to/files:/srv umputun/weblist
+docker run -p 8080:8080 -v /path/to/files:/data umputun/weblist
 ```
 
 ### Docker Compose
@@ -75,24 +75,16 @@ docker run -p 8080:8080 -v /path/to/files:/srv umputun/weblist
 version: '3'
 services:
   weblist:
-    image: umputun/weblist
+    image: ghcr.io/umputun/weblist:latest
     container_name: weblist
     restart: always
     ports:
       - "8080:8080"
     volumes:
-      - /path/to/files:/srv
+      - /path/to/files:/data:ro
     environment:
       - LISTEN=:8080
       - THEME=light
-      - ROOT_DIR=/srv
+      - ROOT_DIR=/data
       - EXCLUDE=.git,.env
 ```
-
-## License
-
-MIT
-
-## Author
-
-[Umputun](https://github.com/umputun) 
