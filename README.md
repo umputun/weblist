@@ -49,12 +49,12 @@ weblist [options]
 
 ### Options
 
-- `-l, --listen`: Address to listen on (default: `:8080`)
-- `-t, --theme`: Theme to use, "light" or "dark" (default: `light`)
-- `-r, --root`: Root directory to serve (default: current directory)
-- `-f, --hide-footer`: Hide footer
-- `-v, --version`: Show version and exit
-- `--dbg`: Debug mode
+- `-l, --listen`: Address to listen on (default: `:8080`) - env: `LISTEN`
+- `-t, --theme`: Theme to use, "light" or "dark" (default: `light`) - env: `THEME`
+- `-r, --root`: Root directory to serve (default: current directory) - env: `ROOT_DIR`
+- `-f, --hide-footer`: Hide footer - env: `HIDE_FOOTER`
+- `-v, --version`: Show version and exit - env: `VERSION`
+- `--dbg`: Debug mode - env: `DEBUG`
 
 ## Docker
 
