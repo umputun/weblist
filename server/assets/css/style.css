@@ -175,25 +175,53 @@ footer {
     left: 0;
     width: 100%;
     text-align: center;
-    padding: 0.5rem;
-    background-color: var(--pico-background-color, #fff); /* Add background color to prevent content showing through */
+    padding: 0.75rem;
+    background-color: var(--pico-background-color, #fff);
     color: var(--pico-color, #212529);
     font-size: 0.85rem;
     line-height: 1;
     box-sizing: border-box;
     z-index: 100;
-    box-shadow: 0 -1px 1px var(--pico-muted-border-color, #212529);
+    box-shadow: 0 -1px 2px rgba(0, 0, 0, 0.05);
+    border-top: 1px solid var(--pico-muted-border-color, #eee);
 }
 
-footer a {
+.footer-content {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+}
+
+.footer-item {
+    display: flex;
+    align-items: center;
+}
+
+.footer-link {
+    display: flex;
+    align-items: center;
     text-decoration: none;
     color: var(--pico-primary, #0d6efd);
-    padding: 0 0.2rem;
+    transition: color 0.2s ease;
+    font-weight: 500;
 }
 
-footer a:hover {
-    text-decoration: underline;
+.footer-link:hover {
+    text-decoration: none;
     color: var(--pico-primary-hover, #0a58ca);
+}
+
+.footer-icon {
+    margin-right: 0.35rem;
+    width: 16px;
+    height: 16px;
+}
+
+.footer-separator {
+    color: var(--pico-muted-color, #6c757d);
+    margin: 0 0.25rem;
 }
 
 /* Responsive styles */
@@ -228,11 +256,19 @@ footer a:hover {
     table td:nth-child(3) {
         display: none;
     }
-
+    
     /* With only one column visible, it takes full width */
     table th:first-child,
     table td:first-child {
         width: 100%;
+    }
+    
+    footer {
+        padding: 0.5rem;
+    }
+    
+    .footer-content {
+        gap: 0.25rem;
     }
 }
 
