@@ -1,3 +1,14 @@
 *.out
 .vscode
 .DS_Store
+weblist
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+*.test
+*.prof
+.idea/
+.env
+.env.local
