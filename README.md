@@ -1,29 +1,41 @@
 # weblist [![build](https://github.com/umputun/weblist/actions/workflows/ci.yml/badge.svg)](https://github.com/umputun/weblist/actions/workflows/ci.yml)
 
-A lightweight, modern file server that provides a clean web interface for browsing and downloading files from a directory. Built with Go and HTMX for a responsive, single-page experience without complex JavaScript frameworks.
+A modern, elegant file browser for the web. Weblist provides a clean and intuitive interface for browsing and downloading files from any directory on your server, replacing the ugly default directory listings of Nginx and Apache with a beautiful, functional alternative.
 
-## Features
+## Why weblist?
 
-- **Clean, Modern UI**: Minimalist design with light and dark themes
-- **Responsive Layout**: Works well on desktop and mobile devices
-- **HTMX-Powered Navigation**: Smooth directory browsing without page reloads
-- **File Downloads**: Easy access to files with direct download links
-- **Sorting Options**: Sort by name, size, or modification date
-- **Breadcrumb Navigation**: Easy navigation through directory structure
-- **Directory Traversal Protection**: Secure by design, prevents access outside the root directory
-- **Human-Readable File Sizes**: Displays file sizes in a user-friendly format
+- **Beautiful Interface**: Clean, modern design that's easy on the eyes
+- **Security First**: Locked to the root directory - users can't access files outside the specified folder
+- **Intuitive Navigation**: Simple breadcrumb navigation makes it easy to move between directories
+- **Smart Sorting**: Sort files by name, size, or date with a single click
+- **Mobile Friendly**: Works great on phones and tablets, not just desktops
+- **Fast & Lightweight**: Loads quickly even on slow connections
+- **No Setup Required**: Single binary that just works - no configuration needed
+- **Dark Mode**: Easy on the eyes with both light and dark themes
+
+## Quick Start
+
+```bash
+# Serve the current directory
+weblist
+
+# Serve a specific directory
+weblist --root /path/to/files
+
+# Use dark theme
+weblist --theme dark
+
+# Specify a different port
+weblist --listen :9000
+```
 
 ## Installation
 
-### From Source
+### Download Binary
 
-```bash
-git clone https://github.com/umputun/weblist.git
-cd weblist
-go build
-```
+Download the latest release from the [releases page](https://github.com/umputun/weblist/releases).
 
-### Using Go Install
+### Using Go
 
 ```bash
 go install github.com/umputun/weblist@latest
@@ -44,21 +56,9 @@ weblist [options]
 - `-v, --version`: Show version and exit
 - `--dbg`: Debug mode
 
-### Examples
-
-Serve the current directory on the default port:
-```bash
-weblist
-```
-
-Serve a specific directory on a custom port with dark theme:
-```bash
-weblist --root /path/to/files --listen :9000 --theme dark
-```
-
 ## Docker
 
-You can run weblist in a Docker container:
+Perfect for NAS devices or home servers:
 
 ```bash
 docker run -p 8080:8080 -v /path/to/files:/srv umputun/weblist
@@ -81,48 +81,6 @@ services:
       - LISTEN=:8080
       - THEME=light
       - ROOT_DIR=/srv
-```
-
-## Screenshots
-
-![Light Theme](https://github.com/umputun/weblist/raw/master/docs/screenshots/light-theme.png)
-![Dark Theme](https://github.com/umputun/weblist/raw/master/docs/screenshots/dark-theme.png)
-
-## How It Works
-
-Weblist is built with Go and uses the following technologies:
-
-- **Go's Standard Library**: For the HTTP server and file system operations
-- **HTMX**: For dynamic content loading without full page reloads
-- **Pico CSS**: For lightweight, semantic styling
-- **Go Templates**: For server-side rendering
-
-The application embeds all assets and templates, resulting in a single binary that's easy to deploy.
-
-## Development
-
-### Prerequisites
-
-- Go 1.21 or higher
-
-### Building
-
-```bash
-go build
-```
-
-### Running Tests
-
-```bash
-go test ./...
-```
-
-### Running with Hot Reload
-
-For development, you can use [air](https://github.com/cosmtrek/air) for hot reloading:
-
-```bash
-air
 ```
 
 ## License
