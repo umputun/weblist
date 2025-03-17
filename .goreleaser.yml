@@ -22,20 +22,19 @@ builds:
         goarch: arm
       - goos: windows
         goarch: arm64
-    dir: app
     ldflags: "-s -w -X main.revision={{.Tag}}-{{.ShortCommit}}-{{.CommitDate}}"
 
 archives:
   - id: tg-spam
     name_template: >-
-     {{.ProjectName}}_
-     {{- .Tag}}_
-     {{- if eq .Os "darwin"}}macos
-     {{- else if eq .Os "windows"}}win
-     {{- else}}{{.Os}}{{end}}_
-     {{- if eq .Arch "amd64"}}x86_64
-     {{- else if eq .Arch "386"}}i386
-     {{- else}}{{.Arch}}{{end}}
+      {{.ProjectName}}_
+      {{- .Tag}}_
+      {{- if eq .Os "darwin"}}macos
+      {{- else if eq .Os "windows"}}win
+      {{- else}}{{.Os}}{{end}}_
+      {{- if eq .Arch "amd64"}}x86_64
+      {{- else if eq .Arch "386"}}i386
+      {{- else}}{{.Arch}}{{end}}
     format_overrides:
       - goos: windows
         format: zip
@@ -44,10 +43,8 @@ archives:
       - README.md
     rlcp: true
 
-
 brews:
-  -
-    name: weblist
+  - name: weblist
     tap:
       owner: umputun
       name: homebrew-apps
