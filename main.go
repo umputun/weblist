@@ -1,484 +1,118 @@
 package main
 
 import (
-	"embed"
-	"flag"
+	"context"
 	"fmt"
-	"html/template"
-	"io/fs"
 	"log"
-	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
-	"sort"
-	"strings"
-	"time"
+	"runtime/debug"
 
-	"github.com/go-pkgz/routegroup"
+	"github.com/fatih/color"
+	"github.com/go-pkgz/lgr"
+	"github.com/umputun/go-flags"
+
+	"github.com/umputun/weblist/server"
 )
 
-//go:embed templates/* assets/*
-var content embed.FS
+type options struct {
+	Listen  string `short:"l" long:"listen" env:"LISTEN" default:":8080" description:"address to listen on"`
+	Theme   string `short:"t" long:"theme" env:"THEME" default:"light" description:"theme to use (light or dark)"`
+	RootDir string `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
 
-// FileInfo represents a file or directory to be displayed in the list
-type FileInfo struct {
-	Name         string
-	IsDir        bool
-	Size         int64
-	LastModified time.Time
-	Path         string
+	HideFooter bool `short:"f" long:"hide-footer" env:"HIDE_FOOTER"  description:"hide footer"`
+	Version    bool `short:"v" long:"version" env:"VERSION" description:"show version and exit"`
+	Dbg        bool `long:"dbg" env:"DEBUG" description:"debug mode"`
 }
 
-// SizeToString converts file size to human-readable format
-func (f FileInfo) SizeToString() string {
-	if f.IsDir {
-		return "-"
-	}
-
-	const unit = 1024
-	if f.Size < unit {
-		return fmt.Sprintf("%d B", f.Size)
-	}
-
-	div, exp := int64(unit), 0
-	for n := f.Size / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-
-	return fmt.Sprintf("%.1f %cB", float64(f.Size)/float64(div), "KMGTPE"[exp])
-}
-
-// TimeString formats the last modified time
-func (f FileInfo) TimeString() string {
-	return f.LastModified.Format("02-Jan-2006 15:04:05")
-}
-
-// Config represents application configuration
-type Config struct {
-	ListenAddr string
-	Theme      string
-	HideFooter bool
-	RootDir    string
-}
-
-// App holds the application state and dependencies
-type App struct {
-	Config Config
-	FS     fs.FS
-}
+var opts options
 
 func main() {
-	// parse command-line flags
-	cfg := Config{}
-	flag.StringVar(&cfg.ListenAddr, "listen", ":8080", "Address to listen on")
-	flag.StringVar(&cfg.Theme, "theme", "light", "Theme to use (light or dark)")
-	flag.BoolVar(&cfg.HideFooter, "hide-footer", false, "Hide footer (true or false)")
-	flag.StringVar(&cfg.RootDir, "root", ".", "Root directory to serve")
-	flag.Parse()
+	fmt.Printf("weblist %s\n", versionInfo())
+	p := flags.NewParser(&opts, flags.PrintErrors|flags.PassDoubleDash|flags.HelpFlag)
+	if _, err := p.Parse(); err != nil {
+		if err.(*flags.Error).Type != flags.ErrHelp {
+			fmt.Printf("%v", err)
+		}
+		os.Exit(1)
+	}
+	setupLog(opts.Dbg)
+
+	defer func() {
+		if x := recover(); x != nil {
+			log.Printf("[WARN] run time panic:\n%v", x)
+			panic(x)
+		}
+	}()
+
+	if opts.Version {
+		fmt.Printf("weblist %s\n", versionInfo())
+		os.Exit(0)
+	}
 
 	// validate theme
-	if cfg.Theme != "light" && cfg.Theme != "dark" {
-		log.Printf("Warning: Invalid theme '%s'. Using 'light' instead.", cfg.Theme)
-		cfg.Theme = "light"
+	if opts.Theme != "light" && opts.Theme != "dark" {
+		log.Printf("WARN: invalid theme '%s'. Using 'light' instead.", opts.Theme)
+		opts.Theme = "light"
 	}
 
 	// get absolute path for root directory
-	absRootDir, err := filepath.Abs(cfg.RootDir)
+	absRootDir, err := filepath.Abs(opts.RootDir)
 	if err != nil {
-		log.Fatalf("Failed to get absolute path for root directory: %v", err)
+		log.Fatalf("failed to get absolute path for root directory: %v", err)
 	}
-	cfg.RootDir = absRootDir
+	opts.RootDir = absRootDir
 
-	// create OS filesystem locked to the root directory
-	rootFS := os.DirFS(cfg.RootDir)
-
-	app := &App{
-		Config: cfg,
-		FS:     rootFS,
+	srv := &server.Web{
+		Config: server.Config{
+			ListenAddr: opts.Listen,
+			Theme:      opts.Theme,
+			HideFooter: opts.HideFooter,
+			RootDir:    opts.RootDir,
+			Version:    versionInfo(),
+		},
+		FS: os.DirFS(opts.RootDir), // create OS filesystem locked to the root directory
 	}
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	defer cancel()
 
-	// create router and set up routes
-	mux := http.NewServeMux()
-	router := routegroup.New(mux)
-
-	// serve static assets from embedded filesystem
-	assetsFS, err := fs.Sub(content, "assets")
-	if err != nil {
-		log.Fatalf("Failed to load embedded assets: %v", err)
-	}
-	router.HandleFiles("/assets/", http.FS(assetsFS))
-
-	// route registration in correct order
-	router.HandleFunc("GET /", app.handleRoot)
-	router.HandleFunc("GET /partials/dir-contents", app.handleDirContents)
-	router.HandleFunc("GET /download/", app.handleDownload)
-
-	// start server
-	log.Printf("Starting server on %s with theme: %s, serving from: %s", cfg.ListenAddr, cfg.Theme, cfg.RootDir)
-	if err := http.ListenAndServe(cfg.ListenAddr, router); err != nil {
-		log.Fatalf("Server error: %v", err)
+	if err := srv.Run(ctx); err != nil {
+		log.Fatalf("failed to run server: %v", err)
 	}
 }
 
-// handleRoot displays the root directory listing
-func (app *App) handleRoot(w http.ResponseWriter, r *http.Request) {
-	// get path from query parameter, default to empty string (root of locked filesystem)
-	path := r.URL.Query().Get("path")
-	if path == "" {
-		path = "."
+// showVersionInfo displays the version information from Go's build info
+func versionInfo() string {
+	if info, ok := debug.ReadBuildInfo(); ok {
+		version := info.Main.Version
+		if version == "" {
+			version = "dev"
+		}
+		return version
 	}
-
-	// clean the path to avoid directory traversal
-	path = filepath.ToSlash(filepath.Clean(path))
-	app.renderFullPage(w, r, path)
+	return "unknown"
 }
 
-// handleDownload serves file downloads
-func (app *App) handleDownload(w http.ResponseWriter, r *http.Request) {
-	// extract the file path from the URL
-	filePath := strings.TrimPrefix(r.URL.Path, "/download/")
-
-	// remove trailing slash if present - this helps handle URLs like /download/templates/
-	filePath = strings.TrimSuffix(filePath, "/")
-
-	// clean the path to avoid directory traversal
-	filePath = filepath.ToSlash(filepath.Clean(filePath))
-	if filePath == "." {
-		filePath = ""
+func setupLog(dbg bool, secrets ...string) {
+	logOpts := []lgr.Option{lgr.Msec, lgr.LevelBraces, lgr.StackTraceOnError}
+	if dbg {
+		logOpts = []lgr.Option{lgr.Debug, lgr.CallerFile, lgr.CallerFunc, lgr.Msec, lgr.LevelBraces, lgr.StackTraceOnError}
 	}
 
-	// log the request for debugging
-	log.Printf("Download request for: %s", filePath)
-
-	// check if the file exists and is not a directory
-	fileInfo, err := fs.Stat(app.FS, filePath)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("File not found: %s", filepath.Base(filePath)), http.StatusNotFound)
-		return
+	colorizer := lgr.Mapper{
+		ErrorFunc:  func(s string) string { return color.New(color.FgHiRed).Sprint(s) },
+		WarnFunc:   func(s string) string { return color.New(color.FgRed).Sprint(s) },
+		InfoFunc:   func(s string) string { return color.New(color.FgYellow).Sprint(s) },
+		DebugFunc:  func(s string) string { return color.New(color.FgWhite).Sprint(s) },
+		CallerFunc: func(s string) string { return color.New(color.FgBlue).Sprint(s) },
+		TimeFunc:   func(s string) string { return color.New(color.FgCyan).Sprint(s) },
 	}
+	logOpts = append(logOpts, lgr.Map(colorizer))
 
-	if fileInfo.IsDir() {
-		// check if index.html exists in this directory
-		indexPath := filepath.Join(filePath, "index.html")
-		indexInfo, err := fs.Stat(app.FS, indexPath)
-		if err == nil && !indexInfo.IsDir() {
-			// Create the physical file path for index.html
-			physicalIndexPath := filepath.Join(app.Config.RootDir, indexPath)
-			file, err := os.Open(physicalIndexPath)
-			if err != nil {
-				http.Error(w, "Error opening file", http.StatusInternalServerError)
-				return
-			}
-			defer file.Close()
-
-			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", "index.html"))
-			w.Header().Set("Content-Length", fmt.Sprintf("%d", indexInfo.Size()))
-
-			http.ServeContent(w, r, "index.html", indexInfo.ModTime(), file)
-			return
-		}
-
-		// if no index.html or it's also a directory, return error
-		http.Error(w, "Cannot download directories", http.StatusBadRequest)
-		return
+	if len(secrets) > 0 {
+		logOpts = append(logOpts, lgr.Secret(secrets...))
 	}
-
-	// Because we need an io.ReadSeeker for ServeContent, we need to use the actual OS file
-	// Create the physical file path by joining the root directory with the relative path
-	physicalPath := filepath.Join(app.Config.RootDir, filePath)
-	file, err := os.Open(physicalPath)
-	if err != nil {
-		http.Error(w, "Error opening file", http.StatusInternalServerError)
-		return
-	}
-	defer file.Close()
-
-	// force all files to download instead of being displayed in browser
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileInfo.Name()))
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
-
-	// copy the file to the response
-	http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file)
-}
-
-// handleDirContents renders partial directory contents for HTMX requests
-func (app *App) handleDirContents(w http.ResponseWriter, r *http.Request) {
-	// get directory path from query parameters
-	path := r.URL.Query().Get("path")
-	if path == "" {
-		path = "."
-	}
-
-	sortBy := r.URL.Query().Get("sort")
-	sortDir := r.URL.Query().Get("dir")
-	if sortBy == "" {
-		sortBy = "name" // default sort
-	}
-	if sortDir == "" {
-		sortDir = "asc" // default direction
-	}
-
-	// clean the path to avoid directory traversal
-	path = filepath.ToSlash(filepath.Clean(path))
-
-	// check if the path exists and is a directory
-	fileInfo, err := fs.Stat(app.FS, path)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Directory not found: %v", err), http.StatusNotFound)
-		return
-	}
-
-	if !fileInfo.IsDir() {
-		http.Error(w, "Not a directory", http.StatusBadRequest)
-		return
-	}
-
-	// get the file list
-	fileList, err := app.getFileList(path, sortBy, sortDir)
-	if err != nil {
-		http.Error(w, "Error reading directory: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// parse template
-	tmpl, err := template.ParseFS(content, "templates/index.html")
-	if err != nil {
-		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// create a display path that looks nicer in the UI
-	displayPath := path
-	if path == "." {
-		displayPath = ""
-	}
-
-	data := map[string]interface{}{
-		"Files":       fileList,
-		"Path":        path,
-		"DisplayPath": displayPath, // use for display purposes
-		"SortBy":      sortBy,
-		"SortDir":     sortDir,
-		"PathParts":   app.getPathParts(path),
-		"Theme":       app.Config.Theme, // always use the CLI-specified theme
-	}
-
-	// execute the page-content template for HTMX requests
-	if err := tmpl.ExecuteTemplate(w, "page-content", data); err != nil {
-		http.Error(w, "Template rendering error: "+err.Error(), http.StatusInternalServerError)
-	}
-}
-
-// renderFullPage renders the complete HTML page
-func (app *App) renderFullPage(w http.ResponseWriter, r *http.Request, path string) {
-	// clean the path to avoid directory traversal attacks
-	path = filepath.ToSlash(filepath.Clean(path))
-
-	// check if the path exists
-	fileInfo, err := fs.Stat(app.FS, path)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("Path not found: %s - %v", path, err), http.StatusNotFound)
-		return
-	}
-
-	// if it's not a directory, redirect to download handler
-	if !fileInfo.IsDir() {
-		http.Redirect(w, r, "/download/"+path, http.StatusSeeOther)
-		return
-	}
-
-	// parse templates from embedded filesystem
-	tmpl, err := template.ParseFS(content, "templates/index.html")
-	if err != nil {
-		http.Error(w, "Template error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	sortBy := r.URL.Query().Get("sort")
-	sortDir := r.URL.Query().Get("dir")
-	if sortBy == "" {
-		sortBy = "name" // default sort
-	}
-	if sortDir == "" {
-		sortDir = "asc" // default direction
-	}
-
-	fileList, err := app.getFileList(path, sortBy, sortDir)
-	if err != nil {
-		http.Error(w, "Error reading directory: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	// create a display path that looks nicer in the UI
-	displayPath := path
-	if path == "." {
-		displayPath = ""
-	}
-
-	data := map[string]interface{}{
-		"Files":       fileList,
-		"Path":        path,
-		"DisplayPath": displayPath, // use for display purposes
-		"SortBy":      sortBy,
-		"SortDir":     sortDir,
-		"PathParts":   app.getPathParts(path),
-		"Theme":       app.Config.Theme, // use the CLI-specified theme
-		"HideFooter":  app.Config.HideFooter,
-	}
-
-	if err := tmpl.Execute(w, data); err != nil {
-		http.Error(w, "Template rendering error: "+err.Error(), http.StatusInternalServerError)
-	}
-}
-
-// getFileList returns a list of files in the given directory
-func (app *App) getFileList(path string, sortBy, sortDir string) ([]FileInfo, error) {
-	// Ensure the path is properly formatted for fs.ReadDir
-	if path == "" {
-		path = "."
-	}
-
-	entries, err := fs.ReadDir(app.FS, path)
-	if err != nil {
-		return nil, err
-	}
-
-	var files []FileInfo
-	for _, entry := range entries {
-		info, err := entry.Info()
-		if err != nil {
-			continue // skip files that can't be stat'd
-		}
-
-		entryPath := filepath.Join(path, entry.Name())
-		// Convert to slash for consistent paths
-		entryPath = filepath.ToSlash(entryPath)
-
-		fileInfo := FileInfo{
-			Name:         entry.Name(),
-			IsDir:        entry.IsDir(),
-			Size:         info.Size(),
-			LastModified: info.ModTime(),
-			Path:         entryPath,
-		}
-		files = append(files, fileInfo)
-	}
-
-	// sort the file list
-	app.sortFiles(files, sortBy, sortDir)
-
-	// special case: Add parent directory if not in root
-	if path != "." {
-		parentPath := filepath.Dir(path)
-
-		// Convert to slash for consistent paths
-		parentPath = filepath.ToSlash(parentPath)
-		if parentPath == "." {
-			parentPath = ""
-		}
-
-		// Get parent directory info if possible
-		var lastModified time.Time
-		parentInfo, err := fs.Stat(app.FS, parentPath)
-		if err == nil {
-			lastModified = parentInfo.ModTime()
-		} else {
-			// Use current time as fallback
-			lastModified = time.Now()
-		}
-
-		// create parent directory entry
-		parentDir := FileInfo{
-			Name:         "..",
-			IsDir:        true,
-			Path:         parentPath,
-			LastModified: lastModified,
-			Size:         0,
-		}
-
-		// insert at the beginning
-		files = append([]FileInfo{parentDir}, files...)
-	}
-
-	return files, nil
-}
-
-// sortFiles sorts the file list based on the specified criteria
-func (app *App) sortFiles(files []FileInfo, sortBy, sortDir string) {
-	// first separate directories and files
-	sort.SliceStable(files, func(i, j int) bool {
-		// Special case: ".." always comes first
-		if files[i].Name == ".." {
-			return true
-		}
-		if files[j].Name == ".." {
-			return false
-		}
-
-		if files[i].IsDir && !files[j].IsDir {
-			return true
-		}
-		if !files[i].IsDir && files[j].IsDir {
-			return false
-		}
-
-		// both are directories or both are files
-		var result bool
-
-		// sort based on the specified field
-		switch sortBy {
-		case "name":
-			result = strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
-		case "date":
-			result = files[i].LastModified.Before(files[j].LastModified)
-		case "size":
-			result = files[i].Size < files[j].Size
-		default:
-			result = strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
-		}
-
-		// reverse if descending order is requested
-		if sortDir == "desc" {
-			result = !result
-		}
-
-		return result
-	})
-}
-
-// getPathParts splits a path into parts for breadcrumb navigation
-func (app *App) getPathParts(path string) []map[string]string {
-	if path == "." {
-		return []map[string]string{}
-	}
-
-	// Convert path separators to slashes for consistent handling
-	path = filepath.ToSlash(path)
-
-	parts := strings.Split(path, "/")
-	result := make([]map[string]string, 0, len(parts))
-
-	// Build the breadcrumb parts
-	var currentPath string
-	for _, part := range parts {
-		if part == "" {
-			continue
-		}
-
-		if currentPath == "" {
-			currentPath = part
-		} else {
-			currentPath = currentPath + "/" + part
-		}
-
-		result = append(result, map[string]string{
-			"Name": part,
-			"Path": currentPath,
-		})
-	}
-
-	return result
+	lgr.SetupStdLogger(logOpts...)
+	lgr.Setup(logOpts...)
 }
