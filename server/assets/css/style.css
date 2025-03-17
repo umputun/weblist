@@ -243,20 +243,25 @@ footer a:hover {
     position: absolute;
     top: 1rem;
     right: 1rem;
-    font-size: 0.85rem;
-    padding: 0.25rem 0.75rem;
-    background-color: var(--pico-muted-border-color, #eee);
-    color: var(--pico-color, #212529);
-    border-radius: var(--pico-border-radius, 0.25rem);
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    gap: 0.25rem;
+    font-size: 0.8rem;
+    z-index: 100;
 }
 
-.logout-button:hover {
-    background-color: var(--pico-muted-color, #6c757d);
-    color: var(--pico-background-color, #fff);
+.logout-button a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    padding: 0.4rem 0.8rem;
+    background-color: var(--pico-primary, #0d6efd);
+    color: white;
+    border-radius: 4px;
+    text-decoration: none;
+    transition: background-color 0.2s;
+}
+
+.logout-button a:hover {
+    background-color: var(--pico-primary-hover, #0a58ca);
+    text-decoration: none;
 }
 
 .logout-icon {
