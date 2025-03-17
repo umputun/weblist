@@ -604,14 +604,14 @@ func TestSortFiles(t *testing.T) {
 			name:    "sort by size ascending",
 			sortBy:  "size",
 			sortDir: "asc",
-			// based on actual output: [.. dir2 dir1 c.txt b.txt a.txt]
-			expectedOrder: []string{"..", "dir2", "dir1", "c.txt", "b.txt", "a.txt"},
+			// with the new implementation, directories are sorted alphabetically
+			expectedOrder: []string{"..", "dir1", "dir2", "c.txt", "b.txt", "a.txt"},
 		},
 		{
 			name:    "sort by size descending",
 			sortBy:  "size",
 			sortDir: "desc",
-			// based on actual output: [.. dir1 dir2 a.txt b.txt c.txt]
+			// with the new implementation, directories are sorted alphabetically regardless of sortDir
 			expectedOrder: []string{"..", "dir1", "dir2", "a.txt", "b.txt", "c.txt"},
 		},
 		{
