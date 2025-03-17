@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -11,7 +12,7 @@ import (
 
 	"github.com/fatih/color"
 	"github.com/go-pkgz/lgr"
-	"github.com/umputun/go-flags"
+	"github.com/jessevdk/go-flags"
 
 	"github.com/umputun/weblist/server"
 )
@@ -32,7 +33,7 @@ func main() {
 	fmt.Printf("weblist %s\n", versionInfo())
 	p := flags.NewParser(&opts, flags.PrintErrors|flags.PassDoubleDash|flags.HelpFlag)
 	if _, err := p.Parse(); err != nil {
-		if err.(*flags.Error).Type != flags.ErrHelp {
+		if !errors.Is(err.(*flags.Error).Type, flags.ErrHelp) {
 			fmt.Printf("%v", err)
 		}
 		os.Exit(1)

@@ -1,8 +1,9 @@
 package server
 
 import (
-	"fmt"
 	"time"
+
+	"github.com/dustin/go-humanize"
 )
 
 // FileInfo represents a file or directory to be displayed in the list
@@ -20,18 +21,7 @@ func (f FileInfo) SizeToString() string {
 		return "-"
 	}
 
-	const unit = 1024
-	if f.Size < unit {
-		return fmt.Sprintf("%d B", f.Size)
-	}
-
-	div, exp := int64(unit), 0
-	for n := f.Size / unit; n >= unit; n /= unit {
-		div *= unit
-		exp++
-	}
-
-	return fmt.Sprintf("%.1f %cB", float64(f.Size)/float64(div), "KMGTPE"[exp])
+	return humanize.Bytes(uint64(f.Size))
 }
 
 // TimeString formats the last modified time

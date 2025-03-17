@@ -4,10 +4,12 @@ go 1.24.1
 
 require (
 	github.com/didip/tollbooth/v8 v8.0.1
+	github.com/dustin/go-humanize v1.0.1
 	github.com/fatih/color v1.18.0
 	github.com/go-pkgz/lgr v0.12.0
 	github.com/go-pkgz/rest v1.20.3
 	github.com/go-pkgz/routegroup v1.3.1
+	github.com/jessevdk/go-flags v1.6.1
 	github.com/stretchr/testify v1.10.0
 	github.com/umputun/go-flags v1.5.1
 )

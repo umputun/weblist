@@ -135,13 +135,13 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If it's a directory, return an error
+	// if it's a directory, return an error
 	if fileInfo.IsDir() {
 		http.Error(w, "cannot download directories", http.StatusBadRequest)
 		return
 	}
 
-	// Open the file directly from the filesystem
+	// open the file directly from the filesystem
 	file, err := wb.FS.Open(filePath)
 	if err != nil {
 		http.Error(w, "error opening file", http.StatusInternalServerError)
@@ -290,7 +290,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 
 // getFileList returns a list of files in the given directory
 func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
-	// Ensure the path is properly formatted for fs.ReadDir
+	// ensure the path is properly formatted for fs.ReadDir
 	if path == "" {
 		path = "."
 	}
@@ -308,7 +308,7 @@ func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 		}
 
 		entryPath := filepath.Join(path, entry.Name())
-		// Convert to slash for consistent paths
+		// convert to slash for consistent paths
 		entryPath = filepath.ToSlash(entryPath)
 
 		fileInfo := FileInfo{
@@ -328,19 +328,19 @@ func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 	if path != "." {
 		parentPath := filepath.Dir(path)
 
-		// Convert to slash for consistent paths
+		// convert to slash for consistent paths
 		parentPath = filepath.ToSlash(parentPath)
 		if parentPath == "." {
 			parentPath = ""
 		}
 
-		// Get parent directory info if possible
+		// get parent directory info if possible
 		var lastModified time.Time
 		parentInfo, err := fs.Stat(wb.FS, parentPath)
 		if err == nil {
 			lastModified = parentInfo.ModTime()
 		} else {
-			// Use current time as fallback
+			// use current time as fallback
 			lastModified = time.Now()
 		}
 
@@ -364,7 +364,7 @@ func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 func (wb *Web) sortFiles(files []FileInfo, sortBy, sortDir string) {
 	// first separate directories and files
 	sort.SliceStable(files, func(i, j int) bool {
-		// Special case: ".." always comes first
+		// special case: ".." always comes first
 		if files[i].Name == ".." {
 			return true
 		}
@@ -409,13 +409,13 @@ func (wb *Web) getPathParts(path, sortBy, sortDir string) []map[string]string {
 		return []map[string]string{}
 	}
 
-	// Convert path separators to slashes for consistent handling
+	// convert path separators to slashes for consistent handling
 	path = filepath.ToSlash(path)
 
 	parts := strings.Split(path, "/")
 	result := make([]map[string]string, 0, len(parts))
 
-	// Build the breadcrumb parts
+	// build the breadcrumb parts
 	var currentPath string
 	for _, part := range parts {
 		if part == "" {
@@ -431,8 +431,8 @@ func (wb *Web) getPathParts(path, sortBy, sortDir string) []map[string]string {
 		result = append(result, map[string]string{
 			"Name": part,
 			"Path": currentPath,
-			"Sort": sortBy,  // Add sort parameter
-			"Dir":  sortDir, // Add direction parameter
+			"Sort": sortBy,  // add sort parameter
+			"Dir":  sortDir, // add direction parameter
 		})
 	}
 
