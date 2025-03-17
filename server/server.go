@@ -206,13 +206,6 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// get the file list
-	fileList, err := wb.getFileList(path, sortBy, sortDir)
-	if err != nil {
-		http.Error(w, "error reading directory: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-
 	// parse template
 	tmpl, err := template.ParseFS(content, "templates/index.html")
 	if err != nil {
@@ -220,33 +213,22 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// create a display path that looks nicer in the UI
-	displayPath := path
-	if path == "." {
-		displayPath = ""
+	// Use the helper function to prepare data
+	data, err := wb.prepareDirectoryData(path, sortBy, sortDir)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
-	// check if user is authenticated (for showing logout button)
-	isAuthenticated := false
+	// Add authentication info
 	if wb.Auth != "" {
 		cookie, err := r.Cookie("auth")
 		if err == nil && cookie.Value == wb.Auth {
-			isAuthenticated = true
+			data["IsAuthenticated"] = true
 		}
 	}
 
-	data := map[string]interface{}{
-		"Files":           fileList,
-		"Path":            path,
-		"DisplayPath":     displayPath,
-		"SortBy":          sortBy,
-		"SortDir":         sortDir,
-		"PathParts":       wb.getPathParts(path, sortBy, sortDir),
-		"Theme":           wb.Config.Theme,
-		"IsAuthenticated": isAuthenticated,
-	}
-
-	// execute the page-content template for HTMX requests
+	// Execute just the page-content template
 	if err := tmpl.ExecuteTemplate(w, "page-content", data); err != nil {
 		http.Error(w, "template rendering error: "+err.Error(), http.StatusInternalServerError)
 	}
@@ -319,6 +301,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		"IsAuthenticated": isAuthenticated,
 	}
 
+	// Execute the entire template
 	if err := tmpl.Execute(w, data); err != nil {
 		http.Error(w, "template rendering error: "+err.Error(), http.StatusInternalServerError)
 	}
@@ -617,4 +600,31 @@ func (wb *Web) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 	// redirect to the login page
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// prepareDirectoryData prepares the data for directory rendering
+func (wb *Web) prepareDirectoryData(path, sortBy, sortDir string) (map[string]interface{}, error) {
+	// Clean the path to avoid directory traversal
+	path = filepath.ToSlash(filepath.Clean(path))
+
+	fileList, err := wb.getFileList(path, sortBy, sortDir)
+	if err != nil {
+		return nil, fmt.Errorf("error reading directory: %w", err)
+	}
+
+	// Create a display path that looks nicer in the UI
+	displayPath := path
+	if path == "." {
+		displayPath = ""
+	}
+
+	return map[string]interface{}{
+		"Files":       fileList,
+		"Path":        path,
+		"DisplayPath": displayPath,
+		"SortBy":      sortBy,
+		"SortDir":     sortDir,
+		"PathParts":   wb.getPathParts(path, sortBy, sortDir),
+		"Theme":       wb.Config.Theme,
+	}, nil
 }
