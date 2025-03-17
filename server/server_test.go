@@ -1712,4 +1712,34 @@ func TestAuthentication(t *testing.T) {
 		assert.Equal(t, http.StatusOK, rr.Code)
 		assert.Equal(t, "css content", rr.Body.String())
 	})
+
+	t.Run("logout clears auth cookie", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/logout", nil)
+		require.NoError(t, err)
+		req.AddCookie(&http.Cookie{
+			Name:  "auth",
+			Value: "testpassword",
+		})
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleLogout)
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusSeeOther, rr.Code)
+		assert.Equal(t, "/login", rr.Header().Get("Location"))
+
+		// Check that the cookie is cleared
+		cookies := rr.Result().Cookies()
+		var authCookie *http.Cookie
+		for _, cookie := range cookies {
+			if cookie.Name == "auth" {
+				authCookie = cookie
+				break
+			}
+		}
+
+		require.NotNil(t, authCookie, "Auth cookie should be present")
+		assert.Equal(t, "", authCookie.Value, "Auth cookie value should be empty")
+		assert.True(t, authCookie.MaxAge < 0, "Auth cookie MaxAge should be negative to delete it")
+	})
 }

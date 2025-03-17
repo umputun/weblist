@@ -215,20 +215,17 @@ footer a:hover {
 }
 
 /* Login page styles */
-.grid {
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 2rem;
-    margin: 2rem 0;
+.login-container {
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: calc(100vh - 2.5rem);
+    padding: 2rem;
 }
 
-@media (min-width: 992px) {
-    .grid {
-        grid-template-columns: 1fr 1fr;
-    }
-}
-
-.grid > div {
+.login-card {
+    width: 100%;
+    max-width: 500px;
     padding: 2rem;
     background-color: var(--pico-card-background-color, #fff);
     border-radius: var(--pico-border-radius, 0.25rem);
@@ -239,4 +236,35 @@ footer a:hover {
     color: var(--pico-del-color, #e03131);
     margin-bottom: 1rem;
     display: block;
+}
+
+/* Logout button */
+.logout-button {
+    position: absolute;
+    top: 1rem;
+    right: 1rem;
+    font-size: 0.85rem;
+    padding: 0.25rem 0.75rem;
+    background-color: var(--pico-muted-border-color, #eee);
+    color: var(--pico-color, #212529);
+    border-radius: var(--pico-border-radius, 0.25rem);
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.25rem;
+}
+
+.logout-button:hover {
+    background-color: var(--pico-muted-color, #6c757d);
+    color: var(--pico-background-color, #fff);
+}
+
+.logout-icon {
+    width: 1em;
+    height: 1em;
+}
+
+/* Remove old grid styles that are no longer needed */
+.grid {
+    display: none;
 }

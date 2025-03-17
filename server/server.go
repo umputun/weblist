@@ -65,6 +65,7 @@ func (wb *Web) Run(ctx context.Context) error {
 	if wb.Auth != "" {
 		router.HandleFunc("GET /login", wb.handleLoginPage)
 		router.HandleFunc("POST /login", wb.handleLoginSubmit)
+		router.HandleFunc("GET /logout", wb.handleLogout)
 		router.Use(wb.authMiddleware)
 	}
 
@@ -225,14 +226,24 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		displayPath = ""
 	}
 
+	// Check if user is authenticated (for showing logout button)
+	isAuthenticated := false
+	if wb.Auth != "" {
+		cookie, err := r.Cookie("auth")
+		if err == nil && cookie.Value == wb.Auth {
+			isAuthenticated = true
+		}
+	}
+
 	data := map[string]interface{}{
-		"Files":       fileList,
-		"Path":        path,
-		"DisplayPath": displayPath,
-		"SortBy":      sortBy,
-		"SortDir":     sortDir,
-		"PathParts":   wb.getPathParts(path, sortBy, sortDir),
-		"Theme":       wb.Config.Theme,
+		"Files":           fileList,
+		"Path":            path,
+		"DisplayPath":     displayPath,
+		"SortBy":          sortBy,
+		"SortDir":         sortDir,
+		"PathParts":       wb.getPathParts(path, sortBy, sortDir),
+		"Theme":           wb.Config.Theme,
+		"IsAuthenticated": isAuthenticated,
 	}
 
 	// execute the page-content template for HTMX requests
@@ -287,15 +298,25 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		displayPath = ""
 	}
 
+	// Check if user is authenticated (for showing logout button)
+	isAuthenticated := false
+	if wb.Auth != "" {
+		cookie, err := r.Cookie("auth")
+		if err == nil && cookie.Value == wb.Auth {
+			isAuthenticated = true
+		}
+	}
+
 	data := map[string]any{
-		"Files":       fileList,
-		"Path":        path,
-		"DisplayPath": displayPath,
-		"SortBy":      sortBy,
-		"SortDir":     sortDir,
-		"PathParts":   wb.getPathParts(path, sortBy, sortDir),
-		"Theme":       wb.Config.Theme,
-		"HideFooter":  wb.Config.HideFooter,
+		"Files":           fileList,
+		"Path":            path,
+		"DisplayPath":     displayPath,
+		"SortBy":          sortBy,
+		"SortDir":         sortDir,
+		"PathParts":       wb.getPathParts(path, sortBy, sortDir),
+		"Theme":           wb.Config.Theme,
+		"HideFooter":      wb.Config.HideFooter,
+		"IsAuthenticated": isAuthenticated,
 	}
 
 	if err := tmpl.Execute(w, data); err != nil {
@@ -580,4 +601,20 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	// Redirect to the home page
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handleLogout handles the logout request
+func (wb *Web) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// Clear the auth cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		MaxAge:   -1, // Delete the cookie
+	})
+
+	// Redirect to the login page
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
 }

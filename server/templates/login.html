@@ -11,30 +11,28 @@
 
 <body>
 
-<main class="container">
-    <article class="grid">
-        <div>
-            <hgroup>
-                <h1>Login</h1>
-                <h2>Please enter your password to access the file listing</h2>
-            </hgroup>
+<main class="container login-container">
+    <div class="login-card">
+        <hgroup>
+            <h1>Login</h1>
+            <h2>Please enter your password to access the file listing</h2>
+        </hgroup>
+        
+        <form action="/login" method="post">
+            <input type="hidden" name="username" value="weblist">
             
-            <form action="/login" method="post">
-                <input type="hidden" name="username" value="weblist">
-                
-                <label for="password">
-                    Password
-                    <input type="password" id="password" name="password" placeholder="Enter your password" required>
-                </label>
-                
-                {{ if .Error }}
-                <small class="error">{{ .Error }}</small>
-                {{ end }}
-                
-                <button type="submit">Login</button>
-            </form>
-        </div>
-    </article>
+            <label for="password">
+                Password
+                <input type="password" id="password" name="password" placeholder="Enter your password" required>
+            </label>
+            
+            {{ if .Error }}
+            <small class="error">{{ .Error }}</small>
+            {{ end }}
+            
+            <button type="submit">Login</button>
+        </form>
+    </div>
 </main>
 
 {{ if not .HideFooter }}
