@@ -1,6 +1,6 @@
 module github.com/umputun/weblist
 
-go 1.24.1
+go 1.24
 
 require (
 	github.com/didip/tollbooth/v8 v8.0.1
