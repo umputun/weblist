@@ -308,11 +308,24 @@ func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 
 	// add a parent directory entry if we're not at the root
 	if path != "." {
-		files = append(files, FileInfo{
+		parentPath := filepath.Dir(path)
+
+		// create parent directory entry with minimal information
+		parentEntry := FileInfo{
 			Name:  "..",
 			IsDir: true,
-			Path:  filepath.Dir(path),
-		})
+			Path:  parentPath,
+			// LastModified intentionally omitted - will be zero value
+			// this is better than showing incorrect time
+		}
+
+		// try to get the actual modification time of the parent directory
+		// but don't fail if we can't - just leave LastModified as zero value
+		if parentInfo, err := fs.Stat(wb.FS, parentPath); err == nil && parentInfo != nil {
+			parentEntry.LastModified = parentInfo.ModTime()
+		}
+
+		files = append(files, parentEntry)
 	}
 
 	for _, entry := range entries {

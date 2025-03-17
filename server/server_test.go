@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -766,6 +767,103 @@ func TestGetFileListErrors(t *testing.T) {
 		_, err := srv.getFileList("file1.txt", "name", "asc")
 		assert.Error(t, err)
 	})
+}
+
+func TestParentDirectoryTimestamp(t *testing.T) {
+	// create a temporary directory for testing
+	tempDir, err := os.MkdirTemp("", "weblist-parent-timestamp-test")
+	require.NoError(t, err)
+	defer os.RemoveAll(tempDir)
+
+	// create a subdirectory
+	subDir := filepath.Join(tempDir, "subdir")
+	err = os.Mkdir(subDir, 0755)
+	require.NoError(t, err)
+
+	// create a server with the temp directory
+	srv := &Web{
+		Config: Config{
+			RootDir: tempDir,
+		},
+		FS: os.DirFS(tempDir),
+	}
+
+	t.Run("normal case - parent directory exists", func(t *testing.T) {
+		// get file list for the subdirectory
+		files, err := srv.getFileList("subdir", "name", "asc")
+		require.NoError(t, err)
+
+		// verify that the parent directory entry exists and has a valid timestamp
+		require.True(t, len(files) > 0, "File list should not be empty")
+		require.Equal(t, "..", files[0].Name, "First entry should be parent directory")
+		require.True(t, files[0].IsDir, "Parent entry should be a directory")
+
+		// check that the LastModified time is not zero
+		zeroTime := time.Time{}
+		assert.NotEqual(t, zeroTime, files[0].LastModified, "Parent directory should have a non-zero timestamp")
+
+		// the parent directory's timestamp should be close to the current time
+		// or match the actual parent directory's timestamp
+		parentInfo, err := os.Stat(tempDir)
+		require.NoError(t, err)
+
+		// allow a small tolerance for timestamp differences due to filesystem precision
+		// some filesystems might truncate timestamps to the nearest second
+		timeDiff := parentInfo.ModTime().Sub(files[0].LastModified).Abs()
+		assert.True(t, timeDiff < 2*time.Second,
+			"Parent directory timestamp should match actual directory timestamp (diff: %v)", timeDiff)
+	})
+
+	t.Run("edge case - can't get parent directory info", func(t *testing.T) {
+		// create a special test server with a custom filesystem that can't get parent info
+		mockFS := &mockFS{
+			baseDir:           tempDir,
+			failStatForParent: true,
+		}
+
+		mockSrv := &Web{
+			Config: Config{
+				RootDir: tempDir,
+			},
+			FS: mockFS,
+		}
+
+		// get file list for the subdirectory
+		files, err := mockSrv.getFileList("subdir", "name", "asc")
+		require.NoError(t, err)
+
+		// verify that the parent directory entry exists but has a zero timestamp
+		require.True(t, len(files) > 0, "File list should not be empty")
+		require.Equal(t, "..", files[0].Name, "First entry should be parent directory")
+		require.True(t, files[0].IsDir, "Parent entry should be a directory")
+
+		// check that the LastModified time is zero
+		zeroTime := time.Time{}
+		assert.Equal(t, zeroTime, files[0].LastModified,
+			"Parent directory should have a zero timestamp when parent info can't be retrieved")
+	})
+}
+
+// mockFS is a mock filesystem that can be configured to fail stat for parent directories
+type mockFS struct {
+	baseDir           string
+	failStatForParent bool
+}
+
+func (m *mockFS) Open(name string) (fs.File, error) {
+	return os.DirFS(m.baseDir).Open(name)
+}
+
+func (m *mockFS) ReadDir(name string) ([]fs.DirEntry, error) {
+	return fs.ReadDir(os.DirFS(m.baseDir), name)
+}
+
+func (m *mockFS) Stat(name string) (fs.FileInfo, error) {
+	// if configured to fail for parent and the path is a parent directory
+	if m.failStatForParent && name == filepath.Dir("subdir") {
+		return nil, fmt.Errorf("mock error: can't stat parent directory")
+	}
+	return fs.Stat(os.DirFS(m.baseDir), name)
 }
 
 func TestServerIntegration(t *testing.T) {
