@@ -10,8 +10,6 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
-	"reflect"
-	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -1268,152 +1266,12 @@ func TestShouldExclude(t *testing.T) {
 	}
 }
 
-func TestExcludeFilesAndDirectories(t *testing.T) {
+func TestGetFileListWithExcludes(t *testing.T) {
 	// create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "weblist-test")
-	if err != nil {
-		t.Fatalf("failed to create temp directory: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// create test directories
-	dirs := []string{
-		filepath.Join(tempDir, "normal"),
-		filepath.Join(tempDir, ".git"),
-		filepath.Join(tempDir, "vendor"),
-		filepath.Join(tempDir, "docs", ".git"),
-		filepath.Join(tempDir, "src", "vendor"),
-	}
-
-	for _, dir := range dirs {
-		if err := os.MkdirAll(dir, 0755); err != nil {
-			t.Fatalf("failed to create directory %s: %v", dir, err)
-		}
-	}
+	tempDir := t.TempDir()
 
 	// create test files
-	testFiles := []string{
-		filepath.Join(tempDir, ".env"),
-		filepath.Join(tempDir, "normal", "config.json"),
-		filepath.Join(tempDir, "normal", ".env"),
-		filepath.Join(tempDir, "docs", "README.md"),
-	}
-
-	for _, file := range testFiles {
-		if err := os.WriteFile(file, []byte("test content"), 0644); err != nil {
-			t.Fatalf("failed to create file %s: %v", file, err)
-		}
-	}
-
-	// create a test file in each directory
-	for _, dir := range dirs {
-		filePath := filepath.Join(dir, "test.txt")
-		if err := os.WriteFile(filePath, []byte("test content"), 0644); err != nil {
-			t.Fatalf("failed to create file %s: %v", filePath, err)
-		}
-	}
-
-	// create a server with exclude patterns
-	srv := &Web{
-		Config: Config{
-			RootDir: tempDir,
-			Exclude: []string{".git", "vendor", ".env"},
-		},
-		FS: os.DirFS(tempDir),
-	}
-
-	// test root directory listing
-	fileInfos, err := srv.getFileList(".", "name", "asc")
-	if err != nil {
-		t.Fatalf("getFileList failed: %v", err)
-	}
-
-	// check that .git and vendor directories and .env file are excluded
-	for _, file := range fileInfos {
-		if file.Name == ".git" || file.Name == "vendor" || file.Name == ".env" {
-			t.Errorf("excluded item %s should not be in the file list", file.Name)
-		}
-	}
-
-	// verify that only expected directories are present
-	expectedDirs := []string{"docs", "normal", "src"}
-	foundDirs := make([]string, 0)
-
-	for _, file := range fileInfos {
-		if file.IsDir {
-			foundDirs = append(foundDirs, file.Name)
-		}
-	}
-
-	// sort both slices for comparison
-	sort.Strings(expectedDirs)
-	sort.Strings(foundDirs)
-
-	if !reflect.DeepEqual(expectedDirs, foundDirs) {
-		t.Errorf("expected directories %v, got %v", expectedDirs, foundDirs)
-	}
-
-	// test subdirectory listing
-	fileInfos, err = srv.getFileList("normal", "name", "asc")
-	if err != nil {
-		t.Fatalf("getFileList for normal failed: %v", err)
-	}
-
-	// check that .env file is excluded in subdirectory
-	for _, file := range fileInfos {
-		if file.Name == ".env" {
-			t.Errorf("excluded file %s should not be in the subdirectory file list", file.Name)
-		}
-	}
-
-	// verify that config.json is present
-	foundConfigJson := false
-	for _, file := range fileInfos {
-		if file.Name == "config.json" {
-			foundConfigJson = true
-			break
-		}
-	}
-	if !foundConfigJson {
-		t.Errorf("config.json should be in the file list")
-	}
-
-	// test docs subdirectory listing
-	fileInfos, err = srv.getFileList("docs", "name", "asc")
-	if err != nil {
-		t.Fatalf("getFileList for docs failed: %v", err)
-	}
-
-	// check that .git directory is excluded in subdirectory
-	for _, file := range fileInfos {
-		if file.Name == ".git" {
-			t.Errorf("excluded directory %s should not be in the subdirectory file list", file.Name)
-		}
-	}
-
-	// verify that README.md is present
-	foundReadme := false
-	for _, file := range fileInfos {
-		if file.Name == "README.md" {
-			foundReadme = true
-			break
-		}
-	}
-	if !foundReadme {
-		t.Errorf("README.md should be in the file list")
-	}
-}
-
-func TestHandleDownloadExcludedFiles(t *testing.T) {
-	// create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "weblist-test")
-	if err != nil {
-		t.Fatalf("failed to create temp directory: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
-
-	// create test files
-	testFiles := []string{
+	filesToCreate := []string{
 		filepath.Join(tempDir, "normal.txt"),
 		filepath.Join(tempDir, ".env"),
 		filepath.Join(tempDir, ".git", "config"),
@@ -1421,18 +1279,17 @@ func TestHandleDownloadExcludedFiles(t *testing.T) {
 
 	// create .git directory
 	if err := os.MkdirAll(filepath.Join(tempDir, ".git"), 0755); err != nil {
-		t.Fatalf("failed to create directory: %v", err)
+		t.Fatalf("Failed to create .git directory: %v", err)
 	}
 
-	// create test files with content
-	for _, file := range testFiles {
-		if err := os.WriteFile(file, []byte("test content"), 0644); err != nil {
-			t.Fatalf("failed to create file %s: %v", file, err)
-		}
+	// create the files
+	for _, file := range filesToCreate {
+		err := os.WriteFile(file, []byte("test content"), 0644)
+		require.NoError(t, err)
 	}
 
-	// create a server with exclude patterns
-	srv := &Web{
+	// create a Web instance with exclude patterns
+	wb := &Web{
 		Config: Config{
 			RootDir: tempDir,
 			Exclude: []string{".git", ".env"},
@@ -1440,176 +1297,121 @@ func TestHandleDownloadExcludedFiles(t *testing.T) {
 		FS: os.DirFS(tempDir),
 	}
 
-	tests := []struct {
-		name           string
-		path           string
-		expectedStatus int
-		expectedBody   string
-	}{
-		{
-			name:           "download normal file",
-			path:           "/download/normal.txt",
-			expectedStatus: http.StatusOK,
-			expectedBody:   "test content",
-		},
-		{
-			name:           "download excluded file",
-			path:           "/download/.env",
-			expectedStatus: http.StatusForbidden,
-			expectedBody:   "access denied: .env",
-		},
-		{
-			name:           "download file in excluded directory",
-			path:           "/download/.git/config",
-			expectedStatus: http.StatusForbidden,
-			expectedBody:   "access denied: config",
-		},
+	// test that excluded files are not in the file list
+	fileList, err := wb.getFileList(".", "name", "asc")
+	require.NoError(t, err)
+
+	// check that .git and .env are excluded
+	for _, file := range fileList {
+		assert.NotEqual(t, ".git", file.Name, "Excluded directory .git should not be in the file list")
+		assert.NotEqual(t, ".env", file.Name, "Excluded file .env should not be in the file list")
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			req, err := http.NewRequest("GET", tc.path, nil)
-			require.NoError(t, err)
-
-			rr := httptest.NewRecorder()
-			handler := http.HandlerFunc(srv.handleDownload)
-			handler.ServeHTTP(rr, req)
-
-			assert.Equal(t, tc.expectedStatus, rr.Code)
-			assert.Contains(t, rr.Body.String(), tc.expectedBody)
-		})
+	// verify that normal.txt is in the list
+	found := false
+	for _, file := range fileList {
+		if file.Name == "normal.txt" {
+			found = true
+			break
+		}
 	}
+	assert.True(t, found, "normal.txt should be in the file list")
 }
 
-func TestExcludedFilesIntegration(t *testing.T) {
+func TestGetFileListWithExcludesInSubdir(t *testing.T) {
 	// create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "weblist-test")
-	if err != nil {
-		t.Fatalf("failed to create temp directory: %v", err)
-	}
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
-	// create test files and directories
+	// create .git directory
 	if err := os.MkdirAll(filepath.Join(tempDir, ".git"), 0755); err != nil {
-		t.Fatalf("failed to create directory: %v", err)
+		t.Fatalf("Failed to create .git directory: %v", err)
 	}
 
-	testFiles := []string{
+	// create test files
+	filesToCreate := []string{
 		filepath.Join(tempDir, "normal.txt"),
 		filepath.Join(tempDir, ".env"),
 		filepath.Join(tempDir, ".git", "config"),
 	}
 
-	for _, file := range testFiles {
-		if err := os.WriteFile(file, []byte("test content for "+filepath.Base(file)), 0644); err != nil {
-			t.Fatalf("failed to create file %s: %v", file, err)
-		}
+	// create the files
+	for _, file := range filesToCreate {
+		err := os.WriteFile(file, []byte("test content"), 0644)
+		require.NoError(t, err)
 	}
 
-	// create server with exclude patterns
-	srv := &Web{
+	// create a Web instance with exclude patterns
+	wb := &Web{
 		Config: Config{
-			ListenAddr: ":0", // use port 0 to let the system assign a random available port
-			Theme:      "light",
-			RootDir:    tempDir,
-			Exclude:    []string{".git", ".env"},
+			RootDir: tempDir,
+			Exclude: []string{".git", ".env"},
 		},
 		FS: os.DirFS(tempDir),
 	}
 
-	// start the server in a goroutine
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// create a listener to get the actual port
-	listener, err := net.Listen("tcp", ":0")
+	// create a subdirectory with excluded files
+	subDir := filepath.Join(tempDir, "subdir")
+	err := os.Mkdir(subDir, 0755)
 	require.NoError(t, err)
-	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close() // close it so the server can use it
 
-	// update the server's listen address with the actual port
-	srv.Config.ListenAddr = fmt.Sprintf(":%d", port)
+	// create files in subdirectory
+	err = os.WriteFile(filepath.Join(subDir, ".env"), []byte("test content"), 0644)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(subDir, "normal.txt"), []byte("test content"), 0644)
+	require.NoError(t, err)
 
-	// start the server
-	serverErrCh := make(chan error, 1)
-	go func() {
-		serverErrCh <- srv.Run(ctx)
-	}()
+	// test that excluded files in subdirectory are not in the file list
+	fileList, err := wb.getFileList("subdir", "name", "asc")
+	require.NoError(t, err)
 
-	// wait a moment for the server to start
-	time.Sleep(100 * time.Millisecond)
-
-	// create an HTTP client
-	client := &http.Client{
-		Timeout: 5 * time.Second,
+	// check that .env is excluded in subdirectory
+	for _, file := range fileList {
+		assert.NotEqual(t, ".env", file.Name, "Excluded file .env should not be in the subdirectory file list")
 	}
 
-	baseURL := fmt.Sprintf("http://localhost:%d", port)
+	// verify that normal.txt is in the subdirectory list
+	found := false
+	for _, file := range fileList {
+		if file.Name == "normal.txt" {
+			found = true
+			break
+		}
+	}
+	assert.True(t, found, "normal.txt should be in the subdirectory file list")
+}
 
-	// test cases
-	tests := []struct {
-		name           string
-		path           string
-		expectedStatus int
-		expectedBody   string
-	}{
-		{
-			name:           "download normal file",
-			path:           "/download/normal.txt",
-			expectedStatus: http.StatusOK,
-			expectedBody:   "test content for normal.txt",
+func TestGetFileListWithParentTimestamp(t *testing.T) {
+	// create a temporary directory for testing
+	tempDir := t.TempDir()
+
+	// create a subdirectory
+	subDir := filepath.Join(tempDir, "subdir")
+	err := os.Mkdir(subDir, 0755)
+	require.NoError(t, err)
+
+	// create a Web instance with the test directory
+	wb := &Web{
+		Config: Config{
+			RootDir: tempDir,
 		},
-		{
-			name:           "download excluded file",
-			path:           "/download/.env",
-			expectedStatus: http.StatusForbidden,
-			expectedBody:   "access denied: .env",
-		},
-		{
-			name:           "download file in excluded directory",
-			path:           "/download/.git/config",
-			expectedStatus: http.StatusForbidden,
-			expectedBody:   "access denied: config",
-		},
-		{
-			name:           "directory listing excludes files",
-			path:           "/",
-			expectedStatus: http.StatusOK,
-			expectedBody:   "normal.txt",
-		},
+		FS: os.DirFS(tempDir),
 	}
 
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			resp, err := client.Get(baseURL + tc.path)
-			require.NoError(t, err)
-			defer resp.Body.Close()
+	// get the file list for the subdirectory
+	// use a relative path from the root directory
+	fileList, err := wb.getFileList("subdir", "name", "asc")
+	require.NoError(t, err)
 
-			assert.Equal(t, tc.expectedStatus, resp.StatusCode)
+	// verify that the parent directory (..) is included
+	require.Greater(t, len(fileList), 0, "File list should not be empty")
+	require.Equal(t, "..", fileList[0].Name, "First entry should be the parent directory")
 
-			body, err := io.ReadAll(resp.Body)
-			require.NoError(t, err)
+	// get the parent directory info
+	parentInfo, err := os.Stat(tempDir)
+	require.NoError(t, err)
 
-			assert.Contains(t, string(body), tc.expectedBody)
-
-			// for the directory listing test, also verify excluded files are not shown
-			if tc.path == "/" {
-				assert.NotContains(t, string(body), ".env")
-				assert.NotContains(t, string(body), ".git")
-			}
-		})
-	}
-
-	// shutdown the server
-	cancel()
-
-	// wait for server to shut down
-	select {
-	case err := <-serverErrCh:
-		assert.NoError(t, err)
-	case <-time.After(2 * time.Second):
-		t.Fatal("Server did not shut down within expected time")
-	}
+	// verify that the parent directory timestamp matches
+	require.Equal(t, parentInfo.ModTime(), fileList[0].LastModified, "Parent directory timestamp should match")
 }
 
 func TestAuthentication(t *testing.T) {

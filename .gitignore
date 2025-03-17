@@ -12,3 +12,6 @@ weblist
 .idea/
 .env
 .env.local
+/tmp/
+*_test_*
+*_tmp_*

@@ -81,9 +81,7 @@ func TestAbsolutePathResolution(t *testing.T) {
 	defer func() { opts = originalOpts }()
 
 	// create a temporary directory
-	tempDir, err := os.MkdirTemp("", "weblist-test-*")
-	assert.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	// test relative path resolution
 	opts.RootDir = "."
@@ -194,12 +192,10 @@ func TestParseCommandLineArgs(t *testing.T) {
 
 func TestMainIntegration(t *testing.T) {
 	// create a temporary directory for testing
-	tempDir, err := os.MkdirTemp("", "weblist-test-*")
-	require.NoError(t, err)
-	defer os.RemoveAll(tempDir)
+	tempDir := t.TempDir()
 
 	// create some test files in the temp directory
-	err = os.WriteFile(filepath.Join(tempDir, "test1.txt"), []byte("test1 content"), 0644)
+	err := os.WriteFile(filepath.Join(tempDir, "test1.txt"), []byte("test1 content"), 0644)
 	require.NoError(t, err)
 	err = os.WriteFile(filepath.Join(tempDir, "test2.txt"), []byte("test2 content"), 0644)
 	require.NoError(t, err)
