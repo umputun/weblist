@@ -5,10 +5,10 @@ import (
 	"embed"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -25,6 +25,7 @@ import (
 //go:embed templates/* assets/*
 var content embed.FS
 
+// Web represents the web server.
 type Web struct {
 	Config
 	FS fs.FS
@@ -64,8 +65,11 @@ func (wb *Web) Run(ctx context.Context) error {
 	router.HandleFiles("/assets/", http.FS(assetsFS))
 
 	srv := &http.Server{
-		Addr:    wb.ListenAddr,
-		Handler: router,
+		Addr:              wb.ListenAddr,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       10 * time.Second,
+		WriteTimeout:      30 * time.Second,
 	}
 
 	// channel to capture server errors
@@ -82,7 +86,7 @@ func (wb *Web) Run(ctx context.Context) error {
 	case err := <-serverErrors:
 		return fmt.Errorf("[ERROR] server failed: %w", err)
 	case <-ctx.Done():
-		// gracefully shutdown when context is cancelled
+		// gracefully shutdown when context is canceled
 		log.Printf("[DEBUG] server shutdown initiated")
 		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
@@ -131,37 +135,14 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// If it's a directory, return an error
 	if fileInfo.IsDir() {
-		// check if index.html exists in this directory
-		indexPath := filepath.Join(filePath, "index.html")
-		indexInfo, err := fs.Stat(wb.FS, indexPath)
-		if err == nil && !indexInfo.IsDir() {
-			// Create the physical file path for index.html
-			physicalIndexPath := filepath.Join(wb.Config.RootDir, indexPath)
-			file, err := os.Open(physicalIndexPath)
-			if err != nil {
-				http.Error(w, "error opening file", http.StatusInternalServerError)
-				return
-			}
-			defer file.Close()
-
-			w.Header().Set("Content-Type", "application/octet-stream")
-			w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", "index.html"))
-			w.Header().Set("Content-Length", fmt.Sprintf("%d", indexInfo.Size()))
-
-			http.ServeContent(w, r, "index.html", indexInfo.ModTime(), file)
-			return
-		}
-
-		// if no index.html or it's also a directory, return error
 		http.Error(w, "cannot download directories", http.StatusBadRequest)
 		return
 	}
 
-	// Because we need an io.ReadSeeker for ServeContent, we need to use the actual OS file
-	// Create the physical file path by joining the root directory with the relative path
-	physicalPath := filepath.Join(wb.Config.RootDir, filePath)
-	file, err := os.Open(physicalPath)
+	// Open the file directly from the filesystem
+	file, err := wb.FS.Open(filePath)
 	if err != nil {
 		http.Error(w, "error opening file", http.StatusInternalServerError)
 		return
@@ -170,11 +151,11 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	// force all files to download instead of being displayed in browser
 	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=\"%s\"", fileInfo.Name()))
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileInfo.Name()))
 	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
 
-	// copy the file to the response
-	http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file)
+	// copy the file to the response - directly use file as ReadSeeker
+	http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file.(io.ReadSeeker))
 }
 
 // handleDirContents renders partial directory contents for HTMX requests
@@ -232,11 +213,11 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	data := map[string]interface{}{
 		"Files":       fileList,
 		"Path":        path,
-		"DisplayPath": displayPath, // use for display purposes
+		"DisplayPath": displayPath,
 		"SortBy":      sortBy,
 		"SortDir":     sortDir,
-		"PathParts":   wb.getPathParts(path),
-		"Theme":       wb.Config.Theme, // always use the CLI-specified theme
+		"PathParts":   wb.getPathParts(path, sortBy, sortDir),
+		"Theme":       wb.Config.Theme,
 	}
 
 	// execute the page-content template for HTMX requests
@@ -294,11 +275,11 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	data := map[string]any{
 		"Files":       fileList,
 		"Path":        path,
-		"DisplayPath": displayPath, // use for display purposes
+		"DisplayPath": displayPath,
 		"SortBy":      sortBy,
 		"SortDir":     sortDir,
-		"PathParts":   wb.getPathParts(path),
-		"Theme":       wb.Config.Theme, // use the CLI-specified theme
+		"PathParts":   wb.getPathParts(path, sortBy, sortDir),
+		"Theme":       wb.Config.Theme,
 		"HideFooter":  wb.Config.HideFooter,
 	}
 
@@ -308,7 +289,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 }
 
 // getFileList returns a list of files in the given directory
-func (wb *Web) getFileList(path string, sortBy, sortDir string) ([]FileInfo, error) {
+func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 	// Ensure the path is properly formatted for fs.ReadDir
 	if path == "" {
 		path = "."
@@ -319,7 +300,7 @@ func (wb *Web) getFileList(path string, sortBy, sortDir string) ([]FileInfo, err
 		return nil, err
 	}
 
-	var files []FileInfo
+	var files []FileInfo //nolint // we can't preallocate the size here
 	for _, entry := range entries {
 		info, err := entry.Info()
 		if err != nil {
@@ -423,7 +404,7 @@ func (wb *Web) sortFiles(files []FileInfo, sortBy, sortDir string) {
 }
 
 // getPathParts splits a path into parts for breadcrumb navigation
-func (wb *Web) getPathParts(path string) []map[string]string {
+func (wb *Web) getPathParts(path, sortBy, sortDir string) []map[string]string {
 	if path == "." {
 		return []map[string]string{}
 	}
@@ -450,6 +431,8 @@ func (wb *Web) getPathParts(path string) []map[string]string {
 		result = append(result, map[string]string{
 			"Name": part,
 			"Path": currentPath,
+			"Sort": sortBy,  // Add sort parameter
+			"Dir":  sortDir, // Add direction parameter
 		})
 	}
 

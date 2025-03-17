@@ -39,13 +39,6 @@ func main() {
 	}
 	setupLog(opts.Dbg)
 
-	defer func() {
-		if x := recover(); x != nil {
-			log.Printf("[WARN] run time panic:\n%v", x)
-			panic(x)
-		}
-	}()
-
 	if opts.Version {
 		fmt.Printf("weblist %s\n", versionInfo())
 		os.Exit(0)
@@ -64,6 +57,13 @@ func main() {
 	}
 	opts.RootDir = absRootDir
 
+	defer func() {
+		if x := recover(); x != nil {
+			log.Printf("[WARN] run time panic:\n%v", x)
+			panic(x)
+		}
+	}()
+
 	srv := &server.Web{
 		Config: server.Config{
 			ListenAddr: opts.Listen,
@@ -78,7 +78,7 @@ func main() {
 	defer cancel()
 
 	if err := srv.Run(ctx); err != nil {
-		log.Fatalf("failed to run server: %v", err)
+		log.Fatalf("failed to run server: %v", err) //nolint
 	}
 }
 
