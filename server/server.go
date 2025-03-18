@@ -248,10 +248,14 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// prepare data for the template
-		data := map[string]interface{}{
-			"FileName": fileInfo.Name(),
-			"Content":  string(fileContent),
-			"Theme":    theme,
+		data := struct {
+			FileName string
+			Content  string
+			Theme    string
+		}{
+			FileName: fileInfo.Name(),
+			Content:  string(fileContent),
+			Theme:    theme,
 		}
 
 		// execute the file-view template
@@ -359,19 +363,48 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// use the helper function to prepare data
-	data, err := wb.prepareDirectoryData(path, sortBy, sortDir)
+	// get the directory file list
+	fileList, err := wb.getFileList(path, sortBy, sortDir)
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		http.Error(w, fmt.Sprintf("error reading directory: %v", err), http.StatusInternalServerError)
 		return
 	}
 
-	// add authentication info
+	// create a display path that looks nicer in the UI
+	displayPath := path
+	if path == "." {
+		displayPath = ""
+	}
+
+	// prepare data with struct directly in this function
+	isAuthenticated := false
 	if wb.Auth != "" {
 		cookie, err := r.Cookie("auth")
 		if err == nil && cookie.Value == wb.Auth {
-			data["IsAuthenticated"] = true
+			isAuthenticated = true
 		}
+	}
+
+	data := struct {
+		Files           []FileInfo
+		Path            string
+		DisplayPath     string
+		SortBy          string
+		SortDir         string
+		PathParts       []map[string]string
+		Theme           string
+		Title           string
+		IsAuthenticated bool
+	}{
+		Files:           fileList,
+		Path:            path,
+		DisplayPath:     displayPath,
+		SortBy:          sortBy,
+		SortDir:         sortDir,
+		PathParts:       wb.getPathParts(path, sortBy, sortDir),
+		Theme:           wb.Config.Theme,
+		Title:           wb.Config.Title,
+		IsAuthenticated: isAuthenticated,
 	}
 
 	// execute just the page-content template
@@ -435,17 +468,28 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		}
 	}
 
-	data := map[string]any{
-		"Files":           fileList,
-		"Path":            path,
-		"DisplayPath":     displayPath,
-		"SortBy":          sortBy,
-		"SortDir":         sortDir,
-		"PathParts":       wb.getPathParts(path, sortBy, sortDir),
-		"Theme":           wb.Config.Theme,
-		"HideFooter":      wb.Config.HideFooter,
-		"IsAuthenticated": isAuthenticated,
-		"Title":           wb.Config.Title,
+	data := struct {
+		Files           []FileInfo
+		Path            string
+		DisplayPath     string
+		SortBy          string
+		SortDir         string
+		PathParts       []map[string]string
+		Theme           string
+		HideFooter      bool
+		IsAuthenticated bool
+		Title           string
+	}{
+		Files:           fileList,
+		Path:            path,
+		DisplayPath:     displayPath,
+		SortBy:          sortBy,
+		SortDir:         sortDir,
+		PathParts:       wb.getPathParts(path, sortBy, sortDir),
+		Theme:           wb.Config.Theme,
+		HideFooter:      wb.Config.HideFooter,
+		IsAuthenticated: isAuthenticated,
+		Title:           wb.Config.Title,
 	}
 
 	// execute the entire template
@@ -683,10 +727,14 @@ func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
 		return
 	}
 
-	data := map[string]interface{}{
-		"Theme":      wb.Theme,
-		"HideFooter": wb.HideFooter,
-		"Title":      wb.Title,
+	data := struct {
+		Theme      string
+		HideFooter bool
+		Title      string
+	}{
+		Theme:      wb.Theme,
+		HideFooter: wb.HideFooter,
+		Title:      wb.Title,
 	}
 
 	if err := tmpl.Execute(w, data); err != nil {
@@ -713,11 +761,16 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		data := map[string]interface{}{
-			"Theme":      wb.Theme,
-			"HideFooter": wb.HideFooter,
-			"Title":      wb.Title,
-			"Error":      "Invalid username or password",
+		data := struct {
+			Theme      string
+			HideFooter bool
+			Title      string
+			Error      string
+		}{
+			Theme:      wb.Theme,
+			HideFooter: wb.HideFooter,
+			Title:      wb.Title,
+			Error:      "Invalid username or password",
 		}
 
 		if err := tmpl.Execute(w, data); err != nil {
@@ -826,19 +879,28 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// prepare data for the modal template
-	data := map[string]interface{}{
-		"FileName":    fileInfo.Name(),
-		"FilePath":    path,
-		"ContentType": contentType,
-		"FileSize":    fileInfo.Size(),
-		"IsImage":     strings.HasPrefix(contentType, "image/"),
-		"IsPDF":       contentType == "application/pdf",
-		"IsText": strings.HasPrefix(contentType, "text/") ||
+	data := struct {
+		FileName    string
+		FilePath    string
+		ContentType string
+		FileSize    int64
+		IsImage     bool
+		IsPDF       bool
+		IsText      bool
+		Theme       string
+	}{
+		FileName:    fileInfo.Name(),
+		FilePath:    path,
+		ContentType: contentType,
+		FileSize:    fileInfo.Size(),
+		IsImage:     strings.HasPrefix(contentType, "image/"),
+		IsPDF:       contentType == "application/pdf",
+		IsText: strings.HasPrefix(contentType, "text/") ||
 			strings.HasPrefix(contentType, "application/json") ||
 			strings.HasPrefix(contentType, "application/xml") ||
 			strings.Contains(contentType, "html") ||
 			commonTextExtensions[extLower],
-		"Theme": wb.Config.Theme,
+		Theme: wb.Config.Theme,
 	}
 
 	// parse the main template which contains all the named templates
@@ -855,32 +917,4 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 		log.Printf("[ERROR] failed to execute file-modal template: %v", err)
 		http.Error(w, "error rendering file modal", http.StatusInternalServerError)
 	}
-}
-
-// prepareDirectoryData prepares the data for directory rendering
-func (wb *Web) prepareDirectoryData(path, sortBy, sortDir string) (map[string]interface{}, error) {
-	// clean the path to avoid directory traversal
-	path = filepath.ToSlash(filepath.Clean(path))
-
-	fileList, err := wb.getFileList(path, sortBy, sortDir)
-	if err != nil {
-		return nil, fmt.Errorf("error reading directory: %w", err)
-	}
-
-	// create a display path that looks nicer in the UI
-	displayPath := path
-	if path == "." {
-		displayPath = ""
-	}
-
-	return map[string]interface{}{
-		"Files":       fileList,
-		"Path":        path,
-		"DisplayPath": displayPath,
-		"SortBy":      sortBy,
-		"SortDir":     sortDir,
-		"PathParts":   wb.getPathParts(path, sortBy, sortDir),
-		"Theme":       wb.Config.Theme,
-		"Title":       wb.Config.Title,
-	}, nil
 }
