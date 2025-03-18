@@ -281,6 +281,12 @@ main.container article.grid {
   color: var(--pico-muted-color);
 }
 
+.html-content {
+  height: 100%;
+  width: 100%;
+  overflow: auto;
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   table th:nth-child(2), table td:nth-child(2) { display: none; }

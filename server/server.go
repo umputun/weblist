@@ -131,22 +131,15 @@ func (wb *Web) handleRoot(w http.ResponseWriter, r *http.Request) {
 	wb.renderFullPage(w, r, path)
 }
 
-// handleViewFile serves file content for viewing in the browser
+// handleViewFile serves a file view for text files
 func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 	// extract the file path from the URL
 	filePath := strings.TrimPrefix(r.URL.Path, "/view/")
 
-	// remove trailing slash if present
-	filePath = strings.TrimSuffix(filePath, "/")
-
 	// clean the path to avoid directory traversal
 	filePath = filepath.ToSlash(filepath.Clean(filePath))
-	if filePath == "." {
-		filePath = ""
-	}
-	log.Printf("[DEBUG] view request for: %s", filePath)
 
-	// check if the file should be excluded
+	// check if the path should be excluded
 	if wb.shouldExclude(filePath) {
 		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(filePath)), http.StatusForbidden)
 		return
@@ -155,7 +148,7 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 	// check if the file exists and is not a directory
 	fileInfo, err := fs.Stat(wb.FS, filePath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("file not found: %s", filepath.Base(filePath)), http.StatusNotFound)
+		http.Error(w, fmt.Sprintf("file not found: %s - %v", filepath.Base(filePath), err), http.StatusNotFound)
 		return
 	}
 
@@ -165,7 +158,7 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// open the file directly from the filesystem
+	// open the file
 	file, err := wb.FS.Open(filePath)
 	if err != nil {
 		http.Error(w, "error opening file", http.StatusInternalServerError)
@@ -173,7 +166,7 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 	}
 	defer file.Close()
 
-	// determine the content type
+	// get the file extension
 	ext := filepath.Ext(filePath)
 	extLower := strings.ToLower(ext)
 
@@ -219,6 +212,9 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 		strings.Contains(contentType, "html") ||
 		commonTextExtensions[extLower]
 
+	// check if it's an HTML file
+	isHTMLFile := strings.Contains(contentType, "html")
+
 	// for text files, check if the request wants dark mode
 	isDarkMode := r.URL.Query().Get("theme") == "dark"
 
@@ -239,8 +235,12 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 			theme = "dark"
 		}
 
-		// parse the main template which contains all the named templates
-		tmpl, err := template.ParseFS(content, "templates/index.html")
+		// parse templates from embedded filesystem
+		tmpl, err := template.New("index.html").Funcs(template.FuncMap{
+			"safe": func(s string) template.HTML {
+				return template.HTML(s)
+			},
+		}).ParseFS(content, "templates/index.html")
 		if err != nil {
 			log.Printf("[ERROR] failed to parse view template: %v", err)
 			http.Error(w, "error rendering file view", http.StatusInternalServerError)
@@ -252,10 +252,12 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 			FileName string
 			Content  string
 			Theme    string
+			IsHTML   bool
 		}{
 			FileName: fileInfo.Name(),
 			Content:  string(fileContent),
 			Theme:    theme,
+			IsHTML:   isHTMLFile,
 		}
 
 		// execute the file-view template
@@ -356,8 +358,12 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// parse template
-	tmpl, err := template.ParseFS(content, "templates/index.html")
+	// parse templates from embedded filesystem
+	tmpl, err := template.New("index.html").Funcs(template.FuncMap{
+		"safe": func(s string) template.HTML {
+			return template.HTML(s)
+		},
+	}).ParseFS(content, "templates/index.html")
 	if err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -432,7 +438,11 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	}
 
 	// parse templates from embedded filesystem
-	tmpl, err := template.ParseFS(content, "templates/index.html")
+	tmpl, err := template.New("index.html").Funcs(template.FuncMap{
+		"safe": func(s string) template.HTML {
+			return template.HTML(s)
+		},
+	}).ParseFS(content, "templates/index.html")
 	if err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -621,7 +631,7 @@ func (wb *Web) sortFiles(files []FileInfo, sortBy, sortDir string) {
 		// if both are directories and we're sorting by size,
 		// sort them by name in ascending order for predictability
 		if files[i].IsDir && files[j].IsDir && sortBy == "size" {
-			return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
+			result = strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
 		}
 
 		// sort based on the specified field
@@ -721,7 +731,11 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 
 // handleLoginPage renders the login page
 func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
-	tmpl, err := template.ParseFS(content, "templates/login.html")
+	tmpl, err := template.New("login.html").Funcs(template.FuncMap{
+		"safe": func(s string) template.HTML {
+			return template.HTML(s)
+		},
+	}).ParseFS(content, "templates/login.html")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
 		return
@@ -731,10 +745,12 @@ func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
 		Theme      string
 		HideFooter bool
 		Title      string
+		Error      string
 	}{
 		Theme:      wb.Theme,
 		HideFooter: wb.HideFooter,
 		Title:      wb.Title,
+		Error:      "", // empty error by default
 	}
 
 	if err := tmpl.Execute(w, data); err != nil {
@@ -755,7 +771,11 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	if username != "weblist" || password != wb.Auth {
 		// authentication failed, show error
-		tmpl, err := template.ParseFS(content, "templates/login.html")
+		tmpl, err := template.New("login.html").Funcs(template.FuncMap{
+			"safe": func(s string) template.HTML {
+				return template.HTML(s)
+			},
+		}).ParseFS(content, "templates/login.html")
 		if err != nil {
 			http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
 			return
@@ -887,6 +907,7 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 		IsImage     bool
 		IsPDF       bool
 		IsText      bool
+		IsHTML      bool
 		Theme       string
 	}{
 		FileName:    fileInfo.Name(),
@@ -900,11 +921,16 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 			strings.HasPrefix(contentType, "application/xml") ||
 			strings.Contains(contentType, "html") ||
 			commonTextExtensions[extLower],
-		Theme: wb.Config.Theme,
+		IsHTML: strings.Contains(contentType, "html"),
+		Theme:  wb.Config.Theme,
 	}
 
 	// parse the main template which contains all the named templates
-	tmpl, err := template.ParseFS(content, "templates/index.html")
+	tmpl, err := template.New("index.html").Funcs(template.FuncMap{
+		"safe": func(s string) template.HTML {
+			return template.HTML(s)
+		},
+	}).ParseFS(content, "templates/index.html")
 	if err != nil {
 		log.Printf("[ERROR] failed to parse file-modal template: %v", err)
 		http.Error(w, "error rendering file modal", http.StatusInternalServerError)

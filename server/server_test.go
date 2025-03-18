@@ -1590,7 +1590,8 @@ func TestTitleFunctionality(t *testing.T) {
 	handler.ServeHTTP(rr, req)
 
 	assert.Equal(t, http.StatusOK, rr.Code)
-	assert.Contains(t, rr.Body.String(), "Login - Custom Title")
+	// check that the title is in the HTML
+	assert.Contains(t, rr.Body.String(), "<title>Login - Custom Title</title>")
 }
 
 func TestFileViewAndModal(t *testing.T) {
@@ -1779,4 +1780,172 @@ func TestFileInfoViewable(t *testing.T) {
 			assert.Equal(t, tc.viewable, result)
 		})
 	}
+}
+
+// TestHTMLRendering verifies that HTML files are rendered correctly in the preview
+func TestHTMLRendering(t *testing.T) {
+	// create a temporary HTML file for testing
+	htmlContent := `<!DOCTYPE html>
+<html>
+<head>
+	<title>Test HTML</title>
+	<style>body { color: red; }</style>
+</head>
+<body>
+	<h1>Test HTML Content</h1>
+	<p>This is a test paragraph.</p>
+</body>
+</html>`
+
+	// create a temporary directory for testing
+	tmpDir, err := os.MkdirTemp("", "weblist-test-html")
+	require.NoError(t, err)
+	defer os.RemoveAll(tmpDir)
+
+	// create the test HTML file
+	htmlFilePath := filepath.Join(tmpDir, "test.html")
+	err = os.WriteFile(htmlFilePath, []byte(htmlContent), 0644)
+	require.NoError(t, err)
+
+	// set up a test server with the temp directory
+	srv := &Web{
+		Config: Config{
+			Theme: "light",
+		},
+		FS: os.DirFS(tmpDir),
+	}
+
+	t.Run("html file view renders correctly", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/view/test.html", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleViewFile)
+		handler.ServeHTTP(rr, req)
+
+		// check status code
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
+
+		body := rr.Body.String()
+		// verify it doesn't use pre tags for HTML
+		assert.NotContains(t, body, "<pre>"+htmlContent+"</pre>")
+		// verify it uses the html-content div
+		assert.Contains(t, body, `<div class="html-content">`)
+		// verify the HTML content is rendered
+		assert.Contains(t, body, "<h1>Test HTML Content</h1>")
+		assert.Contains(t, body, "<p>This is a test paragraph.</p>")
+	})
+
+	t.Run("html file modal references iframe with correct path", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/partials/file-modal?path=test.html", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleFileModal)
+		handler.ServeHTTP(rr, req)
+
+		// check status code
+		assert.Equal(t, http.StatusOK, rr.Code)
+
+		body := rr.Body.String()
+		// check that we're using the iframe for HTML files
+		assert.Contains(t, body, `<iframe src="/view/test.html?theme=light"`)
+		// check that the sandbox attribute is set correctly
+		assert.Contains(t, body, `sandbox="allow-same-origin allow-scripts allow-forms"`)
+	})
+}
+
+// mockFile represents a mock file for testing
+type mockFile struct {
+	content     []byte
+	isDir       bool
+	name        string
+	modTime     time.Time
+	size        int64
+	contentType string
+}
+
+// mockFS is a mock filesystem for testing
+type mockFSWithFiles struct {
+	files map[string]mockFile
+}
+
+func (m *mockFSWithFiles) Open(name string) (fs.File, error) {
+	if file, ok := m.files[name]; ok {
+		return &mockFileHandle{file: file, pos: 0}, nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+func (m *mockFSWithFiles) Stat(name string) (fs.FileInfo, error) {
+	if file, ok := m.files[name]; ok {
+		return &mockFileInfo{file: file}, nil
+	}
+	return nil, fs.ErrNotExist
+}
+
+type mockFileHandle struct {
+	file mockFile
+	pos  int64
+}
+
+func (m *mockFileHandle) Read(b []byte) (int, error) {
+	if m.pos >= int64(len(m.file.content)) {
+		return 0, io.EOF
+	}
+	n := copy(b, m.file.content[m.pos:])
+	m.pos += int64(n)
+	return n, nil
+}
+
+func (m *mockFileHandle) Close() error {
+	return nil
+}
+
+func (m *mockFileHandle) Stat() (fs.FileInfo, error) {
+	return &mockFileInfo{file: m.file}, nil
+}
+
+func (m *mockFileHandle) Seek(offset int64, whence int) (int64, error) {
+	switch whence {
+	case io.SeekStart:
+		m.pos = offset
+	case io.SeekCurrent:
+		m.pos += offset
+	case io.SeekEnd:
+		m.pos = int64(len(m.file.content)) + offset
+	}
+	return m.pos, nil
+}
+
+type mockFileInfo struct {
+	file mockFile
+}
+
+func (m *mockFileInfo) Name() string {
+	return m.file.name
+}
+
+func (m *mockFileInfo) Size() int64 {
+	return m.file.size
+}
+
+func (m *mockFileInfo) Mode() fs.FileMode {
+	if m.file.isDir {
+		return fs.ModeDir
+	}
+	return 0666
+}
+
+func (m *mockFileInfo) ModTime() time.Time {
+	return m.file.modTime
+}
+
+func (m *mockFileInfo) IsDir() bool {
+	return m.file.isDir
+}
+
+func (m *mockFileInfo) Sys() interface{} {
+	return nil
 }

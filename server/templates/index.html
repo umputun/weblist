@@ -70,6 +70,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ .FileName }}</title>
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <link rel="stylesheet" href="/assets/css/style.css">
     <style>
         /* Set dark background immediately (before content loads) */
         html {
@@ -94,7 +95,13 @@
         }
     </style>
 </head>
-<body><pre>{{ .Content | html }}</pre></body>
+<body>
+{{ if .IsHTML }}
+    <div class="html-content">{{ .Content | safe }}</div>
+{{ else }}
+    <pre>{{ .Content | html }}</pre>
+{{ end }}
+</body>
 </html>
 {{ end }}
 
@@ -117,6 +124,10 @@
             <!-- For PDFs, use an embed tag -->
             <div class="loading-spinner"></div>
             <embed src="/view/{{ .FilePath }}" type="application/pdf" width="100%" height="100%" style="opacity: 0; transition: opacity 0.2s;" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';">
+        {{ else if .IsHTML }}
+            <!-- For HTML files, use iframe to show rendered content -->
+            <div class="loading-spinner"></div>
+            <iframe src="/view/{{ .FilePath }}?theme={{ .Theme }}" class="text-preview" sandbox="allow-same-origin allow-scripts allow-forms" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';"></iframe>
         {{ else if .IsText }}
             <!-- For text files, use iframe to show content with theme -->
             <div class="loading-spinner"></div>
