@@ -13,12 +13,13 @@
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
 
-<body>
+<body hx-on:keydown="if(event.key === 'Escape') document.getElementById('modal-container').innerHTML = ''">
 
 <main class="container">
     <div id="page-content">
         {{ template "page-content" . }}
     </div>
+    <div id="modal-container" hx-on:click="if(event.target === this) this.innerHTML = ''"></div>
 </main>
 
 {{ if not .HideFooter }}
@@ -61,11 +62,74 @@
 </body>
 </html>
 
-{{ define "page-content" }}
-<!--<hgroup>-->
-<!--    <h1>Index of {{ if eq .DisplayPath "" }}/{{ else }}/{{ .DisplayPath }}{{ end }}</h1>-->
-<!--</hgroup>-->
+{{ define "file-view" }}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ .Theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .FileName }}</title>
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@picocss/pico@2/css/pico.min.css">
+    <style>
+        /* Set dark background immediately (before content loads) */
+        html {
+            background-color: var(--pico-background-color) !important;
+        }
+        html, body { 
+            background-color: var(--pico-background-color) !important;
+        }
+        body { 
+            padding: 0.5rem; 
+            margin: 0; 
+            line-height: 1.5;
+            min-height: 100vh;
+            color: var(--pico-color);
+        }
+        pre { 
+            margin: 0; 
+            white-space: pre-wrap; 
+            word-wrap: break-word;
+            font-family: monospace;
+            background-color: var(--pico-background-color) !important;
+        }
+    </style>
+</head>
+<body><pre>{{ .Content | html }}</pre></body>
+</html>
+{{ end }}
 
+{{ define "file-modal" }}
+<div class="file-modal">
+    <div class="modal-header">
+        <h3>{{ .FileName }}</h3>
+        <a href="#" class="close-modal" hx-on:click="document.getElementById('modal-container').innerHTML = ''">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+            </svg>
+        </a>
+    </div>
+    <div class="modal-content">
+        {{ if .IsImage }}
+            <!-- For images, embed with img tag -->
+            <div class="loading-spinner"></div>
+            <img src="/view/{{ .FilePath }}" alt="{{ .FileName }}" class="modal-image" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';" style="opacity: 0; transition: opacity 0.2s;">
+        {{ else if .IsPDF }}
+            <!-- For PDFs, use an embed tag -->
+            <div class="loading-spinner"></div>
+            <embed src="/view/{{ .FilePath }}" type="application/pdf" width="100%" height="100%" style="opacity: 0; transition: opacity 0.2s;" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';">
+        {{ else if .IsText }}
+            <!-- For text files, use iframe to show content with theme -->
+            <div class="loading-spinner"></div>
+            <iframe src="/view/{{ .FilePath }}?theme={{ .Theme }}" class="text-preview" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';"></iframe>
+        {{ else }}
+            <!-- For unsupported file types -->
+            <div class="unsupported-file">This file type cannot be previewed. <a href="/{{ .FilePath }}" download>Download</a> the file to view it.</div>
+        {{ end }}
+    </div>
+</div>
+{{ end }}
+
+{{ define "page-content" }}
 <div class="breadcrumbs">
     <div class="path-parts">
         <!-- Home link with HTMX - no URL push -->
@@ -148,15 +212,30 @@
                     {{.Name}}
                 </a>
                 {{ else }}
-                <!-- File: Link to download handler -->
-                <a href="/{{ .Path }}">
-                    <!-- File icon -->
-                    <svg class="icon file-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                        <path d="M5 4a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm-.5 2.5A.5.5 0 0 1 5 6h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zM5 8a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm0 2a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1H5z"/>
-                        <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm10-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1z"/>
-                    </svg>
-                    {{ .Name }}
-                </a>
+                <div class="file-entry">
+                    <!-- File: Link to download handler -->
+                    <a href="/{{ .Path }}" class="file-link">
+                        <!-- File icon -->
+                        <svg class="icon file-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M5 4a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm-.5 2.5A.5.5 0 0 1 5 6h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zM5 8a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm0 2a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1H5z"/>
+                            <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm10-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1z"/>
+                        </svg>
+                        {{ .Name }}
+                    </a>
+                    <!-- View Icon (only for viewable files) -->
+                    {{ if .IsViewable }}
+                    <a href="#" class="view-icon" 
+                       hx-get="/partials/file-modal"
+                       hx-vals='{"path": "{{.Path}}"}'
+                       hx-target="#modal-container"
+                       hx-swap="innerHTML">
+                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                            <path d="M16 8s-3-5.5-8-5.5S0 8 0 8s3 5.5 8 5.5S16 8 16 8zM1.173 8a13.133 13.133 0 0 1 1.66-2.043C4.12 4.668 5.88 3.5 8 3.5c2.12 0 3.879 1.168 5.168 2.457A13.133 13.133 0 0 1 14.828 8c-.058.087-.122.183-.195.288-.335.48-.83 1.12-1.465 1.755C11.879 11.332 10.119 12.5 8 12.5c-2.12 0-3.879-1.168-5.168-2.457A13.134 13.134 0 0 1 1.172 8z"/>
+                            <path d="M8 5.5a2.5 2.5 0 1 0 0 5 2.5 2.5 0 0 0 0-5zM4.5 8a3.5 3.5 0 1 1 7 0 3.5 3.5 0 0 1-7 0z"/>
+                        </svg>
+                    </a>
+                    {{ end }}
+                </div>
                 {{ end }}
             </td>
             <td class="date-col">{{ .TimeString }}</td>

@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -72,6 +73,8 @@ func (wb *Web) Run(ctx context.Context) error {
 
 	router.HandleFunc("GET /", wb.handleRoot)
 	router.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
+	router.HandleFunc("GET /partials/file-modal", wb.handleFileModal) // handle modal content
+	router.HandleFunc("GET /view/{path...}", wb.handleViewFile)       // handle file viewing
 	router.HandleFunc("GET /assets/css/style.css", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, assetsFS, "css/style.css")
 	})
@@ -126,6 +129,144 @@ func (wb *Web) handleRoot(w http.ResponseWriter, r *http.Request) {
 	// clean the path to avoid directory traversal
 	path = filepath.ToSlash(filepath.Clean(path))
 	wb.renderFullPage(w, r, path)
+}
+
+// handleViewFile serves file content for viewing in the browser
+func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
+	// extract the file path from the URL
+	filePath := strings.TrimPrefix(r.URL.Path, "/view/")
+
+	// remove trailing slash if present
+	filePath = strings.TrimSuffix(filePath, "/")
+
+	// clean the path to avoid directory traversal
+	filePath = filepath.ToSlash(filepath.Clean(filePath))
+	if filePath == "." {
+		filePath = ""
+	}
+	log.Printf("[DEBUG] view request for: %s", filePath)
+
+	// check if the file should be excluded
+	if wb.shouldExclude(filePath) {
+		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(filePath)), http.StatusForbidden)
+		return
+	}
+
+	// check if the file exists and is not a directory
+	fileInfo, err := fs.Stat(wb.FS, filePath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("file not found: %s", filepath.Base(filePath)), http.StatusNotFound)
+		return
+	}
+
+	// if it's a directory, return an error
+	if fileInfo.IsDir() {
+		http.Error(w, "cannot view directories", http.StatusBadRequest)
+		return
+	}
+
+	// open the file directly from the filesystem
+	file, err := wb.FS.Open(filePath)
+	if err != nil {
+		http.Error(w, "error opening file", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	// determine the content type
+	ext := filepath.Ext(filePath)
+	extLower := strings.ToLower(ext)
+
+	// common text file extensions
+	commonTextExtensions := map[string]bool{
+		".yml":      true,
+		".yaml":     true,
+		".toml":     true,
+		".ini":      true,
+		".conf":     true,
+		".config":   true,
+		".md":       true,
+		".markdown": true,
+		".env":      true,
+		".lock":     true,
+		".go":       true,
+		".py":       true,
+		".js":       true,
+		".ts":       true,
+		".jsx":      true,
+		".tsx":      true,
+		".sh":       true,
+		".bash":     true,
+		".zsh":      true,
+		".log":      true,
+	}
+
+	var contentType string
+	if commonTextExtensions[extLower] {
+		contentType = "text/plain"
+	} else {
+		contentType = mime.TypeByExtension(ext)
+		if contentType == "" {
+			// if we can't determine the type by extension, fall back to a safe default
+			contentType = "text/plain"
+		}
+	}
+
+	// check if it's a text file
+	isTextFile := strings.HasPrefix(contentType, "text/") ||
+		strings.HasPrefix(contentType, "application/json") ||
+		strings.HasPrefix(contentType, "application/xml") ||
+		strings.Contains(contentType, "html") ||
+		commonTextExtensions[extLower]
+
+	// for text files, check if the request wants dark mode
+	isDarkMode := r.URL.Query().Get("theme") == "dark"
+
+	if isTextFile {
+		// read file content
+		fileContent, err := io.ReadAll(file)
+		if err != nil {
+			http.Error(w, "error reading file", http.StatusInternalServerError)
+			return
+		}
+
+		// use template for viewing
+		w.Header().Set("Content-Type", "text/html")
+
+		// determine theme based on query param
+		theme := "light"
+		if isDarkMode {
+			theme = "dark"
+		}
+
+		// parse the main template which contains all the named templates
+		tmpl, err := template.ParseFS(content, "templates/index.html")
+		if err != nil {
+			log.Printf("[ERROR] failed to parse view template: %v", err)
+			http.Error(w, "error rendering file view", http.StatusInternalServerError)
+			return
+		}
+
+		// prepare data for the template
+		data := map[string]interface{}{
+			"FileName": fileInfo.Name(),
+			"Content":  string(fileContent),
+			"Theme":    theme,
+		}
+
+		// execute the file-view template
+		if err := tmpl.ExecuteTemplate(w, "file-view", data); err != nil {
+			log.Printf("[ERROR] failed to execute file-view template: %v", err)
+			http.Error(w, "error rendering file view", http.StatusInternalServerError)
+		}
+	} else {
+		// for non-text files (images, PDFs, etc.)
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+
+		// serve the content directly
+		http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file.(io.ReadSeeker))
+	}
 }
 
 // handleDownload serves file downloads
@@ -614,6 +755,106 @@ func (wb *Web) handleLogout(w http.ResponseWriter, r *http.Request) {
 
 	// redirect to the login page
 	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// handleFileModal renders the modal with embedded file content
+func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
+	// get file path from query parameter
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "file path not provided", http.StatusBadRequest)
+		return
+	}
+
+	// clean the path to avoid directory traversal
+	path = filepath.ToSlash(filepath.Clean(path))
+
+	// check if the path should be excluded
+	if wb.shouldExclude(path) {
+		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(path)), http.StatusForbidden)
+		return
+	}
+
+	// check if the file exists and is not a directory
+	fileInfo, err := fs.Stat(wb.FS, path)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("file not found: %s - %v", path, err), http.StatusNotFound)
+		return
+	}
+
+	if fileInfo.IsDir() {
+		http.Error(w, "cannot display directories in modal", http.StatusBadRequest)
+		return
+	}
+
+	// determine the file type
+	ext := filepath.Ext(path)
+	extLower := strings.ToLower(ext)
+
+	// common text file extensions
+	commonTextExtensions := map[string]bool{
+		".yml":      true,
+		".yaml":     true,
+		".toml":     true,
+		".ini":      true,
+		".conf":     true,
+		".config":   true,
+		".md":       true,
+		".markdown": true,
+		".env":      true,
+		".lock":     true,
+		".go":       true,
+		".py":       true,
+		".js":       true,
+		".ts":       true,
+		".jsx":      true,
+		".tsx":      true,
+		".sh":       true,
+		".bash":     true,
+		".zsh":      true,
+		".log":      true,
+	}
+
+	var contentType string
+	if commonTextExtensions[extLower] {
+		contentType = "text/plain"
+	} else {
+		contentType = mime.TypeByExtension(ext)
+		if contentType == "" {
+			contentType = "text/plain" // default to text
+		}
+	}
+
+	// prepare data for the modal template
+	data := map[string]interface{}{
+		"FileName":    fileInfo.Name(),
+		"FilePath":    path,
+		"ContentType": contentType,
+		"FileSize":    fileInfo.Size(),
+		"IsImage":     strings.HasPrefix(contentType, "image/"),
+		"IsPDF":       contentType == "application/pdf",
+		"IsText": strings.HasPrefix(contentType, "text/") ||
+			strings.HasPrefix(contentType, "application/json") ||
+			strings.HasPrefix(contentType, "application/xml") ||
+			strings.Contains(contentType, "html") ||
+			commonTextExtensions[extLower],
+		"Theme": wb.Config.Theme,
+	}
+
+	// parse the main template which contains all the named templates
+	tmpl, err := template.ParseFS(content, "templates/index.html")
+	if err != nil {
+		log.Printf("[ERROR] failed to parse file-modal template: %v", err)
+		http.Error(w, "error rendering file modal", http.StatusInternalServerError)
+		return
+	}
+
+	// set content type and execute the file-modal template
+	w.Header().Set("Content-Type", "text/html")
+	if err := tmpl.ExecuteTemplate(w, "file-modal", data); err != nil {
+		log.Printf("[ERROR] failed to execute file-modal template: %v", err)
+		http.Error(w, "error rendering file modal", http.StatusInternalServerError)
+	}
 }
 
 // prepareDirectoryData prepares the data for directory rendering
