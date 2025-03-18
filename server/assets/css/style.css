@@ -1,5 +1,7 @@
 /* Minimal CSS that leverages PicoCSS defaults */
 
+/* CSS for themes is handled in individual views */
+
 /* Table layout - required for fixed width columns */
 table {
   table-layout: fixed;
@@ -38,6 +40,27 @@ td:nth-child(2), td:nth-child(3) {
 .icon {
   margin-right: 0.5rem;
   flex-shrink: 0;
+}
+
+/* File entry with view icon */
+.file-entry {
+  display: flex;
+  align-items: center;
+}
+
+.file-link {
+  flex-grow: 1;
+}
+
+.view-icon {
+  margin-left: 0.5rem;
+  opacity: 0.5;
+  transition: opacity 0.2s;
+  color: var(--pico-primary);
+}
+
+.view-icon:hover {
+  opacity: 1;
 }
 
 /* Breadcrumbs */
@@ -117,7 +140,6 @@ footer {
   border-left: 4px solid var(--pico-del-color);
 }
 
-
 .centered-login-box {
   max-width: 400px;
   margin: 2rem auto 0;
@@ -131,6 +153,121 @@ main.container article.grid {
   padding: 1.5rem 0;
 }
 
+/* Modal styles */
+#modal-container {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: none;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+  backdrop-filter: blur(2px);
+}
+
+#modal-container:not(:empty) {
+  display: flex;
+}
+
+.file-modal {
+  background-color: var(--pico-background-color);
+  border-radius: 8px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  width: 85%;
+  max-width: 1300px;
+  max-height: 95vh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: var(--pico-color);
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.5rem 1rem;
+  border-bottom: 1px solid var(--pico-muted-border-color);
+}
+
+.modal-header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  font-weight: 500;
+}
+
+.close-modal {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--pico-muted-color);
+  text-decoration: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.close-modal:hover {
+  background-color: var(--pico-muted-border-color);
+  color: var(--pico-primary);
+}
+
+.modal-content {
+  padding: 0.5rem;
+  overflow: auto;
+  flex-grow: 1;
+  display: flex;
+  justify-content: center;
+  max-height: calc(95vh - 3rem);
+  position: relative;
+}
+
+.loading-spinner {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 40px;
+  height: 40px;
+  border: 4px solid var(--pico-muted-border-color);
+  border-top: 4px solid var(--pico-primary);
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: translate(-50%, -50%) rotate(0deg); }
+  100% { transform: translate(-50%, -50%) rotate(360deg); }
+}
+
+.modal-image {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+}
+
+.text-preview {
+  width: 100%;
+  height: 100%;
+  min-height: 700px;
+  border: none;
+  border-radius: 4px;
+  background-color: var(--pico-background-color);
+  /* Hide iframe until it's fully loaded to prevent white flash */
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.unsupported-file {
+  padding: 2rem;
+  text-align: center;
+  color: var(--pico-muted-color);
+}
+
 /* Responsive design */
 @media (max-width: 768px) {
   table th:nth-child(2), table td:nth-child(2) { display: none; }
@@ -140,6 +277,11 @@ main.container article.grid {
   .centered-login-box {
     max-width: 100%;
     margin: 0 1rem;
+  }
+  
+  .file-modal {
+    width: 98%;
+    max-height: 98vh;
   }
 }
 

@@ -1592,3 +1592,191 @@ func TestTitleFunctionality(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Contains(t, rr.Body.String(), "Login - Custom Title")
 }
+
+func TestFileViewAndModal(t *testing.T) {
+	srv := setupTestServer(t)
+
+	// test handleViewFile
+	t.Run("view text file", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/view/file1.txt", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleViewFile)
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
+
+		body := rr.Body.String()
+		assert.Contains(t, body, "file1 content")   // the actual content from testdata/file1.txt
+		assert.Contains(t, body, "<pre>")           // content should be wrapped in pre tag
+		assert.Contains(t, body, "<!DOCTYPE html>") // should render with HTML template
+	})
+
+	t.Run("view non-existent file", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/view/non-existent.txt", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleViewFile)
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusNotFound, rr.Code)
+		assert.Contains(t, rr.Body.String(), "file not found")
+	})
+
+	t.Run("view directory", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/view/dir1", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleViewFile)
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Contains(t, rr.Body.String(), "cannot view directories")
+	})
+
+	// test handleFileModal
+	t.Run("modal for text file", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/partials/file-modal?path=file1.txt", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleFileModal)
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
+
+		body := rr.Body.String()
+		assert.Contains(t, body, "file1.txt")  // should contain filename
+		assert.Contains(t, body, "<iframe")    // should use iframe for text files
+		assert.Contains(t, body, "file-modal") // should use the file-modal class
+	})
+
+	t.Run("modal with missing path parameter", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/partials/file-modal", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleFileModal)
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Contains(t, rr.Body.String(), "file path not provided")
+	})
+
+	t.Run("modal for non-existent file", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/partials/file-modal?path=non-existent.txt", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleFileModal)
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusNotFound, rr.Code)
+		assert.Contains(t, rr.Body.String(), "file not found")
+	})
+
+	t.Run("modal for directory", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/partials/file-modal?path=dir1", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleFileModal)
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Contains(t, rr.Body.String(), "cannot display directories in modal")
+	})
+}
+
+func TestFileInfoViewable(t *testing.T) {
+	tests := []struct {
+		name     string
+		fileInfo FileInfo
+		viewable bool
+	}{
+		{
+			name: "text file",
+			fileInfo: FileInfo{
+				Name:  "test.txt",
+				IsDir: false,
+			},
+			viewable: true,
+		},
+		{
+			name: "markdown file",
+			fileInfo: FileInfo{
+				Name:  "readme.md",
+				IsDir: false,
+			},
+			viewable: true,
+		},
+		{
+			name: "yaml file",
+			fileInfo: FileInfo{
+				Name:  "config.yaml",
+				IsDir: false,
+			},
+			viewable: true,
+		},
+		{
+			name: "go file",
+			fileInfo: FileInfo{
+				Name:  "main.go",
+				IsDir: false,
+			},
+			viewable: true,
+		},
+		{
+			name: "image file",
+			fileInfo: FileInfo{
+				Name:  "image.jpg",
+				IsDir: false,
+			},
+			viewable: true,
+		},
+		{
+			name: "pdf file",
+			fileInfo: FileInfo{
+				Name:  "document.pdf",
+				IsDir: false,
+			},
+			viewable: true,
+		},
+		{
+			name: "binary file",
+			fileInfo: FileInfo{
+				Name:  "binary.bin",
+				IsDir: false,
+			},
+			viewable: false,
+		},
+		{
+			name: "directory",
+			fileInfo: FileInfo{
+				Name:  "dir",
+				IsDir: true,
+			},
+			viewable: false,
+		},
+		{
+			name: "no extension",
+			fileInfo: FileInfo{
+				Name:  "README",
+				IsDir: false,
+			},
+			viewable: false,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := tc.fileInfo.IsViewable()
+			assert.Equal(t, tc.viewable, result)
+		})
+	}
+}
