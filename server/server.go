@@ -238,7 +238,7 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 		// parse templates from embedded filesystem
 		tmpl, err := template.New("index.html").Funcs(template.FuncMap{
 			"safe": func(s string) template.HTML {
-				return template.HTML(s)
+				return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 			},
 		}).ParseFS(content, "templates/index.html")
 		if err != nil {
@@ -361,7 +361,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	// parse templates from embedded filesystem
 	tmpl, err := template.New("index.html").Funcs(template.FuncMap{
 		"safe": func(s string) template.HTML {
-			return template.HTML(s)
+			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 		},
 	}).ParseFS(content, "templates/index.html")
 	if err != nil {
@@ -440,7 +440,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	// parse templates from embedded filesystem
 	tmpl, err := template.New("index.html").Funcs(template.FuncMap{
 		"safe": func(s string) template.HTML {
-			return template.HTML(s)
+			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 		},
 	}).ParseFS(content, "templates/index.html")
 	if err != nil {
@@ -733,7 +733,7 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
 	tmpl, err := template.New("login.html").Funcs(template.FuncMap{
 		"safe": func(s string) template.HTML {
-			return template.HTML(s)
+			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 		},
 	}).ParseFS(content, "templates/login.html")
 	if err != nil {
@@ -773,7 +773,7 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		// authentication failed, show error
 		tmpl, err := template.New("login.html").Funcs(template.FuncMap{
 			"safe": func(s string) template.HTML {
-				return template.HTML(s)
+				return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 			},
 		}).ParseFS(content, "templates/login.html")
 		if err != nil {
@@ -928,7 +928,7 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 	// parse the main template which contains all the named templates
 	tmpl, err := template.New("index.html").Funcs(template.FuncMap{
 		"safe": func(s string) template.HTML {
-			return template.HTML(s)
+			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 		},
 	}).ParseFS(content, "templates/index.html")
 	if err != nil {
