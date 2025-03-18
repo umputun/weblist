@@ -631,7 +631,7 @@ func (wb *Web) sortFiles(files []FileInfo, sortBy, sortDir string) {
 		// if both are directories and we're sorting by size,
 		// sort them by name in ascending order for predictability
 		if files[i].IsDir && files[j].IsDir && sortBy == "size" {
-			result = strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
+			return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
 		}
 
 		// sort based on the specified field
