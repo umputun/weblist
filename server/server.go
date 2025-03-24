@@ -134,257 +134,6 @@ func (wb *Web) handleRoot(w http.ResponseWriter, r *http.Request) {
 	wb.renderFullPage(w, r, path)
 }
 
-// handleViewFile serves a file view for text files
-func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
-	// extract the file path from the URL
-	filePath := strings.TrimPrefix(r.URL.Path, "/view/")
-
-	// clean the path to avoid directory traversal
-	filePath = filepath.ToSlash(filepath.Clean(filePath))
-
-	// check if the path should be excluded
-	if wb.shouldExclude(filePath) {
-		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(filePath)), http.StatusForbidden)
-		return
-	}
-
-	// check if the file exists and is not a directory
-	fileInfo, err := fs.Stat(wb.FS, filePath)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("file not found: %s - %v", filepath.Base(filePath), err), http.StatusNotFound)
-		return
-	}
-
-	// if it's a directory, return an error
-	if fileInfo.IsDir() {
-		http.Error(w, "cannot view directories", http.StatusBadRequest)
-		return
-	}
-
-	// open the file
-	file, err := wb.FS.Open(filePath)
-	if err != nil {
-		http.Error(w, "error opening file", http.StatusInternalServerError)
-		return
-	}
-	defer file.Close()
-
-	// get the file extension
-	ext := filepath.Ext(filePath)
-	extLower := strings.ToLower(ext)
-
-	// common text file extensions
-	commonTextExtensions := map[string]bool{
-		".yml":      true,
-		".yaml":     true,
-		".toml":     true,
-		".ini":      true,
-		".conf":     true,
-		".config":   true,
-		".md":       true,
-		".markdown": true,
-		".env":      true,
-		".lock":     true,
-		".go":       true,
-		".py":       true,
-		".js":       true,
-		".ts":       true,
-		".jsx":      true,
-		".tsx":      true,
-		".sh":       true,
-		".bash":     true,
-		".zsh":      true,
-		".log":      true,
-	}
-
-	var contentType string
-	if commonTextExtensions[extLower] {
-		contentType = "text/plain"
-	} else {
-		contentType = mime.TypeByExtension(ext)
-		if contentType == "" {
-			// if we can't determine the type by extension, fall back to a safe default
-			contentType = "text/plain"
-		}
-	}
-
-	// check if it's a text file
-	isTextFile := strings.HasPrefix(contentType, "text/") ||
-		strings.HasPrefix(contentType, "application/json") ||
-		strings.HasPrefix(contentType, "application/xml") ||
-		strings.Contains(contentType, "html") ||
-		commonTextExtensions[extLower]
-
-	// check if it's an HTML file
-	isHTMLFile := strings.Contains(contentType, "html")
-
-	// for text files, check if the request wants dark mode
-	isDarkMode := r.URL.Query().Get("theme") == "dark"
-
-	if isTextFile {
-		// read file content
-		fileContent, err := io.ReadAll(file)
-		if err != nil {
-			http.Error(w, "error reading file", http.StatusInternalServerError)
-			return
-		}
-
-		// use template for viewing
-		w.Header().Set("Content-Type", "text/html")
-
-		// determine theme based on query param
-		theme := "light"
-		if isDarkMode {
-			theme = "dark"
-		}
-
-		// parse templates from embedded filesystem
-		tmpl, err := template.New("index.html").Funcs(template.FuncMap{
-			"safe": func(s string) template.HTML {
-				return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
-			},
-		}).ParseFS(content, "templates/index.html", "templates/file.html")
-		if err != nil {
-			log.Printf("[ERROR] failed to parse view template: %v", err)
-			http.Error(w, "error rendering file view", http.StatusInternalServerError)
-			return
-		}
-
-		// prepare data for the template
-		data := struct {
-			FileName string
-			Content  string
-			Theme    string
-			IsHTML   bool
-		}{
-			FileName: fileInfo.Name(),
-			Content:  string(fileContent),
-			Theme:    theme,
-			IsHTML:   isHTMLFile,
-		}
-
-		// execute the file-view template
-		if err := tmpl.ExecuteTemplate(w, "file-view", data); err != nil {
-			log.Printf("[ERROR] failed to execute file-view template: %v", err)
-			http.Error(w, "error rendering file view", http.StatusInternalServerError)
-		}
-	} else {
-		// for non-text files (images, PDFs, etc.)
-		w.Header().Set("Content-Type", contentType)
-		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
-
-		// serve the content directly
-		http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file.(io.ReadSeeker))
-	}
-}
-
-// handleDownload serves file downloads
-func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
-	// extract the file path from the URL
-	filePath := strings.TrimPrefix(r.URL.Path, "/")
-
-	// remove trailing slash if present - this helps handle URLs like /download/templates/
-	filePath = strings.TrimSuffix(filePath, "/")
-
-	// clean the path to avoid directory traversal
-	filePath = filepath.ToSlash(filepath.Clean(filePath))
-	if filePath == "." {
-		filePath = ""
-	}
-	log.Printf("[DEBUG] download request for: %s", filePath)
-
-	// check if the file should be excluded
-	if wb.shouldExclude(filePath) {
-		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(filePath)), http.StatusForbidden)
-		return
-	}
-
-	// check if the file exists and is not a directory
-	fileInfo, err := fs.Stat(wb.FS, filePath)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("file not found: %s", filepath.Base(filePath)), http.StatusNotFound)
-		return
-	}
-
-	// if it's a directory, redirect to directory view
-	if fileInfo.IsDir() {
-		http.Redirect(w, r, "/?path="+filePath, http.StatusSeeOther)
-		return
-	}
-
-	// open the file directly from the filesystem
-	file, err := wb.FS.Open(filePath)
-	if err != nil {
-		http.Error(w, "error opening file", http.StatusInternalServerError)
-		return
-	}
-	defer file.Close()
-
-	// force all files to download instead of being displayed in browser
-	w.Header().Set("Content-Type", "application/octet-stream")
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileInfo.Name()))
-	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
-
-	// copy the file to the response - directly use file as ReadSeeker
-	http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file.(io.ReadSeeker))
-}
-
-// getSortParams retrieves sort parameters from query or cookies and returns them
-// it also sets cookies if query parameters are provided
-func (wb *Web) getSortParams(w http.ResponseWriter, r *http.Request) (sortBy, sortDir string) {
-	// check query parameters first
-	sortBy = r.URL.Query().Get("sort")
-	sortDir = r.URL.Query().Get("dir")
-
-	// if sort parameters are provided in the query, use and save them to cookies
-	if sortBy != "" || sortDir != "" {
-		// if either is set, ensure both have values
-		if sortBy == "" {
-			sortBy = "name" // default sort
-		}
-		if sortDir == "" {
-			sortDir = "asc" // default direction
-		}
-
-		// set cookies with sorting preferences
-		http.SetCookie(w, &http.Cookie{
-			Name:     "sortBy",
-			Value:    sortBy,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			MaxAge:   60 * 60 * 24 * 365, // 1 year
-		})
-
-		http.SetCookie(w, &http.Cookie{
-			Name:     "sortDir",
-			Value:    sortDir,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			MaxAge:   60 * 60 * 24 * 365, // 1 year
-		})
-	} else {
-		// if no sort parameters in query, try to get from cookies
-		if sortByCookie, err := r.Cookie("sortBy"); err == nil {
-			sortBy = sortByCookie.Value
-		}
-		if sortDirCookie, err := r.Cookie("sortDir"); err == nil {
-			sortDir = sortDirCookie.Value
-		}
-	}
-
-	// if still empty after checking cookies, use defaults
-	if sortBy == "" {
-		sortBy = "name" // default sort
-	}
-	if sortDir == "" {
-		sortDir = "asc" // default direction
-	}
-
-	return sortBy, sortDir
-}
-
 // handleDirContents renders partial directory contents for HTMX requests
 func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	// get directory path from query parameters
@@ -470,6 +219,450 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	if err := tmpl.ExecuteTemplate(w, "page-content", data); err != nil {
 		http.Error(w, "template rendering error: "+err.Error(), http.StatusInternalServerError)
 	}
+}
+
+// handleViewFile serves a file view for text files
+func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
+	// extract the file path from the URL
+	filePath := strings.TrimPrefix(r.URL.Path, "/view/")
+
+	// clean the path to avoid directory traversal
+	filePath = filepath.ToSlash(filepath.Clean(filePath))
+
+	// check if the path should be excluded
+	if wb.shouldExclude(filePath) {
+		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(filePath)), http.StatusForbidden)
+		return
+	}
+
+	// check if the file exists and is not a directory
+	fileInfo, err := fs.Stat(wb.FS, filePath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("file not found: %s - %v", filepath.Base(filePath), err), http.StatusNotFound)
+		return
+	}
+
+	// if it's a directory, return an error
+	if fileInfo.IsDir() {
+		http.Error(w, "cannot view directories", http.StatusBadRequest)
+		return
+	}
+
+	// open the file
+	file, err := wb.FS.Open(filePath)
+	if err != nil {
+		http.Error(w, "error opening file", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	// determine content type and file properties
+	contentType, isTextFile, isHTMLFile, _, _ := determineContentType(filePath)
+
+	// for text files, check if the request wants dark mode
+	isDarkMode := r.URL.Query().Get("theme") == "dark"
+
+	if isTextFile {
+		// read file content
+		fileContent, err := io.ReadAll(file)
+		if err != nil {
+			http.Error(w, "error reading file", http.StatusInternalServerError)
+			return
+		}
+
+		// use template for viewing
+		w.Header().Set("Content-Type", "text/html")
+
+		// determine theme based on query param
+		theme := "light"
+		if isDarkMode {
+			theme = "dark"
+		}
+
+		// parse templates
+		tmpl, err := wb.parseFileTemplates()
+		if err != nil {
+			log.Printf("[ERROR] failed to parse view template: %v", err)
+			http.Error(w, "error rendering file view", http.StatusInternalServerError)
+			return
+		}
+
+		// prepare data for the template
+		data := struct {
+			FileName string
+			Content  string
+			Theme    string
+			IsHTML   bool
+		}{
+			FileName: fileInfo.Name(),
+			Content:  string(fileContent),
+			Theme:    theme,
+			IsHTML:   isHTMLFile,
+		}
+
+		// execute the file-view template
+		if err := tmpl.ExecuteTemplate(w, "file-view", data); err != nil {
+			log.Printf("[ERROR] failed to execute file-view template: %v", err)
+			http.Error(w, "error rendering file view", http.StatusInternalServerError)
+		}
+	} else {
+		// for non-text files (images, PDFs, etc.)
+		w.Header().Set("Content-Type", contentType)
+		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+
+		// serve the content directly
+		http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file.(io.ReadSeeker))
+	}
+}
+
+// handleDownload serves file downloads
+func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
+	// extract the file path from the URL
+	filePath := strings.TrimPrefix(r.URL.Path, "/")
+
+	// remove trailing slash if present - this helps handle URLs like /download/templates/
+	filePath = strings.TrimSuffix(filePath, "/")
+
+	// clean the path to avoid directory traversal
+	filePath = filepath.ToSlash(filepath.Clean(filePath))
+	if filePath == "." {
+		filePath = ""
+	}
+	log.Printf("[DEBUG] download request for: %s", filePath)
+
+	// check if the file should be excluded
+	if wb.shouldExclude(filePath) {
+		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(filePath)), http.StatusForbidden)
+		return
+	}
+
+	// check if the file exists and is not a directory
+	fileInfo, err := fs.Stat(wb.FS, filePath)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("file not found: %s", filepath.Base(filePath)), http.StatusNotFound)
+		return
+	}
+
+	// if it's a directory, redirect to directory view
+	if fileInfo.IsDir() {
+		http.Redirect(w, r, "/?path="+filePath, http.StatusSeeOther)
+		return
+	}
+
+	// open the file directly from the filesystem
+	file, err := wb.FS.Open(filePath)
+	if err != nil {
+		http.Error(w, "error opening file", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	// force all files to download instead of being displayed in browser
+	w.Header().Set("Content-Type", "application/octet-stream")
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", fileInfo.Name()))
+	w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
+
+	// copy the file to the response - directly use file as ReadSeeker
+	http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file.(io.ReadSeeker))
+}
+
+// handleLoginPage renders the login page
+func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
+	tmpl, err := template.New("login.html").Funcs(template.FuncMap{
+		"safe": func(s string) template.HTML {
+			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
+		},
+	}).ParseFS(content, "templates/login.html")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		Theme      string
+		HideFooter bool
+		Title      string
+		Error      string
+	}{
+		Theme:      wb.Theme,
+		HideFooter: wb.HideFooter,
+		Title:      wb.Title,
+		Error:      "", // empty error by default
+	}
+
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, fmt.Sprintf("failed to execute template: %v", err), http.StatusInternalServerError)
+		return
+	}
+}
+
+// handleLoginSubmit handles the login form submission
+func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	username := r.FormValue("username")
+	password := r.FormValue("password")
+
+	if username != "weblist" || password != wb.Auth {
+		// authentication failed, show error
+		tmpl, err := template.New("login.html").Funcs(template.FuncMap{
+			"safe": func(s string) template.HTML {
+				return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
+			},
+		}).ParseFS(content, "templates/login.html")
+		if err != nil {
+			http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
+			return
+		}
+
+		data := struct {
+			Theme      string
+			HideFooter bool
+			Title      string
+			Error      string
+		}{
+			Theme:      wb.Theme,
+			HideFooter: wb.HideFooter,
+			Title:      wb.Title,
+			Error:      "Invalid username or password",
+		}
+
+		if err := tmpl.Execute(w, data); err != nil {
+			http.Error(w, fmt.Sprintf("failed to execute template: %v", err), http.StatusInternalServerError)
+			return
+		}
+		return
+	}
+
+	// authentication successful, set cookie and redirect
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth",
+		Value:    wb.Auth,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		MaxAge:   3600 * 24, // 24 hours
+	})
+
+	// redirect to the home page
+	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// handleLogout handles the logout request
+func (wb *Web) handleLogout(w http.ResponseWriter, r *http.Request) {
+	// clear the auth cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		MaxAge:   -1, // delete the cookie
+	})
+
+	// redirect to the login page
+	http.Redirect(w, r, "/login", http.StatusSeeOther)
+}
+
+// handleFileModal renders the modal with embedded file content
+func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
+	// get file path from query parameter
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		http.Error(w, "file path not provided", http.StatusBadRequest)
+		return
+	}
+
+	// clean the path to avoid directory traversal
+	path = filepath.ToSlash(filepath.Clean(path))
+
+	// check if the path should be excluded
+	if wb.shouldExclude(path) {
+		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(path)), http.StatusForbidden)
+		return
+	}
+
+	// check if the file exists and is not a directory
+	fileInfo, err := fs.Stat(wb.FS, path)
+	if err != nil {
+		http.Error(w, fmt.Sprintf("file not found: %s - %v", path, err), http.StatusNotFound)
+		return
+	}
+
+	if fileInfo.IsDir() {
+		http.Error(w, "cannot display directories in modal", http.StatusBadRequest)
+		return
+	}
+
+	// open the file (needed for reading content later if needed)
+	file, err := wb.FS.Open(path)
+	if err != nil {
+		http.Error(w, "error opening file", http.StatusInternalServerError)
+		return
+	}
+	defer file.Close()
+
+	// determine content type and file properties
+	contentType, isText, isHTML, isPDF, isImage := determineContentType(path)
+
+	// prepare data for the modal template
+	data := struct {
+		FileName    string
+		FilePath    string
+		ContentType string
+		FileSize    int64
+		IsImage     bool
+		IsPDF       bool
+		IsText      bool
+		IsHTML      bool
+		Theme       string
+	}{
+		FileName:    fileInfo.Name(),
+		FilePath:    path,
+		ContentType: contentType,
+		FileSize:    fileInfo.Size(),
+		IsImage:     isImage,
+		IsPDF:       isPDF,
+		IsText:      isText,
+		IsHTML:      isHTML,
+		Theme:       wb.Config.Theme,
+	}
+
+	// parse templates
+	tmpl, err := wb.parseFileTemplates()
+	if err != nil {
+		log.Printf("[ERROR] failed to parse file-modal template: %v", err)
+		http.Error(w, "error rendering file modal", http.StatusInternalServerError)
+		return
+	}
+
+	// set content type and execute the file-modal template
+	w.Header().Set("Content-Type", "text/html")
+	if err := tmpl.ExecuteTemplate(w, "file-modal", data); err != nil {
+		log.Printf("[ERROR] failed to execute file-modal template: %v", err)
+		http.Error(w, "error rendering file modal", http.StatusInternalServerError)
+	}
+}
+
+// parseFileTemplates parses templates needed for file viewing and modal display
+func (wb *Web) parseFileTemplates() (*template.Template, error) {
+	return template.New("index.html").Funcs(template.FuncMap{
+		"safe": func(s string) template.HTML {
+			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
+		},
+	}).ParseFS(content, "templates/index.html", "templates/file.html")
+}
+
+// getCommonTextExtensions returns a map of common text file extensions
+func getCommonTextExtensions() map[string]bool {
+	return map[string]bool{
+		".yml":      true,
+		".yaml":     true,
+		".toml":     true,
+		".ini":      true,
+		".conf":     true,
+		".config":   true,
+		".md":       true,
+		".markdown": true,
+		".env":      true,
+		".lock":     true,
+		".go":       true,
+		".py":       true,
+		".js":       true,
+		".ts":       true,
+		".jsx":      true,
+		".tsx":      true,
+		".sh":       true,
+		".bash":     true,
+		".zsh":      true,
+		".log":      true,
+	}
+}
+
+// determineContentType determines content type and related flags for a file
+func determineContentType(filePath string) (contentType string, isText, isHTML, isPDF, isImage bool) {
+	ext := filepath.Ext(filePath)
+	extLower := strings.ToLower(ext)
+	commonTextExtensions := getCommonTextExtensions()
+
+	if commonTextExtensions[extLower] {
+		contentType = "text/plain"
+	} else {
+		contentType = mime.TypeByExtension(ext)
+		if contentType == "" {
+			contentType = "text/plain"
+		}
+	}
+
+	isText = strings.HasPrefix(contentType, "text/") ||
+		strings.HasPrefix(contentType, "application/json") ||
+		strings.HasPrefix(contentType, "application/xml") ||
+		strings.Contains(contentType, "html") ||
+		commonTextExtensions[extLower]
+	isHTML = strings.Contains(contentType, "html")
+	isPDF = contentType == "application/pdf"
+	isImage = strings.HasPrefix(contentType, "image/")
+
+	return contentType, isText, isHTML, isPDF, isImage
+}
+
+// getSortParams retrieves sort parameters from query or cookies and returns them
+// it also sets cookies if query parameters are provided
+func (wb *Web) getSortParams(w http.ResponseWriter, r *http.Request) (sortBy, sortDir string) {
+	// check query parameters first
+	sortBy = r.URL.Query().Get("sort")
+	sortDir = r.URL.Query().Get("dir")
+
+	// if sort parameters are provided in the query, use and save them to cookies
+	if sortBy != "" || sortDir != "" {
+		// if either is set, ensure both have values
+		if sortBy == "" {
+			sortBy = "name" // default sort
+		}
+		if sortDir == "" {
+			sortDir = "asc" // default direction
+		}
+
+		// set cookies with sorting preferences
+		http.SetCookie(w, &http.Cookie{
+			Name:     "sortBy",
+			Value:    sortBy,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
+			MaxAge:   60 * 60 * 24 * 365, // 1 year
+		})
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "sortDir",
+			Value:    sortDir,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
+			MaxAge:   60 * 60 * 24 * 365, // 1 year
+		})
+	} else {
+		// if no sort parameters in query, try to get from cookies
+		if sortByCookie, err := r.Cookie("sortBy"); err == nil {
+			sortBy = sortByCookie.Value
+		}
+		if sortDirCookie, err := r.Cookie("sortDir"); err == nil {
+			sortDir = sortDirCookie.Value
+		}
+	}
+
+	// if still empty after checking cookies, use defaults
+	if sortBy == "" {
+		sortBy = "name" // default sort
+	}
+	if sortDir == "" {
+		sortDir = "asc" // default direction
+	}
+
+	return sortBy, sortDir
 }
 
 // renderFullPage renders the complete HTML page
@@ -774,220 +967,4 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 		// user is not authenticated, redirect to login page
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})
-}
-
-// handleLoginPage renders the login page
-func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
-	tmpl, err := template.New("login.html").Funcs(template.FuncMap{
-		"safe": func(s string) template.HTML {
-			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
-		},
-	}).ParseFS(content, "templates/login.html")
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
-		return
-	}
-
-	data := struct {
-		Theme      string
-		HideFooter bool
-		Title      string
-		Error      string
-	}{
-		Theme:      wb.Theme,
-		HideFooter: wb.HideFooter,
-		Title:      wb.Title,
-		Error:      "", // empty error by default
-	}
-
-	if err := tmpl.Execute(w, data); err != nil {
-		http.Error(w, fmt.Sprintf("failed to execute template: %v", err), http.StatusInternalServerError)
-		return
-	}
-}
-
-// handleLoginSubmit handles the login form submission
-func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseForm(); err != nil {
-		http.Error(w, "Failed to parse form", http.StatusBadRequest)
-		return
-	}
-
-	username := r.FormValue("username")
-	password := r.FormValue("password")
-
-	if username != "weblist" || password != wb.Auth {
-		// authentication failed, show error
-		tmpl, err := template.New("login.html").Funcs(template.FuncMap{
-			"safe": func(s string) template.HTML {
-				return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
-			},
-		}).ParseFS(content, "templates/login.html")
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		data := struct {
-			Theme      string
-			HideFooter bool
-			Title      string
-			Error      string
-		}{
-			Theme:      wb.Theme,
-			HideFooter: wb.HideFooter,
-			Title:      wb.Title,
-			Error:      "Invalid username or password",
-		}
-
-		if err := tmpl.Execute(w, data); err != nil {
-			http.Error(w, fmt.Sprintf("failed to execute template: %v", err), http.StatusInternalServerError)
-			return
-		}
-		return
-	}
-
-	// authentication successful, set cookie and redirect
-	http.SetCookie(w, &http.Cookie{
-		Name:     "auth",
-		Value:    wb.Auth,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		MaxAge:   3600 * 24, // 24 hours
-	})
-
-	// redirect to the home page
-	http.Redirect(w, r, "/", http.StatusSeeOther)
-}
-
-// handleLogout handles the logout request
-func (wb *Web) handleLogout(w http.ResponseWriter, r *http.Request) {
-	// clear the auth cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "auth",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		MaxAge:   -1, // delete the cookie
-	})
-
-	// redirect to the login page
-	http.Redirect(w, r, "/login", http.StatusSeeOther)
-}
-
-// handleFileModal renders the modal with embedded file content
-func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
-	// get file path from query parameter
-	path := r.URL.Query().Get("path")
-	if path == "" {
-		http.Error(w, "file path not provided", http.StatusBadRequest)
-		return
-	}
-
-	// clean the path to avoid directory traversal
-	path = filepath.ToSlash(filepath.Clean(path))
-
-	// check if the path should be excluded
-	if wb.shouldExclude(path) {
-		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(path)), http.StatusForbidden)
-		return
-	}
-
-	// check if the file exists and is not a directory
-	fileInfo, err := fs.Stat(wb.FS, path)
-	if err != nil {
-		http.Error(w, fmt.Sprintf("file not found: %s - %v", path, err), http.StatusNotFound)
-		return
-	}
-
-	if fileInfo.IsDir() {
-		http.Error(w, "cannot display directories in modal", http.StatusBadRequest)
-		return
-	}
-
-	// determine the file type
-	ext := filepath.Ext(path)
-	extLower := strings.ToLower(ext)
-
-	// common text file extensions
-	commonTextExtensions := map[string]bool{
-		".yml":      true,
-		".yaml":     true,
-		".toml":     true,
-		".ini":      true,
-		".conf":     true,
-		".config":   true,
-		".md":       true,
-		".markdown": true,
-		".env":      true,
-		".lock":     true,
-		".go":       true,
-		".py":       true,
-		".js":       true,
-		".ts":       true,
-		".jsx":      true,
-		".tsx":      true,
-		".sh":       true,
-		".bash":     true,
-		".zsh":      true,
-		".log":      true,
-	}
-
-	var contentType string
-	if commonTextExtensions[extLower] {
-		contentType = "text/plain"
-	} else {
-		contentType = mime.TypeByExtension(ext)
-		if contentType == "" {
-			contentType = "text/plain" // default to text
-		}
-	}
-
-	// prepare data for the modal template
-	data := struct {
-		FileName    string
-		FilePath    string
-		ContentType string
-		FileSize    int64
-		IsImage     bool
-		IsPDF       bool
-		IsText      bool
-		IsHTML      bool
-		Theme       string
-	}{
-		FileName:    fileInfo.Name(),
-		FilePath:    path,
-		ContentType: contentType,
-		FileSize:    fileInfo.Size(),
-		IsImage:     strings.HasPrefix(contentType, "image/"),
-		IsPDF:       contentType == "application/pdf",
-		IsText: strings.HasPrefix(contentType, "text/") ||
-			strings.HasPrefix(contentType, "application/json") ||
-			strings.HasPrefix(contentType, "application/xml") ||
-			strings.Contains(contentType, "html") ||
-			commonTextExtensions[extLower],
-		IsHTML: strings.Contains(contentType, "html"),
-		Theme:  wb.Config.Theme,
-	}
-
-	// parse both templates
-	tmpl, err := template.New("index.html").Funcs(template.FuncMap{
-		"safe": func(s string) template.HTML {
-			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
-		},
-	}).ParseFS(content, "templates/index.html", "templates/file.html")
-	if err != nil {
-		log.Printf("[ERROR] failed to parse file-modal template: %v", err)
-		http.Error(w, "error rendering file modal", http.StatusInternalServerError)
-		return
-	}
-
-	// set content type and execute the file-modal template
-	w.Header().Set("Content-Type", "text/html")
-	if err := tmpl.ExecuteTemplate(w, "file-modal", data); err != nil {
-		log.Printf("[ERROR] failed to execute file-modal template: %v", err)
-		http.Error(w, "error rendering file modal", http.StatusInternalServerError)
-	}
 }
