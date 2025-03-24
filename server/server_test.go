@@ -136,10 +136,12 @@ func TestHandleDownload(t *testing.T) {
 			expectedBody:   "file not found",
 		},
 		{
-			name:           "cannot download directory",
+			name:           "directory redirects to view",
 			path:           "/dir1",
-			expectedStatus: http.StatusBadRequest,
-			expectedBody:   "cannot download directories",
+			expectedStatus: http.StatusSeeOther,
+			expectedHeader: map[string]string{
+				"Location": "/?path=dir1",
+			},
 		},
 	}
 
@@ -1010,15 +1012,13 @@ func TestServerIntegration(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 
-	t.Run("cannot download directory", func(t *testing.T) {
+	t.Run("directory path redirects to view", func(t *testing.T) {
 		resp, err := client.Get(baseURL + "/dir1")
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
-		assert.Equal(t, http.StatusBadRequest, resp.StatusCode)
-		body, err := io.ReadAll(resp.Body)
-		require.NoError(t, err)
-		assert.Contains(t, string(body), "cannot download directories")
+		assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
+		assert.Equal(t, "/?path=dir1", resp.Header.Get("Location"))
 	})
 
 	// shutdown the server
@@ -1783,6 +1783,63 @@ func TestFileInfoViewable(t *testing.T) {
 }
 
 // TestHTMLRendering verifies that HTML files are rendered correctly in the preview
+func TestDirectoryPathRedirection(t *testing.T) {
+	// set up a test server
+	srv := setupTestServer(t)
+
+	// create a test HTTP server
+	ts := httptest.NewServer(http.HandlerFunc(srv.handleDownload))
+	defer ts.Close()
+
+	// test cases
+	tests := []struct {
+		name           string
+		path           string
+		expectedStatus int
+		expectedPath   string
+	}{
+		{
+			name:           "nested directory redirects to view",
+			path:           "/dir1",
+			expectedStatus: http.StatusSeeOther,
+			expectedPath:   "/?path=dir1",
+		},
+		{
+			name:           "nested directory with trailing slash",
+			path:           "/dir1/",
+			expectedStatus: http.StatusSeeOther,
+			expectedPath:   "/?path=dir1",
+		},
+		{
+			name:           "deeply nested directory",
+			path:           "/dir1/subdir",
+			expectedStatus: http.StatusSeeOther,
+			expectedPath:   "/?path=dir1/subdir",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// create a request using path from the test case
+			req, err := http.NewRequest("GET", tc.path, nil)
+			require.NoError(t, err)
+
+			// create a response recorder
+			rr := httptest.NewRecorder()
+
+			// call the handler
+			srv.handleDownload(rr, req)
+
+			// check the status code
+			assert.Equal(t, tc.expectedStatus, rr.Code, "Status code should match")
+
+			// check that we're redirected to the right path
+			location := rr.Header().Get("Location")
+			assert.Equal(t, tc.expectedPath, location, "Redirect location should match")
+		})
+	}
+}
+
 func TestHTMLRendering(t *testing.T) {
 	// create a temporary HTML file for testing
 	htmlContent := `<!DOCTYPE html>

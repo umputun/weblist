@@ -306,9 +306,9 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// if it's a directory, return an error
+	// if it's a directory, redirect to directory view
 	if fileInfo.IsDir() {
-		http.Error(w, "cannot download directories", http.StatusBadRequest)
+		http.Redirect(w, r, "/?path="+filePath, http.StatusSeeOther)
 		return
 	}
 
