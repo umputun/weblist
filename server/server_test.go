@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -1779,6 +1780,106 @@ func TestTitleFunctionality(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code)
 	// check that the title is in the HTML
 	assert.Contains(t, rr.Body.String(), "<title>Login - Custom Title</title>")
+}
+
+func TestHandleLoginSubmit(t *testing.T) {
+	// Create a test server with authentication enabled
+	testdataDir, err := filepath.Abs("testdata")
+	require.NoError(t, err)
+
+	srv := &Web{
+		Config: Config{
+			ListenAddr: ":0",
+			Theme:      "light",
+			RootDir:    testdataDir,
+			Auth:       "testpassword",
+			Title:      "Test Server",
+		},
+		FS: os.DirFS(testdataDir),
+	}
+
+	t.Run("successful login", func(t *testing.T) {
+		// Create a form data with correct credentials
+		formData := url.Values{}
+		formData.Set("username", "weblist")
+		formData.Set("password", "testpassword")
+
+		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleLoginSubmit)
+		handler.ServeHTTP(rr, req)
+
+		// Check redirect on successful login
+		assert.Equal(t, http.StatusSeeOther, rr.Code)
+		assert.Equal(t, "/", rr.Header().Get("Location"))
+
+		// Check that auth cookie was set
+		cookies := rr.Result().Cookies()
+		var authCookie *http.Cookie
+		for _, cookie := range cookies {
+			if cookie.Name == "auth" {
+				authCookie = cookie
+				break
+			}
+		}
+		require.NotNil(t, authCookie, "Auth cookie should be set")
+		assert.Equal(t, "testpassword", authCookie.Value)
+		assert.Equal(t, 3600*24, authCookie.MaxAge) // 24 hours
+	})
+
+	t.Run("failed login - wrong username", func(t *testing.T) {
+		formData := url.Values{}
+		formData.Set("username", "wronguser")
+		formData.Set("password", "testpassword")
+
+		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleLoginSubmit)
+		handler.ServeHTTP(rr, req)
+
+		// Should render login page with error
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Contains(t, rr.Body.String(), "Invalid username or password")
+	})
+
+	t.Run("failed login - wrong password", func(t *testing.T) {
+		formData := url.Values{}
+		formData.Set("username", "weblist")
+		formData.Set("password", "wrongpassword")
+
+		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleLoginSubmit)
+		handler.ServeHTTP(rr, req)
+
+		// Should render login page with error
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Contains(t, rr.Body.String(), "Invalid username or password")
+	})
+
+	t.Run("form parsing error", func(t *testing.T) {
+		// Create a malformed request body to trigger ParseForm error
+		req, err := http.NewRequest("POST", "/login", strings.NewReader("%"))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleLoginSubmit)
+		handler.ServeHTTP(rr, req)
+
+		// Should return a bad request error
+		assert.Equal(t, http.StatusBadRequest, rr.Code)
+		assert.Contains(t, rr.Body.String(), "Failed to parse form")
+	})
 }
 
 func TestFileViewAndModal(t *testing.T) {
