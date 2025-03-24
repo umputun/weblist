@@ -67,14 +67,14 @@ td:nth-child(2), td:nth-child(3) {
   flex-grow: 1;
 }
 
-.view-icon {
+.view-icon, .link-icon {
   margin-left: 0.5rem;
   opacity: 0.5;
   transition: opacity 0.2s;
   color: var(--color-primary);
 }
 
-.view-icon:hover {
+.view-icon:hover, .link-icon:hover {
   opacity: 1;
 }
 
@@ -471,7 +471,8 @@ pre {
   fill: var(--color-white) !important;
 }
 
-[data-theme="dark"] .view-icon svg {
+[data-theme="dark"] .view-icon svg,
+[data-theme="dark"] .link-icon svg {
   fill: var(--color-primary-text, var(--color-primary));
 }
 
