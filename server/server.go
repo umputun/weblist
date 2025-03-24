@@ -75,8 +75,11 @@ func (wb *Web) Run(ctx context.Context) error {
 	router.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
 	router.HandleFunc("GET /partials/file-modal", wb.handleFileModal) // handle modal content
 	router.HandleFunc("GET /view/{path...}", wb.handleViewFile)       // handle file viewing
-	router.HandleFunc("GET /assets/css/style.css", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFileFS(w, r, assetsFS, "css/style.css")
+	router.HandleFunc("GET /assets/css/custom.css", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, assetsFS, "css/custom.css")
+	})
+	router.HandleFunc("GET /assets/css/weblist-app.css", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, assetsFS, "css/weblist-app.css")
 	})
 	router.HandleFunc("GET /assets/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, assetsFS, "favicon.ico")

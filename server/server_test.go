@@ -1352,7 +1352,7 @@ func TestGetFileListWithExcludesInSubdir(t *testing.T) {
 
 	// create a subdirectory with excluded files
 	subDir := filepath.Join(tempDir, "subdir")
-	err := os.Mkdir(subDir, 0755)
+	var err error = os.Mkdir(subDir, 0755)
 	require.NoError(t, err)
 
 	// create files in subdirectory
@@ -1502,7 +1502,7 @@ func TestAuthentication(t *testing.T) {
 	})
 
 	t.Run("assets accessible without auth", func(t *testing.T) {
-		req, err := http.NewRequest("GET", "/assets/css/style.css", nil)
+		req, err := http.NewRequest("GET", "/assets/css/custom.css", nil)
 		require.NoError(t, err)
 
 		rr := httptest.NewRecorder()
