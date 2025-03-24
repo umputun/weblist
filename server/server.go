@@ -329,6 +329,62 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 	http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file.(io.ReadSeeker))
 }
 
+// getSortParams retrieves sort parameters from query or cookies and returns them
+// it also sets cookies if query parameters are provided
+func (wb *Web) getSortParams(w http.ResponseWriter, r *http.Request) (sortBy, sortDir string) {
+	// check query parameters first
+	sortBy = r.URL.Query().Get("sort")
+	sortDir = r.URL.Query().Get("dir")
+
+	// if sort parameters are provided in the query, use and save them to cookies
+	if sortBy != "" || sortDir != "" {
+		// if either is set, ensure both have values
+		if sortBy == "" {
+			sortBy = "name" // default sort
+		}
+		if sortDir == "" {
+			sortDir = "asc" // default direction
+		}
+
+		// set cookies with sorting preferences
+		http.SetCookie(w, &http.Cookie{
+			Name:     "sortBy",
+			Value:    sortBy,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
+			MaxAge:   60 * 60 * 24 * 365, // 1 year
+		})
+
+		http.SetCookie(w, &http.Cookie{
+			Name:     "sortDir",
+			Value:    sortDir,
+			Path:     "/",
+			HttpOnly: true,
+			Secure:   r.TLS != nil,
+			MaxAge:   60 * 60 * 24 * 365, // 1 year
+		})
+	} else {
+		// if no sort parameters in query, try to get from cookies
+		if sortByCookie, err := r.Cookie("sortBy"); err == nil {
+			sortBy = sortByCookie.Value
+		}
+		if sortDirCookie, err := r.Cookie("sortDir"); err == nil {
+			sortDir = sortDirCookie.Value
+		}
+	}
+
+	// if still empty after checking cookies, use defaults
+	if sortBy == "" {
+		sortBy = "name" // default sort
+	}
+	if sortDir == "" {
+		sortDir = "asc" // default direction
+	}
+
+	return sortBy, sortDir
+}
+
 // handleDirContents renders partial directory contents for HTMX requests
 func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	// get directory path from query parameters
@@ -337,14 +393,8 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		path = "."
 	}
 
-	sortBy := r.URL.Query().Get("sort")
-	sortDir := r.URL.Query().Get("dir")
-	if sortBy == "" {
-		sortBy = "name" // default sort
-	}
-	if sortDir == "" {
-		sortDir = "asc" // default direction
-	}
+	// get sort parameters from query or cookies
+	sortBy, sortDir := wb.getSortParams(w, r)
 
 	// clean the path to avoid directory traversal
 	path = filepath.ToSlash(filepath.Clean(path))
@@ -451,14 +501,8 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		return
 	}
 
-	sortBy := r.URL.Query().Get("sort")
-	sortDir := r.URL.Query().Get("dir")
-	if sortBy == "" {
-		sortBy = "name" // default sort
-	}
-	if sortDir == "" {
-		sortDir = "asc" // default direction
-	}
+	// get sort parameters from query or cookies
+	sortBy, sortDir := wb.getSortParams(w, r)
 
 	fileList, err := wb.getFileList(path, sortBy, sortDir)
 	if err != nil {
