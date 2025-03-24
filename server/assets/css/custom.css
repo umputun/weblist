@@ -238,13 +238,7 @@ button.contrast:hover, .button.contrast:hover {
   padding-left: var(--spacing-md);
 }
 
-.container-fluid {
-  width: 100%;
-  padding-right: var(--spacing-md);
-  padding-left: var(--spacing-md);
-  margin-right: auto;
-  margin-left: auto;
-}
+/* Removing .container-fluid as it's not used */
 
 /* Article (container for content) */
 article {
@@ -256,34 +250,7 @@ article {
   border: 1px solid var(--color-border-muted);
 }
 
-/* Utilities */
-.text-center {
-  text-align: center;
-}
-
-.text-right {
-  text-align: right;
-}
-
-.text-muted {
-  color: var(--color-text-muted);
-}
-
-.margin-top-sm {
-  margin-top: var(--spacing-sm);
-}
-
-.margin-top-md {
-  margin-top: var(--spacing-md);
-}
-
-.margin-bottom-sm {
-  margin-bottom: var(--spacing-sm);
-}
-
-.margin-bottom-md {
-  margin-bottom: var(--spacing-md);
-}
+/* Removing utilities as they're not used in our templates */
 
 .error-message {
   background-color: var(--color-error-background);
