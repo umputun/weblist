@@ -1,0 +1,80 @@
+{{/* Templates for file viewing and modal display */}}
+
+{{/* file-view is used for direct viewing when accessing /view/path */}}
+{{ define "file-view" }}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ .Theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .FileName }}</title>
+    <link rel="stylesheet" href="/assets/css/custom.css">
+    <style>
+        /* Set dark background immediately (before content loads) */
+        html {
+            background-color: var(--color-background) !important;
+        }
+        html, body { 
+            background-color: var(--color-background) !important;
+        }
+        body { 
+            padding: 0.5rem; 
+            margin: 0; 
+            line-height: 1.5;
+            min-height: 100vh;
+            color: var(--color-text);
+        }
+        pre { 
+            margin: 0; 
+            white-space: pre-wrap; 
+            word-wrap: break-word;
+            font-family: monospace;
+            background-color: var(--color-background) !important;
+        }
+    </style>
+</head>
+<body>
+{{ if .IsHTML }}
+    <div class="html-content">{{ .Content | safe }}</div>
+{{ else }}
+    <pre>{{ .Content | html }}</pre>
+{{ end }}
+</body>
+</html>
+{{ end }}
+
+{{/* file-modal is used to display a file in a modal popup */}}
+{{ define "file-modal" }}
+<div class="file-modal">
+    <div class="modal-header">
+        <h3>{{ .FileName }}</h3>
+        <a href="#" class="close-modal" hx-on:click="document.getElementById('modal-container').innerHTML = ''">
+            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                <path d="M4.646 4.646a.5.5 0 0 1 .708 0L8 7.293l2.646-2.647a.5.5 0 0 1 .708.708L8.707 8l2.647 2.646a.5.5 0 0 1-.708.708L8 8.707l-2.646 2.647a.5.5 0 0 1-.708-.708L7.293 8 4.646 5.354a.5.5 0 0 1 0-.708z"/>
+            </svg>
+        </a>
+    </div>
+    <div class="modal-content">
+        {{ if .IsImage }}
+            <!-- For images, embed with img tag -->
+            <div class="loading-spinner"></div>
+            <img src="/view/{{ .FilePath }}" alt="{{ .FileName }}" class="modal-image" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';" style="opacity: 0; transition: opacity 0.2s;">
+        {{ else if .IsPDF }}
+            <!-- For PDFs, use an embed tag -->
+            <div class="loading-spinner"></div>
+            <embed src="/view/{{ .FilePath }}" type="application/pdf" width="100%" height="100%" style="opacity: 0; transition: opacity 0.2s;" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';">
+        {{ else if .IsHTML }}
+            <!-- For HTML files, use iframe to show rendered content -->
+            <div class="loading-spinner"></div>
+            <iframe src="/view/{{ .FilePath }}?theme={{ .Theme }}" class="text-preview" sandbox="allow-same-origin allow-scripts allow-forms" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';"></iframe>
+        {{ else if .IsText }}
+            <!-- For text files, use iframe to show content with theme -->
+            <div class="loading-spinner"></div>
+            <iframe src="/view/{{ .FilePath }}?theme={{ .Theme }}" class="text-preview" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';"></iframe>
+        {{ else }}
+            <!-- For unsupported file types -->
+            <div class="unsupported-file">This file type cannot be previewed. <a href="/{{ .FilePath }}" download>Download</a> the file to view it.</div>
+        {{ end }}
+    </div>
+</div>
+{{ end }}
