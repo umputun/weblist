@@ -26,6 +26,21 @@ table a:hover {
   text-decoration: underline;
 }
 
+/* Directory row styles */
+.dir-row {
+  cursor: pointer;
+}
+
+.dir-entry {
+  display: flex;
+  align-items: center;
+  color: var(--color-primary-text, var(--color-primary));
+}
+
+.dir-row:hover .dir-entry {
+  text-decoration: underline;
+}
+
 /* Secondary column styles */
 td:nth-child(2), td:nth-child(3) {
   white-space: nowrap;
