@@ -1,3 +1,49 @@
+{{/* Templates for file viewing and modal display */}}
+
+{{/* file-view is used for direct viewing when accessing /view/path */}}
+{{ define "file-view" }}
+<!DOCTYPE html>
+<html lang="en" data-theme="{{ .Theme }}">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ .FileName }}</title>
+    <link rel="stylesheet" href="/assets/css/custom.css">
+    <style>
+        /* Set dark background immediately (before content loads) */
+        html {
+            background-color: var(--color-background) !important;
+        }
+        html, body { 
+            background-color: var(--color-background) !important;
+        }
+        body { 
+            padding: 0.5rem; 
+            margin: 0; 
+            line-height: 1.5;
+            min-height: 100vh;
+            color: var(--color-text);
+        }
+        pre { 
+            margin: 0; 
+            white-space: pre-wrap; 
+            word-wrap: break-word;
+            font-family: monospace;
+            background-color: var(--color-background) !important;
+        }
+    </style>
+</head>
+<body>
+{{ if .IsHTML }}
+    <div class="html-content">{{ .Content | safe }}</div>
+{{ else }}
+    <pre>{{ .Content | html }}</pre>
+{{ end }}
+</body>
+</html>
+{{ end }}
+
+{{/* file-modal is used to display a file in a modal popup */}}
 {{ define "file-modal" }}
 <div class="file-modal">
     <div class="modal-header">

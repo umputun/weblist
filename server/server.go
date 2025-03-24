@@ -243,7 +243,7 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 			"safe": func(s string) template.HTML {
 				return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 			},
-		}).ParseFS(content, "templates/index.html", "templates/file-modal.html")
+		}).ParseFS(content, "templates/index.html", "templates/file.html")
 		if err != nil {
 			log.Printf("[ERROR] failed to parse view template: %v", err)
 			http.Error(w, "error rendering file view", http.StatusInternalServerError)
@@ -416,7 +416,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		"safe": func(s string) template.HTML {
 			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 		},
-	}).ParseFS(content, "templates/index.html", "templates/file-modal.html")
+	}).ParseFS(content, "templates/index.html", "templates/file.html")
 	if err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -495,7 +495,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		"safe": func(s string) template.HTML {
 			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 		},
-	}).ParseFS(content, "templates/index.html", "templates/file-modal.html")
+	}).ParseFS(content, "templates/index.html", "templates/file.html")
 	if err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -977,7 +977,7 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 		"safe": func(s string) template.HTML {
 			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 		},
-	}).ParseFS(content, "templates/index.html", "templates/file-modal.html")
+	}).ParseFS(content, "templates/index.html", "templates/file.html")
 	if err != nil {
 		log.Printf("[ERROR] failed to parse file-modal template: %v", err)
 		http.Error(w, "error rendering file modal", http.StatusInternalServerError)

@@ -4,24 +4,19 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>{{ if .Title }}{{ .Title }}{{ else }}weblist{{ end }}{{ if ne .DisplayPath "" }} - /{{ .DisplayPath }}{{ end }}</title>
-
     <link rel="shortcut icon" href="/assets/favicon.ico" type="image/x-icon">
     <link rel="icon" href="/assets/favicon.ico" type="image/x-icon">
     <link rel="stylesheet" href="/assets/css/custom.css">
     <link rel="stylesheet" href="/assets/css/weblist-app.css">
-
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
 </head>
-
 <body hx-on:keydown="if(event.key === 'Escape') document.getElementById('modal-container').innerHTML = ''">
-
 <main class="container">
     <div id="page-content">
         {{ template "page-content" . }}
     </div>
 </main>
 <div id="modal-container" hx-on:click="if(event.target === this) this.innerHTML = ''"></div>
-
 {{ if not .HideFooter }}
 <footer>
     <div class="footer-content">
@@ -54,51 +49,8 @@
     </div>
 </footer>
 {{ end }}
-
 </body>
 </html>
-
-{{ define "file-view" }}
-<!DOCTYPE html>
-<html lang="en" data-theme="{{ .Theme }}">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>{{ .FileName }}</title>
-    <link rel="stylesheet" href="/assets/css/custom.css">
-    <style>
-        /* Set dark background immediately (before content loads) */
-        html {
-            background-color: var(--color-background) !important;
-        }
-        html, body { 
-            background-color: var(--color-background) !important;
-        }
-        body { 
-            padding: 0.5rem; 
-            margin: 0; 
-            line-height: 1.5;
-            min-height: 100vh;
-            color: var(--color-text);
-        }
-        pre { 
-            margin: 0; 
-            white-space: pre-wrap; 
-            word-wrap: break-word;
-            font-family: monospace;
-            background-color: var(--color-background) !important;
-        }
-    </style>
-</head>
-<body>
-{{ if .IsHTML }}
-    <div class="html-content">{{ .Content | safe }}</div>
-{{ else }}
-    <pre>{{ .Content | html }}</pre>
-{{ end }}
-</body>
-</html>
-{{ end }}
 
 {{ define "page-content" }}
 <div class="breadcrumbs">
@@ -106,6 +58,7 @@
         <!-- Home link with HTMX - no URL push -->
         <a href="#"
            hx-get="/partials/dir-contents"
+
            hx-vals='{"path": ".", "sort": "{{$.SortBy}}", "dir": "{{$.SortDir}}"}'
            hx-target="#page-content">
             <svg class="icon dir-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
@@ -114,7 +67,6 @@
             </svg>
             {{ if .Title }}{{ .Title }}{{ else }}Home{{ end }}
         </a>
-
         {{ if .PathParts }}
         {{ range .PathParts }}
         <span>/</span>
@@ -125,7 +77,6 @@
         {{ end }}
         {{ end }}
     </div>
-    
     {{ if .IsAuthenticated }}
     <div class="logout-button">
         <a href="/logout">
@@ -138,7 +89,6 @@
     </div>
     {{ end }}
 </div>
-
 <article>
     <table role="grid">
         <thead>
