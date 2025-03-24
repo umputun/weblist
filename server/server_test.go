@@ -167,6 +167,135 @@ func TestHandleDownload(t *testing.T) {
 	}
 }
 
+func TestGetSortParams(t *testing.T) {
+	srv := setupTestServer(t)
+
+	tests := []struct {
+		name            string
+		reqQuerySort    string
+		reqQueryDir     string
+		reqCookieSort   string
+		reqCookieDir    string
+		expectedSortBy  string
+		expectedSortDir string
+		shouldSetCookie bool
+	}{
+		{
+			name:            "use query parameters when provided",
+			reqQuerySort:    "size",
+			reqQueryDir:     "desc",
+			reqCookieSort:   "",
+			reqCookieDir:    "",
+			expectedSortBy:  "size",
+			expectedSortDir: "desc",
+			shouldSetCookie: true,
+		},
+		{
+			name:            "use cookies when query params not provided",
+			reqQuerySort:    "",
+			reqQueryDir:     "",
+			reqCookieSort:   "date",
+			reqCookieDir:    "asc",
+			expectedSortBy:  "date",
+			expectedSortDir: "asc",
+			shouldSetCookie: false,
+		},
+		{
+			name:            "use one query param, default the other",
+			reqQuerySort:    "size",
+			reqQueryDir:     "",
+			reqCookieSort:   "",
+			reqCookieDir:    "",
+			expectedSortBy:  "size",
+			expectedSortDir: "asc", // default
+			shouldSetCookie: true,
+		},
+		{
+			name:            "use default values when neither provided",
+			reqQuerySort:    "",
+			reqQueryDir:     "",
+			reqCookieSort:   "",
+			reqCookieDir:    "",
+			expectedSortBy:  "name", // default
+			expectedSortDir: "asc",  // default
+			shouldSetCookie: false,
+		},
+		{
+			name:            "query parameters override cookies",
+			reqQuerySort:    "size",
+			reqQueryDir:     "desc",
+			reqCookieSort:   "date",
+			reqCookieDir:    "asc",
+			expectedSortBy:  "size",
+			expectedSortDir: "desc",
+			shouldSetCookie: true,
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			// create request with query parameters
+			url := "/partials/dir-contents?path=."
+			if tc.reqQuerySort != "" {
+				url += "&sort=" + tc.reqQuerySort
+			}
+			if tc.reqQueryDir != "" {
+				url += "&dir=" + tc.reqQueryDir
+			}
+
+			req, err := http.NewRequest("GET", url, nil)
+			require.NoError(t, err)
+
+			// add cookies if specified
+			if tc.reqCookieSort != "" {
+				req.AddCookie(&http.Cookie{
+					Name:  "sortBy",
+					Value: tc.reqCookieSort,
+				})
+			}
+			if tc.reqCookieDir != "" {
+				req.AddCookie(&http.Cookie{
+					Name:  "sortDir",
+					Value: tc.reqCookieDir,
+				})
+			}
+
+			rr := httptest.NewRecorder()
+
+			// call the function
+			sortBy, sortDir := srv.getSortParams(rr, req)
+
+			// check returned values
+			assert.Equal(t, tc.expectedSortBy, sortBy)
+			assert.Equal(t, tc.expectedSortDir, sortDir)
+
+			// check if cookies were set
+			cookies := rr.Result().Cookies()
+			sortByCookieFound := false
+			sortDirCookieFound := false
+
+			for _, cookie := range cookies {
+				if cookie.Name == "sortBy" {
+					sortByCookieFound = true
+					assert.Equal(t, tc.expectedSortBy, cookie.Value)
+				}
+				if cookie.Name == "sortDir" {
+					sortDirCookieFound = true
+					assert.Equal(t, tc.expectedSortDir, cookie.Value)
+				}
+			}
+
+			if tc.shouldSetCookie {
+				assert.True(t, sortByCookieFound, "sortBy cookie should be set")
+				assert.True(t, sortDirCookieFound, "sortDir cookie should be set")
+			} else if len(cookies) > 0 {
+				assert.False(t, sortByCookieFound && sortDirCookieFound,
+					"cookies should not be set when not requested")
+			}
+		})
+	}
+}
+
 func TestHandleDirContents(t *testing.T) {
 	srv := setupTestServer(t)
 
@@ -249,6 +378,64 @@ func TestHandleDirContents(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestHandleDirContentsWithSortCookies(t *testing.T) {
+	srv := setupTestServer(t)
+
+	t.Run("cookies are set when query params provided", func(t *testing.T) {
+		// first request with query parameters
+		req, err := http.NewRequest("GET", "/partials/dir-contents?path=.&sort=size&dir=desc", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleDirContents)
+		handler.ServeHTTP(rr, req)
+
+		// check if sortBy and sortDir cookies were set
+		cookies := rr.Result().Cookies()
+		var sortByCookie, sortDirCookie *http.Cookie
+		for _, cookie := range cookies {
+			if cookie.Name == "sortBy" {
+				sortByCookie = cookie
+			}
+			if cookie.Name == "sortDir" {
+				sortDirCookie = cookie
+			}
+		}
+
+		require.NotNil(t, sortByCookie, "sortBy cookie should be set")
+		require.NotNil(t, sortDirCookie, "sortDir cookie should be set")
+		assert.Equal(t, "size", sortByCookie.Value)
+		assert.Equal(t, "desc", sortDirCookie.Value)
+	})
+
+	t.Run("cookies are used when query params not provided", func(t *testing.T) {
+		// create a request with cookies but no query parameters
+		req, err := http.NewRequest("GET", "/partials/dir-contents?path=.", nil)
+		require.NoError(t, err)
+
+		// add cookies
+		req.AddCookie(&http.Cookie{
+			Name:  "sortBy",
+			Value: "date",
+		})
+		req.AddCookie(&http.Cookie{
+			Name:  "sortDir",
+			Value: "desc",
+		})
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(srv.handleDirContents)
+		handler.ServeHTTP(rr, req)
+
+		// check that the response uses the cookie values
+		// we expect to see the sort arrows in the date column with down direction
+		assert.Contains(t, rr.Body.String(), `class="date-col"`)
+		assert.Contains(t, rr.Body.String(), `sorted desc`)
+		assert.Contains(t, rr.Body.String(), `Last Modified`)
+		assert.Contains(t, rr.Body.String(), `↓`) // down arrow for descending
+	})
 }
 
 func TestHandleDirContentsWithSorting(t *testing.T) {
