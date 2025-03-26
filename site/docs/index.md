@@ -1,10 +1,7 @@
-# weblist [![build](https://github.com/umputun/weblist/actions/workflows/ci.yml/badge.svg)](https://github.com/umputun/weblist/actions/workflows/ci.yml) &nbsp;[![Coverage Status](https://coveralls.io/repos/github/umputun/weblist/badge.svg?branch=master)](https://coveralls.io/github/umputun/weblist?branch=master)
+
+
 
 A modern, elegant file browser for the web. Weblist provides a clean and intuitive interface for browsing and downloading files from any directory on your server, replacing the ugly default directory listings of Nginx and Apache with a beautiful, functional alternative.
-
-<div align="center">
-  <img class="logo" src="https://github.com/umputun/weblist/raw/master/site/docs/logo.png" width="400px" alt="Weblist"/>
-</div>
 
 ## Why weblist?
 
