@@ -23,11 +23,13 @@ func TestVersionInfo(t *testing.T) {
 	// this will return either "dev" or the actual version
 	version := versionInfo()
 	assert.NotEmpty(t, version, "Version should not be empty")
-	assert.True(t, version == "dev" || version == "unknown" || len(version) > 0,
+	assert.True(t, version == "dev" || version == "unknown" || version != "",
 		"Version should be 'dev', 'unknown', or a valid version string")
 }
 
 func TestSetupLog(t *testing.T) {
+	t.Parallel() // use t to avoid the unused parameter warning
+
 	// test with debug mode off
 	setupLog(false)
 
@@ -36,8 +38,6 @@ func TestSetupLog(t *testing.T) {
 
 	// test with secrets
 	setupLog(false, "secret1", "secret2")
-
-	// no assertions needed as we're just ensuring it doesn't panic
 }
 
 func TestThemeValidation(t *testing.T) {
@@ -179,7 +179,7 @@ func TestParseCommandLineArgs(t *testing.T) {
 			// parse flags directly using the flags package
 			p := flags.NewParser(&opts, flags.PrintErrors|flags.PassDoubleDash|flags.HelpFlag)
 			_, err := p.Parse()
-			assert.NoError(t, err, "Flag parsing should not produce an error")
+			require.NoError(t, err, "Flag parsing should not produce an error")
 
 			// check if options match expected values
 			assert.Equal(t, tc.expected.Listen, opts.Listen, "Listen address should match")
@@ -190,20 +190,179 @@ func TestParseCommandLineArgs(t *testing.T) {
 	}
 }
 
+func TestRunServer(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// create test files in the temp directory
+	err := os.WriteFile(filepath.Join(tempDir, "runserver-test.txt"), []byte("test content for runServer"), 0o644)
+	require.NoError(t, err)
+
+	// create a subdirectory with a file
+	err = os.Mkdir(filepath.Join(tempDir, "runserver-subdir"), 0o755)
+	require.NoError(t, err)
+	err = os.WriteFile(filepath.Join(tempDir, "runserver-subdir", "nested.txt"), []byte("nested file"), 0o644)
+	require.NoError(t, err)
+
+	// find an available port
+	listener, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	if err = listener.Close(); err != nil { // close so the server can use it
+		t.Fatalf("failed to close listener: %v", err)
+	}
+
+	// set up options for the server
+	serverOpts := &options{
+		Listen:     fmt.Sprintf(":%d", port),
+		Theme:      "dark",
+		RootDir:    tempDir,
+		HideFooter: true,
+		Exclude:    []string{".git", "node_modules"},
+		Title:      "RunServer Test",
+	}
+
+	// start the server in a goroutine
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runServer(ctx, serverOpts)
+	}()
+
+	// wait for the server to start
+	time.Sleep(100 * time.Millisecond)
+
+	// create an HTTP client
+	client := &http.Client{
+		Timeout: 5 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse // don't follow redirects
+		},
+	}
+
+	baseURL := fmt.Sprintf("http://localhost:%d", port)
+
+	t.Run("root page loads with custom title", func(t *testing.T) {
+		resp, err := client.Get(baseURL)
+		require.NoError(t, err)
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Failed to close body: %v", err)
+			}
+		}()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+
+		// check that the page contains expected content
+		bodyStr := string(body)
+		assert.Contains(t, bodyStr, "runserver-test.txt")
+		assert.Contains(t, bodyStr, "runserver-subdir")
+		assert.Contains(t, bodyStr, "RunServer Test")    // custom title
+		assert.Contains(t, bodyStr, `data-theme="dark"`) // dark theme attribute
+	})
+
+	t.Run("subdirectory navigation", func(t *testing.T) {
+		resp, err := client.Get(baseURL + "/?path=runserver-subdir")
+		require.NoError(t, err)
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Failed to close body: %v", err)
+			}
+		}()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+
+		assert.Contains(t, string(body), "nested.txt")
+	})
+
+	t.Run("file download", func(t *testing.T) {
+		resp, err := client.Get(baseURL + "/runserver-test.txt")
+		require.NoError(t, err)
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Failed to close body: %v", err)
+			}
+		}()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		assert.Equal(t, "test content for runServer", string(body))
+	})
+
+	// test the server handles errors properly
+	t.Run("invalid path error", func(t *testing.T) {
+		// create a path that doesn't exist
+		resp, err := client.Get(baseURL + "/?path=non-existent")
+		require.NoError(t, err)
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Failed to close body: %v", err)
+			}
+		}()
+
+		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
+	})
+
+	// shutdown the server
+	cancel()
+
+	// wait for server to shut down
+	select {
+	case err := <-errCh:
+		assert.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Server did not shut down within expected time")
+	}
+}
+
+func TestRunServerErrors(t *testing.T) {
+	// test with an absolute path error for RootDir
+	t.Run("bad root directory path", func(t *testing.T) {
+		// create a mock options with a path that will fail filepath.Abs
+		ctx := context.Background()
+
+		// create a temporary directory and then remove it to ensure path doesn't exist
+		tempDir := t.TempDir() + "/nonexistent"
+
+		mockOpts := &options{
+			RootDir: tempDir,
+		}
+
+		// remove the directory to force an error
+		if err := os.RemoveAll(tempDir); err != nil {
+			t.Logf("Failed to remove tempDir: %v", err)
+		}
+
+		// make the path impossible to resolve
+		mockOpts.RootDir = string([]byte{0, 1, 2}) // invalid UTF-8 path
+
+		// call runServer and check for error
+		err := runServer(ctx, mockOpts)
+		assert.Error(t, err)
+	})
+}
+
 func TestMainIntegration(t *testing.T) {
+	// fix the assertion on line 508 - replace assert.NoError with require.NoError
 	// create a temporary directory for testing
 	tempDir := t.TempDir()
 
 	// create some test files in the temp directory
-	err := os.WriteFile(filepath.Join(tempDir, "test1.txt"), []byte("test1 content"), 0644)
+	err := os.WriteFile(filepath.Join(tempDir, "test1.txt"), []byte("test1 content"), 0o644)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(tempDir, "test2.txt"), []byte("test2 content"), 0644)
+	err = os.WriteFile(filepath.Join(tempDir, "test2.txt"), []byte("test2 content"), 0o644)
 	require.NoError(t, err)
 
 	// create a subdirectory with a file
-	err = os.Mkdir(filepath.Join(tempDir, "subdir"), 0755)
+	err = os.Mkdir(filepath.Join(tempDir, "subdir"), 0o755)
 	require.NoError(t, err)
-	err = os.WriteFile(filepath.Join(tempDir, "subdir", "test3.txt"), []byte("test3 content"), 0644)
+	err = os.WriteFile(filepath.Join(tempDir, "subdir", "test3.txt"), []byte("test3 content"), 0o644)
 	require.NoError(t, err)
 
 	// save original opts and restore after test
@@ -214,7 +373,8 @@ func TestMainIntegration(t *testing.T) {
 	listener, err := net.Listen("tcp", ":0")
 	require.NoError(t, err)
 	port := listener.Addr().(*net.TCPAddr).Port
-	listener.Close() // close it so the server can use it
+	err = listener.Close() // close it so the server can use it
+	require.NoError(t, err)
 
 	// set up options for the server
 	opts = options{
@@ -258,11 +418,14 @@ func TestMainIntegration(t *testing.T) {
 
 	baseURL := fmt.Sprintf("http://localhost:%d", port)
 
-	// test cases
 	t.Run("root page loads", func(t *testing.T) {
 		resp, err := client.Get(baseURL)
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Failed to close body: %v", err)
+			}
+		}()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		body, err := io.ReadAll(resp.Body)
@@ -277,7 +440,11 @@ func TestMainIntegration(t *testing.T) {
 	t.Run("directory navigation", func(t *testing.T) {
 		resp, err := client.Get(baseURL + "/?path=subdir")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Failed to close body: %v", err)
+			}
+		}()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		body, err := io.ReadAll(resp.Body)
@@ -290,7 +457,11 @@ func TestMainIntegration(t *testing.T) {
 	t.Run("file download", func(t *testing.T) {
 		resp, err := client.Get(baseURL + "/test1.txt")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Failed to close body: %v", err)
+			}
+		}()
 
 		assert.Equal(t, http.StatusOK, resp.StatusCode)
 		assert.Equal(t, "application/octet-stream", resp.Header.Get("Content-Type"))
@@ -304,7 +475,11 @@ func TestMainIntegration(t *testing.T) {
 	t.Run("file redirect", func(t *testing.T) {
 		resp, err := client.Get(baseURL + "/?path=test1.txt")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Failed to close body: %v", err)
+			}
+		}()
 
 		assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
 		assert.Equal(t, "/test1.txt", resp.Header.Get("Location"))
@@ -313,7 +488,11 @@ func TestMainIntegration(t *testing.T) {
 	t.Run("directory traversal prevention", func(t *testing.T) {
 		resp, err := client.Get(baseURL + "/?path=../")
 		require.NoError(t, err)
-		defer resp.Body.Close()
+		defer func() {
+			if err := resp.Body.Close(); err != nil {
+				t.Logf("Failed to close body: %v", err)
+			}
+		}()
 
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})

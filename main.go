@@ -44,7 +44,7 @@ func main() {
 	setupLog(opts.Dbg)
 
 	if opts.Version {
-		fmt.Printf("weblist %s\n", versionInfo())
+		fmt.Printf("version: %s\n", versionInfo())
 		os.Exit(0)
 	}
 
@@ -54,19 +54,27 @@ func main() {
 		opts.Theme = "light"
 	}
 
-	// get absolute path for root directory
-	absRootDir, err := filepath.Abs(opts.RootDir)
-	if err != nil {
-		log.Fatalf("failed to get absolute path for root directory: %v", err)
-	}
-	opts.RootDir = absRootDir
-
 	defer func() {
 		if x := recover(); x != nil {
 			log.Printf("[WARN] run time panic:\n%v", x)
 			panic(x)
 		}
 	}()
+
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	defer cancel()
+	if err := runServer(ctx, &opts); err != nil {
+		log.Printf("[FATAL] run server error: %v", err)
+	}
+}
+
+func runServer(ctx context.Context, opts *options) error {
+	// get the absolute path for root directory
+	absRootDir, err := filepath.Abs(opts.RootDir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for root directory: %w", err)
+	}
+	opts.RootDir = absRootDir
 
 	srv := &server.Web{
 		Config: server.Config{
@@ -81,12 +89,10 @@ func main() {
 		},
 		FS: os.DirFS(opts.RootDir), // create OS filesystem locked to the root directory
 	}
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
-	defer cancel()
-
 	if err := srv.Run(ctx); err != nil {
-		log.Fatalf("failed to run server: %v", err) //nolint
+		return fmt.Errorf("failed to run server: %w", err)
 	}
+	return nil
 }
 
 // showVersionInfo displays the version information from Go's build info

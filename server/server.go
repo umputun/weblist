@@ -110,7 +110,7 @@ func (wb *Web) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		// gracefully shutdown when context is canceled
 		log.Printf("[DEBUG] server shutdown initiated")
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
 		if err := srv.Shutdown(shutdownCtx); err != nil {
@@ -210,8 +210,8 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		SortBy:          sortBy,
 		SortDir:         sortDir,
 		PathParts:       wb.getPathParts(path, sortBy, sortDir),
-		Theme:           wb.Config.Theme,
-		Title:           wb.Config.Title,
+		Theme:           wb.Theme,
+		Title:           wb.Title,
 		IsAuthenticated: isAuthenticated,
 	}
 
@@ -254,7 +254,7 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "error opening file", http.StatusInternalServerError)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// determine content type and file properties
 	contentType, isTextFile, isHTMLFile, _, _ := determineContentType(filePath)
@@ -355,7 +355,7 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "error opening file", http.StatusInternalServerError)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// force all files to download instead of being displayed in browser
 	w.Header().Set("Content-Type", "application/octet-stream")
@@ -503,7 +503,7 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "error opening file", http.StatusInternalServerError)
 		return
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// determine content type and file properties
 	contentType, isText, isHTML, isPDF, isImage := determineContentType(path)
@@ -528,7 +528,7 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 		IsPDF:       isPDF,
 		IsText:      isText,
 		IsHTML:      isHTML,
-		Theme:       wb.Config.Theme,
+		Theme:       wb.Theme,
 	}
 
 	// parse templates
@@ -736,10 +736,10 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		SortBy:          sortBy,
 		SortDir:         sortDir,
 		PathParts:       wb.getPathParts(path, sortBy, sortDir),
-		Theme:           wb.Config.Theme,
-		HideFooter:      wb.Config.HideFooter,
+		Theme:           wb.Theme,
+		HideFooter:      wb.HideFooter,
 		IsAuthenticated: isAuthenticated,
-		Title:           wb.Config.Title,
+		Title:           wb.Title,
 	}
 
 	// execute the entire template
@@ -812,14 +812,14 @@ func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 
 // shouldExclude checks if a path should be excluded based on the Exclude patterns
 func (wb *Web) shouldExclude(path string) bool {
-	if len(wb.Config.Exclude) == 0 {
+	if len(wb.Exclude) == 0 {
 		return false
 	}
 
 	// normalize path for matching
 	normalizedPath := filepath.ToSlash(path)
 
-	for _, pattern := range wb.Config.Exclude {
+	for _, pattern := range wb.Exclude {
 		// convert pattern to use forward slashes for consistency
 		pattern = filepath.ToSlash(pattern)
 
