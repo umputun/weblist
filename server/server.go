@@ -91,7 +91,10 @@ func (wb *Web) Run(ctx context.Context) error {
 		http.ServeFileFS(w, r, assetsFS, "css/weblist-app.css")
 	})
 	router.HandleFunc("GET /assets/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFileFS(w, r, assetsFS, "favicon.ico")
+		http.ServeFileFS(w, r, assetsFS, "favicon.png")
+	})
+	router.HandleFunc("GET /assets/favicon.png", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, assetsFS, "favicon.png")
 	})
 	router.HandleFunc("GET /{path...}", wb.handleDownload) // handle file downloads with just the path
 
