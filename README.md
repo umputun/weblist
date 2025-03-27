@@ -90,7 +90,8 @@ weblist [options]
 - `-a, --auth`: Enable authentication with the specified password - env: `AUTH`
 - `--sftp`: Enable SFTP server with specified username - env: `SFTP`
 - `--sftp-address`: Address for SFTP server (default: `:2022`) - env: `SFTP_ADDRESS`
-- `--sftp-key`: SSH private key file (if empty, uses './weblist_rsa' or generates a new one) - env: `SFTP_KEY`
+- `--sftp-key`: SSH private key file (default: `weblist_rsa`) - env: `SFTP_KEY`
+- `--sftp-authorized`: Path to OpenSSH authorized_keys file for public key authentication - env: `SFTP_AUTHORIZED`
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
 
@@ -117,27 +118,32 @@ Authentication is completely optional and only activated when the `--auth` param
 Weblist can also provide SFTP access to the same files:
 
 ```bash
-# Enable SFTP with a username (password from --auth parameter is used)
+# Enable SFTP with password authentication
 weblist --auth your_password --sftp sftp_user
 
 # Use a custom SFTP port
 weblist --auth your_password --sftp sftp_user --sftp-address :2222
 
-# Specify a custom SSH key file
+# Specify a custom SSH host key file
 weblist --auth your_password --sftp sftp_user --sftp-key /path/to/ssh_key
+
+# Enable SFTP with public key authentication (no password needed)
+weblist --sftp sftp_user --sftp-authorized /path/to/authorized_keys
 ```
 
 When SFTP is enabled:
 - The same directory is served via SFTP and HTTP
 - File exclusions apply to both HTTP and SFTP
-- The same password is used for both HTTP and SFTP authentication
+- Authentication can use either:
+  - Password authentication: Uses the same password as HTTP authentication (requires `--auth` parameter)
+  - Public key authentication: Uses OpenSSH-format authorized_keys file (requires `--sftp-authorized` parameter)
 - The username for SFTP is specified with the `--sftp` parameter
 - SFTP access is read-only for security reasons
 - SSH host keys are stored to prevent client warnings about changing keys
   - By default, the key is stored as `weblist_rsa` in the current directory
   - You can specify a custom key file with `--sftp-key`
 
-SFTP support is optional and only enabled when the `--sftp` parameter is provided. The `--auth` parameter is required when enabling SFTP.
+SFTP support is optional and only enabled when the `--sftp` parameter is provided. Either the `--auth` or `--sftp-authorized` parameter is required when enabling SFTP.
 
 ## Docker
 
@@ -166,8 +172,9 @@ services:
       - THEME=light
       - ROOT_DIR=/data
       - EXCLUDE=.git,.env
-      - AUTH=your_password  # Optional: Enable authentication
+      - AUTH=your_password  # Optional: Enable password authentication
       - SFTP=sftp_user      # Optional: Enable SFTP access
       - SFTP_ADDRESS=:2022  # Optional: SFTP port
       - SFTP_KEY=/data/ssh_key  # Optional: Path to SSH host key
+      - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth
 ```

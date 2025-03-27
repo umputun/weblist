@@ -34,17 +34,18 @@ type Web struct {
 
 // Config represents server configuration.
 type Config struct {
-	ListenAddr  string
-	Theme       string
-	HideFooter  bool
-	RootDir     string
-	Version     string
-	Exclude     []string
-	Auth        string // password for basic authentication
-	Title       string // custom title for the site
-	SFTPUser    string // username for SFTP authentication
-	SFTPAddress string // address to listen for SFTP connections
-	SFTPKeyFile string // path to SSH private key file
+	ListenAddr     string
+	Theme          string
+	HideFooter     bool
+	RootDir        string
+	Version        string
+	Exclude        []string
+	Auth           string // password for basic authentication
+	Title          string // custom title for the site
+	SFTPUser       string // username for SFTP authentication
+	SFTPAddress    string // address to listen for SFTP connections
+	SFTPKeyFile    string // path to SSH private key file
+	SFTPAuthorized string // path to authorized_keys file for public key authentication
 }
 
 // Run starts the web server.

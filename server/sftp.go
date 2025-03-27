@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
@@ -29,30 +30,15 @@ type SFTP struct {
 // Run starts the SFTP server.
 func (s *SFTP) Run(ctx context.Context) error {
 	// validate required fields
-	if s.SFTPUser == "" {
-		return fmt.Errorf("SFTP username is required")
-	}
-	if s.Auth == "" {
-		return fmt.Errorf("password is required for SFTP server")
+	if err := s.validateConfig(); err != nil {
+		return err
 	}
 
 	// configure SSH server
-	config := &ssh.ServerConfig{
-		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			if c.User() == s.SFTPUser && string(pass) == s.Auth {
-				return &ssh.Permissions{}, nil
-			}
-			log.Printf("[WARN] SFTP authentication failed for user %s from %s", c.User(), c.RemoteAddr())
-			return nil, fmt.Errorf("authentication failed")
-		},
-	}
-
-	// try to load existing private key or generate a new one
-	hostKey, err := loadOrGenerateHostKey(s.SFTPKeyFile)
+	config, err := s.setupSSHServerConfig()
 	if err != nil {
-		return fmt.Errorf("failed to setup host key: %w", err)
+		return err
 	}
-	config.AddHostKey(hostKey)
 
 	// start listener
 	listener, err := net.Listen("tcp", s.SFTPAddress)
@@ -573,6 +559,124 @@ func (v *virtualFileInfo) Mode() os.FileMode  { return v.mode }
 func (v *virtualFileInfo) ModTime() time.Time { return v.modTime }
 func (v *virtualFileInfo) IsDir() bool        { return v.isDir }
 func (v *virtualFileInfo) Sys() interface{}   { return nil }
+
+// validateConfig validates the SFTP server configuration
+func (s *SFTP) validateConfig() error {
+	if s.SFTPUser == "" {
+		return fmt.Errorf("SFTP username is required")
+	}
+	
+	// validate authentication - either password or authorized keys must be provided
+	if s.Auth == "" && s.SFTPAuthorized == "" {
+		return fmt.Errorf("either password (--auth) or authorized keys file (--sftp-authorized) is required for SFTP server")
+	}
+	
+	return nil
+}
+
+// setupSSHServerConfig configures the SSH server
+func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
+	config := &ssh.ServerConfig{
+		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+			// if password auth is not enabled, reject
+			if s.Auth == "" {
+				log.Printf("[WARN] SFTP password authentication attempt when disabled for user %s from %s", c.User(), c.RemoteAddr())
+				return nil, fmt.Errorf("password authentication disabled")
+			}
+			
+			if c.User() == s.SFTPUser && string(pass) == s.Auth {
+				return &ssh.Permissions{}, nil
+			}
+			log.Printf("[WARN] SFTP password authentication failed for user %s from %s", c.User(), c.RemoteAddr())
+			return nil, fmt.Errorf("authentication failed")
+		},
+	}
+	
+	// add public key authentication if authorized_keys file is provided
+	if s.SFTPAuthorized != "" {
+		authKeys, err := loadAuthorizedKeys(s.SFTPAuthorized)
+		if err != nil {
+			log.Printf("[WARN] Failed to load authorized keys from %s: %v", s.SFTPAuthorized, err)
+		} else {
+			log.Printf("[INFO] Loaded %d authorized keys for public key authentication", len(authKeys))
+			config.PublicKeyCallback = func(c ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
+				if c.User() != s.SFTPUser {
+					return nil, fmt.Errorf("unknown user %s", c.User())
+				}
+				
+				// check if the public key is in the authorized keys
+				pubKeyStr := string(ssh.MarshalAuthorizedKey(pubKey))
+				for _, authorizedKey := range authKeys {
+					authKeyStr := string(ssh.MarshalAuthorizedKey(authorizedKey))
+					if pubKeyStr == authKeyStr {
+						log.Printf("[DEBUG] Public key authentication successful for %s from %s", c.User(), c.RemoteAddr())
+						return &ssh.Permissions{}, nil
+					}
+				}
+				
+				log.Printf("[WARN] Public key authentication failed for %s from %s", c.User(), c.RemoteAddr())
+				return nil, fmt.Errorf("unauthorized public key")
+			}
+		}
+	}
+
+	// try to load existing private key or generate a new one
+	hostKey, err := loadOrGenerateHostKey(s.SFTPKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup host key: %w", err)
+	}
+	config.AddHostKey(hostKey)
+	
+	return config, nil
+}
+
+// loadAuthorizedKeys reads and parses an authorized_keys file
+func loadAuthorizedKeys(authorizedKeysFile string) ([]ssh.PublicKey, error) {
+	// basic validation - just make sure the path isn't empty
+	if authorizedKeysFile == "" {
+		return nil, fmt.Errorf("empty authorized keys file path")
+	}
+	
+	// read the authorized_keys file
+	// #nosec G304 - authorizedKeysFile is provided by the user
+	keyData, err := os.ReadFile(authorizedKeysFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read authorized keys file: %w", err)
+	}
+	
+	var authorizedKeys []ssh.PublicKey
+	
+	// parse the authorized_keys file
+	for len(keyData) > 0 {
+		// parse one key from the file
+		pubKey, comment, options, rest, err := ssh.ParseAuthorizedKey(keyData)
+		if err != nil {
+			// skip bad lines
+			s := bytes.IndexByte(keyData, '\n')
+			if s == -1 {
+				break
+			}
+			keyData = keyData[s+1:]
+			continue
+		}
+		
+		// debug logging
+		if comment != "" {
+			log.Printf("[DEBUG] Loaded authorized key: %s", comment)
+		}
+		
+		// ignore options for now - we might want to handle these in the future
+		_ = options
+		
+		// add the key to our list
+		authorizedKeys = append(authorizedKeys, pubKey)
+		
+		// move to the next line
+		keyData = rest
+	}
+	
+	return authorizedKeys, nil
+}
 
 // loadOrGenerateHostKey loads an existing SSH host key or generates a new one if it doesn't exist
 func loadOrGenerateHostKey(keyFile string) (ssh.Signer, error) {

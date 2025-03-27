@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/rsa"
 	"fmt"
 	"io"
 	"net"
@@ -15,6 +17,62 @@ import (
 	"github.com/stretchr/testify/require"
 	"golang.org/x/crypto/ssh"
 )
+
+func TestLoadAuthorizedKeys(t *testing.T) {
+	// create a temporary file with an authorized_keys content
+	tmpFile, err := os.CreateTemp("", "auth_keys_test")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+
+	// create a test key
+	_, pubKey, err := generateTestSSHKey()
+	require.NoError(t, err)
+
+	// format the key for authorized_keys format
+	authKeyBytes := ssh.MarshalAuthorizedKey(pubKey)
+
+	// write to the file - add a comment to the key
+	authKeyBytes = append(authKeyBytes, []byte("test-key")...)
+	_, err = tmpFile.Write(authKeyBytes)
+	require.NoError(t, err)
+
+	// add a few more lines to test parsing multiple keys and handling bad lines
+	_, err = tmpFile.WriteString("\ninvalid key line\n")
+	require.NoError(t, err)
+
+	// close the file
+	err = tmpFile.Close()
+	require.NoError(t, err)
+
+	// load the authorized keys
+	keys, err := loadAuthorizedKeys(tmpFile.Name())
+	require.NoError(t, err)
+
+	// check that we got the right key
+	require.Len(t, keys, 1)
+
+	// check that the key matches
+	expectedKeyStr := string(ssh.MarshalAuthorizedKey(pubKey))
+	actualKeyStr := string(ssh.MarshalAuthorizedKey(keys[0]))
+	assert.Equal(t, expectedKeyStr, actualKeyStr)
+}
+
+// generateTestSSHKey generates a test SSH key pair
+func generateTestSSHKey() (ssh.Signer, ssh.PublicKey, error) {
+	// generate a new private key
+	privateKey, err := rsa.GenerateKey(rand.Reader, 2048)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// create a signer
+	signer, err := ssh.NewSignerFromKey(privateKey)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return signer, signer.PublicKey(), nil
+}
 
 func TestShouldExcludeForSFTP(t *testing.T) {
 	cases := []struct {
@@ -591,6 +649,159 @@ func testReadOnlyMode(t *testing.T, client *sftp.Client) {
 }
 
 // TestSFTPKeyPersistence tests that the SSH key is properly saved and reused
+func TestSFTPPublicKeyAuth(t *testing.T) {
+	// skip this test in short mode as it's an integration test
+	if testing.Short() {
+		t.Skip("skipping public key auth test in short mode")
+	}
+
+	// create a test directory structure
+	rootDir := setupTestDirectoryStructure(t)
+	defer os.RemoveAll(rootDir)
+
+	// create test SSH key pair
+	privateKeySigner, publicKey, err := generateTestSSHKey()
+	require.NoError(t, err, "Failed to generate test SSH key")
+
+	// create authorized_keys file
+	authKeysFile, err := os.CreateTemp("", "sftp-auth-keys-*")
+	require.NoError(t, err)
+	authKeysPath := authKeysFile.Name()
+	defer os.Remove(authKeysPath)
+
+	// write the public key to authorized_keys file
+	authKeyBytes := ssh.MarshalAuthorizedKey(publicKey)
+	_, err = authKeysFile.Write(authKeyBytes)
+	require.NoError(t, err)
+	err = authKeysFile.Close()
+	require.NoError(t, err)
+
+	// create temporary key file for the server
+	keyFile, err := os.CreateTemp("", "sftp-server-key-*")
+	require.NoError(t, err)
+	keyPath := keyFile.Name()
+	keyFile.Close()
+	defer os.Remove(keyPath)
+
+	// find an available port
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	port := fmt.Sprintf("%d", listener.Addr().(*net.TCPAddr).Port)
+	t.Logf("SFTP test: allocated port %s", port)
+	require.NoError(t, listener.Close())
+
+	// create config for SFTP server with public key auth
+	config := Config{
+		SFTPUser:       "pubkey-user",
+		SFTPAddress:    "127.0.0.1:" + port,
+		RootDir:        rootDir,
+		Exclude:        []string{".git"},
+		SFTPKeyFile:    keyPath,
+		SFTPAuthorized: authKeysPath,
+	}
+
+	// create SFTP server
+	sftpServer := &SFTP{
+		Config: config,
+		FS:     os.DirFS(rootDir),
+	}
+
+	// start the server
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// channel to detect when server is ready
+	readyCh := make(chan struct{})
+	errCh := make(chan error, 1)
+
+	go func() {
+		t.Logf("SFTP test: starting server on %s with public key auth", config.SFTPAddress)
+
+		// create another goroutine to check if the server is listening
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			for i := 0; i < 20; i++ {
+				conn, err := net.DialTimeout("tcp", config.SFTPAddress, 100*time.Millisecond)
+				if err == nil {
+					conn.Close()
+					close(readyCh)
+					return
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+			t.Errorf("SFTP server failed to start")
+		}()
+
+		err := sftpServer.Run(ctx)
+		if err != nil && ctx.Err() == nil {
+			errCh <- err
+		}
+	}()
+
+	// wait for server to be ready
+	select {
+	case <-readyCh:
+		t.Log("SFTP server ready")
+	case err := <-errCh:
+		t.Fatalf("SFTP server failed to start: %v", err)
+	case <-time.After(3 * time.Second):
+		t.Fatalf("SFTP server failed to start within timeout")
+	}
+
+	// give the server additional time to fully initialize
+	time.Sleep(200 * time.Millisecond)
+
+	// create SSH client config with public key authentication
+	sshConfig := &ssh.ClientConfig{
+		User: config.SFTPUser,
+		Auth: []ssh.AuthMethod{
+			ssh.PublicKeys(privateKeySigner),
+		},
+		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
+		Timeout:         5 * time.Second,
+	}
+
+	// connect to SFTP server
+	addr := config.SFTPAddress
+	t.Logf("Connecting to %s with public key auth", addr)
+
+	// retry logic for establishing connection
+	var sshClient *ssh.Client
+	deadline := time.Now().Add(5 * time.Second)
+
+	for time.Now().Before(deadline) {
+		sshClient, err = ssh.Dial("tcp", addr, sshConfig)
+		if err == nil {
+			break
+		}
+		t.Logf("Connection attempt failed: %v, retrying...", err)
+		time.Sleep(200 * time.Millisecond)
+	}
+	require.NoError(t, err, "Failed to connect to SSH server after multiple attempts")
+	defer sshClient.Close()
+
+	// create SFTP client
+	client, err := sftp.NewClient(sshClient)
+	require.NoError(t, err, "Failed to create SFTP client")
+	defer client.Close()
+
+	// verify we can list files
+	entries, err := client.ReadDir("/")
+	require.NoError(t, err, "Should be able to list root directory")
+	assert.Greater(t, len(entries), 0, "Should find at least one file/directory in root")
+
+	// verify we can read a file
+	file, err := client.Open("/root-file.txt")
+	require.NoError(t, err, "Should be able to open root file")
+	defer file.Close()
+
+	content, err := io.ReadAll(file)
+	require.NoError(t, err, "Should be able to read file content")
+	assert.Equal(t, "This is the root file", string(content), "File content should match")
+
+	t.Log("Public key authentication test successful")
+}
+
 func TestSFTPKeyPersistence(t *testing.T) {
 	// skip this test in short mode as it's an integration test
 	if testing.Short() {
