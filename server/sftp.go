@@ -255,6 +255,9 @@ type jailedFilesystem struct {
 
 // Fileread implements sftp.FileCmder.Fileread
 func (j *jailedFilesystem) Fileread(r *sftp.Request) (io.ReaderAt, error) {
+	// add debug logging of the request path
+	log.Printf("[DEBUG] SFTP: File read request for path: %s (request path)", r.Filepath)
+
 	// validate and secure the path
 	secPath, err := j.securePath(r.Filepath)
 	if err != nil {
@@ -262,10 +265,17 @@ func (j *jailedFilesystem) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 		return nil, fmt.Errorf("access denied: %w", err)
 	}
 
+	log.Printf("[DEBUG] SFTP: Secured path for file read: %s (from %s)", secPath, r.Filepath)
+
 	// open file through fs.FS interface
 	file, err := j.fsys.Open(secPath)
 	if err != nil {
 		log.Printf("[DEBUG] SFTP: Failed to open %s (secure path: %s): %v", r.Filepath, secPath, err)
+
+		// improve error message for user
+		if os.IsNotExist(err) {
+			return nil, fmt.Errorf("file not found: %s", r.Filepath)
+		}
 		return nil, err
 	}
 
@@ -315,6 +325,7 @@ func (j *jailedFilesystem) Readlink(r *sftp.Request) (string, error) {
 // Filelist implements sftp.FileLister interface
 func (j *jailedFilesystem) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 	path := r.Filepath
+	log.Printf("[DEBUG] SFTP: Directory list request for path: %s (request path)", path)
 
 	// special case for the root directory
 	if path == "/" {
@@ -332,16 +343,23 @@ func (j *jailedFilesystem) Filelist(r *sftp.Request) (sftp.ListerAt, error) {
 		return nil, fmt.Errorf("access denied: %w", err)
 	}
 
-	// verify it's a directory
-	dirInfo, err := fs.Stat(j.fsys, secPath)
+	// first check if this is a file or directory
+	info, err := fs.Stat(j.fsys, secPath)
 	if err != nil {
-		log.Printf("[DEBUG] SFTP: Failed to stat directory %s (secure path: %s): %v", path, secPath, err)
+		if os.IsNotExist(err) {
+			log.Printf("[DEBUG] SFTP: Path does not exist: %s (secure path: %s)", path, secPath)
+			return nil, fmt.Errorf("path does not exist: %s", path)
+		}
+		log.Printf("[DEBUG] SFTP: Failed to stat path %s (secure path: %s): %v", path, secPath, err)
 		return nil, err
 	}
 
-	if !dirInfo.IsDir() {
-		log.Printf("[WARN] SFTP: Attempted to list a non-directory: %s", path)
-		return nil, fmt.Errorf("not a directory: %s", path)
+	if !info.IsDir() {
+		// this is a file, but client is trying to do an ls on it
+		// openSSH SFTP server returns a directory with just this file in it
+		// we'll do the same to be compatible with clients expecting this behavior
+		log.Printf("[DEBUG] SFTP: Listing a single file as directory: %s", path)
+		return &listerat{entries: []os.FileInfo{info}}, nil
 	}
 
 	// read directory entries
