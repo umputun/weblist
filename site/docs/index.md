@@ -18,6 +18,20 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 - **Dark Mode**: Easy on the eyes with both light and dark themes
 - **Optional Authentication**: Password-protect your file listings when needed
 
+<details markdown>
+  <summary>Screenshots</summary>
+
+![dark-theme](https://github.com/umputun/weblist/raw/master/site/docs/screen-dark.png)
+
+![dark-theme](https://github.com/umputun/weblist/raw/master/site/docs/screen-light.png)
+
+![dark-theme](https://github.com/umputun/weblist/raw/master/site/docs/screen-preview.png)
+
+![dark-theme](https://github.com/umputun/weblist/raw/master/site/docs/screen-login.png)
+
+</details>
+
+
 ## Quick Start
 
 ```bash
