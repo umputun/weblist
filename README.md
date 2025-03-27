@@ -89,7 +89,7 @@ weblist [options]
 - `-f, --hide-footer`: Hide footer - env: `HIDE_FOOTER`
 - `-a, --auth`: Enable authentication with the specified password - env: `AUTH`
 - `--brand-name`: Company or organization name to display in navbar - env: `BRAND_NAME`
-- `--brand-color`: Color for navbar and footer (e.g. `#3498db`) - env: `BRAND_COLOR`
+- `--brand-color`: Color for navbar and footer (e.g. `3498db` or `#3498db`) - env: `BRAND_COLOR`
 - `--sftp`: Enable SFTP server with specified username - env: `SFTP`
 - `--sftp-address`: Address for SFTP server (default: `:2022`) - env: `SFTP_ADDRESS`
 - `--sftp-key`: SSH private key file (default: `weblist_rsa`) - env: `SFTP_KEY`
@@ -155,8 +155,10 @@ Weblist allows you to customize the appearance with your organization's branding
 # Set a custom organization name in the navigation bar
 weblist --brand-name "My Company"
 
-# Set a custom color for the navigation bar and footer
+# Set a custom color for the navigation bar and footer (with or without # prefix)
 weblist --brand-color "#3498db"
+# or
+weblist --brand-color "3498db"
 
 # Combine both branding options
 weblist --brand-name "My Company" --brand-color "#3498db"

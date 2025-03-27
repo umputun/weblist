@@ -52,6 +52,9 @@ type Config struct {
 
 // Run starts the web server.
 func (wb *Web) Run(ctx context.Context) error {
+	// normalize brand color if provided
+	wb.BrandColor = normalizeBrandColor(wb.BrandColor)
+
 	// create router and set up routes
 	mux := http.NewServeMux()
 	router := routegroup.New(mux)
@@ -989,4 +992,18 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 		// user is not authenticated, redirect to login page
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})
+}
+
+// normalizeBrandColor ensures the brand color has a # prefix if it's a hex color
+func normalizeBrandColor(color string) string {
+	if color == "" {
+		return ""
+	}
+
+	// if color doesn't start with #, add it (assuming it's a hex color)
+	if !strings.HasPrefix(color, "#") {
+		return "#" + color
+	}
+
+	return color
 }
