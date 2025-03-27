@@ -32,6 +32,10 @@ type options struct {
 	HideFooter bool `short:"f" long:"hide-footer" env:"HIDE_FOOTER"  description:"hide footer"`
 	Version    bool `short:"v" long:"version" env:"VERSION" description:"show version and exit"`
 	Dbg        bool `long:"dbg" env:"DEBUG" description:"debug mode"`
+
+	// branding options
+	BrandName  string `long:"brand-name" env:"BRAND_NAME" description:"company or organization name to display in navbar"`
+	BrandColor string `long:"brand-color" env:"BRAND_COLOR" description:"color for navbar and footer (e.g. #3498db)"`
 }
 
 var opts options
@@ -97,6 +101,8 @@ func runServer(ctx context.Context, opts *options) error {
 		SFTPAddress:    opts.SFTPAddress,
 		SFTPKeyFile:    opts.SFTPKeyFile,
 		SFTPAuthorized: opts.SFTPAuthorized,
+		BrandName:      opts.BrandName,
+		BrandColor:     opts.BrandColor,
 	}
 
 	// create HTTP server

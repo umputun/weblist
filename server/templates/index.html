@@ -18,7 +18,7 @@
 </main>
 <div id="modal-container" hx-on:click="if(event.target === this) this.innerHTML = ''"></div>
 {{ if not .HideFooter }}
-<footer>
+<footer{{ if .BrandColor }} style="background-color: {{ .BrandColor }}"{{ end }}>
     <div class="footer-content">
         <span class="footer-item">
             <a href="https://github.com/umputun/weblist" class="footer-link">
@@ -53,8 +53,12 @@
 </html>
 
 {{ define "page-content" }}
-<div class="breadcrumbs">
+<div class="breadcrumbs"{{ if .BrandColor }} style="background-color: {{ .BrandColor }}"{{ end }}>
     <div class="path-parts">
+        {{ if .BrandName }}
+        <span class="brand-name">{{ .BrandName }}</span>
+        <span class="brand-separator">|</span>
+        {{ end }}
         <!-- Home link with HTMX - no URL push -->
         <a href="#"
            hx-get="/partials/dir-contents"

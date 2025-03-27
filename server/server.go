@@ -46,6 +46,8 @@ type Config struct {
 	SFTPAddress    string   // address to listen for SFTP connections
 	SFTPKeyFile    string   // path to SSH private key file
 	SFTPAuthorized string   // path to authorized_keys file for public key authentication
+	BrandName      string   // company or organization name for branding
+	BrandColor     string   // color for navbar and footer
 }
 
 // Run starts the web server.
@@ -207,6 +209,8 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		Theme           string
 		Title           string
 		IsAuthenticated bool
+		BrandName       string
+		BrandColor      string
 	}{
 		Files:           fileList,
 		Path:            path,
@@ -215,6 +219,8 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		SortDir:         sortDir,
 		PathParts:       wb.getPathParts(path, sortBy, sortDir),
 		Theme:           wb.Theme,
+		BrandName:       wb.BrandName,
+		BrandColor:      wb.BrandColor,
 		Title:           wb.Title,
 		IsAuthenticated: isAuthenticated,
 	}
@@ -387,10 +393,14 @@ func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
 		HideFooter bool
 		Title      string
 		Error      string
+		BrandName  string
+		BrandColor string
 	}{
 		Theme:      wb.Theme,
 		HideFooter: wb.HideFooter,
 		Title:      wb.Title,
+		BrandName:  wb.BrandName,
+		BrandColor: wb.BrandColor,
 		Error:      "", // empty error by default
 	}
 
@@ -427,10 +437,14 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 			HideFooter bool
 			Title      string
 			Error      string
+			BrandName  string
+			BrandColor string
 		}{
 			Theme:      wb.Theme,
 			HideFooter: wb.HideFooter,
 			Title:      wb.Title,
+			BrandName:  wb.BrandName,
+			BrandColor: wb.BrandColor,
 			Error:      "Invalid username or password",
 		}
 
@@ -733,6 +747,8 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		HideFooter      bool
 		IsAuthenticated bool
 		Title           string
+		BrandName       string
+		BrandColor      string
 	}{
 		Files:           fileList,
 		Path:            path,
@@ -744,6 +760,8 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		HideFooter:      wb.HideFooter,
 		IsAuthenticated: isAuthenticated,
 		Title:           wb.Title,
+		BrandName:       wb.BrandName,
+		BrandColor:      wb.BrandColor,
 	}
 
 	// execute the entire template
