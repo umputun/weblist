@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -25,6 +26,17 @@ import (
 type SFTP struct {
 	Config
 	FS fs.FS
+
+	// simple rate limiter for authentication attempts
+	ipAttempts   map[string]ipAttemptsInfo
+	ipAttemptsMu sync.Mutex
+}
+
+// ipAttemptsInfo tracks authentication attempts from an IP
+type ipAttemptsInfo struct {
+	count     int       // number of attempts
+	firstSeen time.Time // when the first attempt was seen
+	lastSeen  time.Time // when the most recent attempt was seen
 }
 
 // Run starts the SFTP server.
@@ -96,8 +108,15 @@ func (s *SFTP) Run(ctx context.Context) error {
 func (s *SFTP) handleConnection(conn net.Conn, config *ssh.ServerConfig) {
 	defer conn.Close()
 
+	// apply idle timeout to the connection
+	timeoutConn := &timeoutConn{
+		Conn:         conn,
+		idleTimeout:  10 * time.Minute,
+		lastActivity: time.Now(),
+	}
+
 	// perform SSH handshake
-	sshConn, chans, reqs, err := ssh.NewServerConn(conn, config)
+	sshConn, chans, reqs, err := ssh.NewServerConn(timeoutConn, config)
 	if err != nil {
 		log.Printf("[WARN] SSH handshake failed: %v", err)
 		return
@@ -271,19 +290,40 @@ func (j *jailedFilesystem) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 		return ra, nil
 	}
 
-	// otherwise, read the entire file into memory and create a memory-based ReaderAt
-	data, err := io.ReadAll(file)
-	if err := file.Close(); err != nil {
-		log.Printf("[DEBUG] SFTP: Error closing file %s: %v", secPath, err)
-	}
-
+	// get file info to check size
+	info, err := file.Stat()
 	if err != nil {
-		log.Printf("[DEBUG] SFTP: Error reading file %s: %v", secPath, err)
+		if err := file.Close(); err != nil {
+			log.Printf("[DEBUG] SFTP: Error closing file %s after stat error: %v", secPath, err)
+		}
+		log.Printf("[DEBUG] SFTP: Error getting file info for %s: %v", secPath, err)
 		return nil, err
 	}
 
-	log.Printf("[DEBUG] SFTP: Allowed read access to %s (secure path: %s) using memory ReaderAt", r.Filepath, secPath)
-	return &memReaderAt{data: data}, nil
+	// for small files (under 10MB), just read the entire file into memory
+	// this is more efficient for small files that are frequently accessed
+	if info.Size() < 10*1024*1024 {
+		data, err := io.ReadAll(file)
+		if err := file.Close(); err != nil {
+			log.Printf("[DEBUG] SFTP: Error closing file %s: %v", secPath, err)
+		}
+
+		if err != nil {
+			log.Printf("[DEBUG] SFTP: Error reading file %s: %v", secPath, err)
+			return nil, err
+		}
+
+		log.Printf("[DEBUG] SFTP: Allowed read access to %s (secure path: %s) using memory ReaderAt for small file", r.Filepath, secPath)
+		return &memReaderAt{data: data}, nil
+	}
+
+	// for large files, use a buffered reader to avoid loading everything into memory
+	log.Printf("[DEBUG] SFTP: Allowed read access to %s (secure path: %s) using buffered reader for large file", r.Filepath, secPath)
+	return &bufferedFileReaderAt{
+		file:     file,
+		fileSize: info.Size(),
+		path:     secPath,
+	}, nil
 }
 
 // Filewrite implements sftp.FileCmder.Filewrite
@@ -430,6 +470,40 @@ func (j *jailedFilesystem) listRoot() ([]os.FileInfo, error) {
 	return fileInfos, nil
 }
 
+// listerat implements the sftp.ListerAt interface
+type listerat struct {
+	entries []os.FileInfo
+}
+
+// ListAt returns the entries at the specified offset
+func (l *listerat) ListAt(ls []os.FileInfo, offset int64) (int, error) {
+	if offset >= int64(len(l.entries)) {
+		return 0, io.EOF
+	}
+
+	n := copy(ls, l.entries[offset:])
+	if n < len(ls) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+// virtualFileInfo implements os.FileInfo for virtual directory entries
+type virtualFileInfo struct {
+	name    string
+	size    int64
+	mode    os.FileMode
+	modTime time.Time
+	isDir   bool
+}
+
+func (v *virtualFileInfo) Name() string       { return v.name }
+func (v *virtualFileInfo) Size() int64        { return v.size }
+func (v *virtualFileInfo) Mode() os.FileMode  { return v.mode }
+func (v *virtualFileInfo) ModTime() time.Time { return v.modTime }
+func (v *virtualFileInfo) IsDir() bool        { return v.isDir }
+func (v *virtualFileInfo) Sys() interface{}   { return nil }
+
 // securePath validates and normalizes a path for use with fs.FS
 // It returns the path relative to the fs.FS root (no leading slash)
 func (j *jailedFilesystem) securePath(requestPath string) (string, error) {
@@ -508,176 +582,6 @@ func (j *jailedFilesystem) shouldExclude(path string) bool {
 	return false
 }
 
-// listerat implements the sftp.ListerAt interface
-type listerat struct {
-	entries []os.FileInfo
-}
-
-// ListAt returns the entries at the specified offset
-func (l *listerat) ListAt(ls []os.FileInfo, offset int64) (int, error) {
-	if offset >= int64(len(l.entries)) {
-		return 0, io.EOF
-	}
-
-	n := copy(ls, l.entries[offset:])
-	if n < len(ls) {
-		return n, io.EOF
-	}
-	return n, nil
-}
-
-// memReaderAt implements io.ReaderAt for a byte slice
-type memReaderAt struct {
-	data []byte
-}
-
-// ReadAt implements io.ReaderAt
-func (m *memReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
-	if off >= int64(len(m.data)) {
-		return 0, io.EOF
-	}
-
-	n = copy(p, m.data[off:])
-	if n < len(p) {
-		return n, io.EOF
-	}
-	return n, nil
-}
-
-// virtualFileInfo implements os.FileInfo for virtual directory entries
-type virtualFileInfo struct {
-	name    string
-	size    int64
-	mode    os.FileMode
-	modTime time.Time
-	isDir   bool
-}
-
-func (v *virtualFileInfo) Name() string       { return v.name }
-func (v *virtualFileInfo) Size() int64        { return v.size }
-func (v *virtualFileInfo) Mode() os.FileMode  { return v.mode }
-func (v *virtualFileInfo) ModTime() time.Time { return v.modTime }
-func (v *virtualFileInfo) IsDir() bool        { return v.isDir }
-func (v *virtualFileInfo) Sys() interface{}   { return nil }
-
-// validateConfig validates the SFTP server configuration
-func (s *SFTP) validateConfig() error {
-	if s.SFTPUser == "" {
-		return fmt.Errorf("SFTP username is required")
-	}
-	
-	// validate authentication - either password or authorized keys must be provided
-	if s.Auth == "" && s.SFTPAuthorized == "" {
-		return fmt.Errorf("either password (--auth) or authorized keys file (--sftp-authorized) is required for SFTP server")
-	}
-	
-	return nil
-}
-
-// setupSSHServerConfig configures the SSH server
-func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
-	config := &ssh.ServerConfig{
-		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			// if password auth is not enabled, reject
-			if s.Auth == "" {
-				log.Printf("[WARN] SFTP password authentication attempt when disabled for user %s from %s", c.User(), c.RemoteAddr())
-				return nil, fmt.Errorf("password authentication disabled")
-			}
-			
-			if c.User() == s.SFTPUser && string(pass) == s.Auth {
-				return &ssh.Permissions{}, nil
-			}
-			log.Printf("[WARN] SFTP password authentication failed for user %s from %s", c.User(), c.RemoteAddr())
-			return nil, fmt.Errorf("authentication failed")
-		},
-	}
-	
-	// add public key authentication if authorized_keys file is provided
-	if s.SFTPAuthorized != "" {
-		authKeys, err := loadAuthorizedKeys(s.SFTPAuthorized)
-		if err != nil {
-			log.Printf("[WARN] Failed to load authorized keys from %s: %v", s.SFTPAuthorized, err)
-		} else {
-			log.Printf("[INFO] Loaded %d authorized keys for public key authentication", len(authKeys))
-			config.PublicKeyCallback = func(c ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
-				if c.User() != s.SFTPUser {
-					return nil, fmt.Errorf("unknown user %s", c.User())
-				}
-				
-				// check if the public key is in the authorized keys
-				pubKeyStr := string(ssh.MarshalAuthorizedKey(pubKey))
-				for _, authorizedKey := range authKeys {
-					authKeyStr := string(ssh.MarshalAuthorizedKey(authorizedKey))
-					if pubKeyStr == authKeyStr {
-						log.Printf("[DEBUG] Public key authentication successful for %s from %s", c.User(), c.RemoteAddr())
-						return &ssh.Permissions{}, nil
-					}
-				}
-				
-				log.Printf("[WARN] Public key authentication failed for %s from %s", c.User(), c.RemoteAddr())
-				return nil, fmt.Errorf("unauthorized public key")
-			}
-		}
-	}
-
-	// try to load existing private key or generate a new one
-	hostKey, err := loadOrGenerateHostKey(s.SFTPKeyFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to setup host key: %w", err)
-	}
-	config.AddHostKey(hostKey)
-	
-	return config, nil
-}
-
-// loadAuthorizedKeys reads and parses an authorized_keys file
-func loadAuthorizedKeys(authorizedKeysFile string) ([]ssh.PublicKey, error) {
-	// basic validation - just make sure the path isn't empty
-	if authorizedKeysFile == "" {
-		return nil, fmt.Errorf("empty authorized keys file path")
-	}
-	
-	// read the authorized_keys file
-	// #nosec G304 - authorizedKeysFile is provided by the user
-	keyData, err := os.ReadFile(authorizedKeysFile)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read authorized keys file: %w", err)
-	}
-	
-	var authorizedKeys []ssh.PublicKey
-	
-	// parse the authorized_keys file
-	for len(keyData) > 0 {
-		// parse one key from the file
-		pubKey, comment, options, rest, err := ssh.ParseAuthorizedKey(keyData)
-		if err != nil {
-			// skip bad lines
-			s := bytes.IndexByte(keyData, '\n')
-			if s == -1 {
-				break
-			}
-			keyData = keyData[s+1:]
-			continue
-		}
-		
-		// debug logging
-		if comment != "" {
-			log.Printf("[DEBUG] Loaded authorized key: %s", comment)
-		}
-		
-		// ignore options for now - we might want to handle these in the future
-		_ = options
-		
-		// add the key to our list
-		authorizedKeys = append(authorizedKeys, pubKey)
-		
-		// move to the next line
-		keyData = rest
-	}
-	
-	return authorizedKeys, nil
-}
-
 // loadOrGenerateHostKey loads an existing SSH host key or generates a new one if it doesn't exist
 func loadOrGenerateHostKey(keyFile string) (ssh.Signer, error) {
 	// basic validation - just make sure the path isn't empty
@@ -685,7 +589,8 @@ func loadOrGenerateHostKey(keyFile string) (ssh.Signer, error) {
 		return nil, fmt.Errorf("empty key file path")
 	}
 
-	// #nosec G304 - path is provided by the user and validated above
+	// check if the key file exists
+	// #nosec G304 - keyFile is validated above and controlled by the application config
 	keyData, err := os.ReadFile(keyFile)
 	if err == nil {
 		// key exists, try to parse it
@@ -711,6 +616,7 @@ func loadOrGenerateHostKey(keyFile string) (ssh.Signer, error) {
 	keyData = pem.EncodeToMemory(pemBlock)
 
 	// save the key to the file
+	// #nosec G304 - keyFile is validated above and controlled by the application config
 	if err := os.WriteFile(keyFile, keyData, 0600); err != nil {
 		log.Printf("[WARN] Could not save SSH host key to %s: %v", keyFile, err)
 	}
@@ -722,4 +628,302 @@ func loadOrGenerateHostKey(keyFile string) (ssh.Signer, error) {
 	}
 
 	return hostKey, nil
+}
+
+// timeoutConn wraps a net.Conn with an idle timeout
+type timeoutConn struct {
+	net.Conn
+	idleTimeout  time.Duration
+	lastActivity time.Time
+	mu           sync.Mutex
+}
+
+// Read wraps the underlying Read method and updates lastActivity
+func (c *timeoutConn) Read(b []byte) (int, error) {
+	// first check for timeout with read lock
+	c.mu.Lock()
+	lastAct := c.lastActivity
+	c.mu.Unlock()
+
+	if time.Since(lastAct) > c.idleTimeout {
+		return 0, fmt.Errorf("idle timeout exceeded")
+	}
+
+	// read the data
+	n, err := c.Conn.Read(b)
+
+	// then update the activity time with write lock
+	c.mu.Lock()
+	c.lastActivity = time.Now()
+	c.mu.Unlock()
+
+	return n, err
+}
+
+// Write wraps the underlying Write method and updates lastActivity
+func (c *timeoutConn) Write(b []byte) (int, error) {
+	// first check for timeout with read lock
+	c.mu.Lock()
+	lastAct := c.lastActivity
+	c.mu.Unlock()
+
+	if time.Since(lastAct) > c.idleTimeout {
+		return 0, fmt.Errorf("idle timeout exceeded")
+	}
+
+	// write the data
+	n, err := c.Conn.Write(b)
+
+	// then update the activity time with write lock
+	c.mu.Lock()
+	c.lastActivity = time.Now()
+	c.mu.Unlock()
+
+	return n, err
+}
+
+// bufferedFileReaderAt implements io.ReaderAt for large files
+// It keeps the file open and performs buffered reads as needed
+type bufferedFileReaderAt struct {
+	file     fs.File
+	fileSize int64
+	path     string
+	mu       sync.Mutex // protect concurrent reads
+}
+
+// ReadAt implements io.ReaderAt for large files
+func (b *bufferedFileReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
+	if off >= b.fileSize {
+		return 0, io.EOF
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+
+	// check if the file implements Seek
+	seeker, ok := b.file.(io.Seeker)
+	if !ok {
+		return 0, fmt.Errorf("file does not support seeking")
+	}
+
+	// seek to the requested offset
+	_, err = seeker.Seek(off, io.SeekStart)
+	if err != nil {
+		log.Printf("[ERROR] SFTP: Failed to seek in file %s: %v", b.path, err)
+		return 0, err
+	}
+
+	// read data from the file
+	n, err = io.ReadFull(b.file, p)
+
+	// handle EOF correctly for ReadAt semantics
+	if err == io.EOF || err == io.ErrUnexpectedEOF {
+		if n > 0 {
+			// partial read at end of file is fine for ReadAt
+			if off+int64(n) >= b.fileSize {
+				return n, io.EOF
+			}
+			return n, nil
+		}
+		return 0, io.EOF
+	}
+
+	return n, err
+}
+
+// Close implements io.Closer for cleanup
+func (b *bufferedFileReaderAt) Close() error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.file.Close()
+}
+
+// memReaderAt implements io.ReaderAt for a byte slice
+type memReaderAt struct {
+	data []byte
+}
+
+// ReadAt implements io.ReaderAt
+func (m *memReaderAt) ReadAt(p []byte, off int64) (n int, err error) {
+	if off >= int64(len(m.data)) {
+		return 0, io.EOF
+	}
+
+	n = copy(p, m.data[off:])
+	if n < len(p) {
+		return n, io.EOF
+	}
+	return n, nil
+}
+
+// validateConfig validates the SFTP server configuration
+func (s *SFTP) validateConfig() error {
+	if s.SFTPUser == "" {
+		return fmt.Errorf("SFTP username is required")
+	}
+
+	// validate authentication - either password or authorized keys must be provided
+	if s.Auth == "" && s.SFTPAuthorized == "" {
+		return fmt.Errorf("either password (--auth) or authorized keys file (--sftp-authorized) is required for SFTP server")
+	}
+
+	return nil
+}
+
+// setupSSHServerConfig configures the SSH server
+func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
+	// initialize the attempts tracking map
+	s.ipAttempts = make(map[string]ipAttemptsInfo)
+
+	config := &ssh.ServerConfig{
+		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
+			// apply rate limiting based on source IP
+			remoteIP := c.RemoteAddr().(*net.TCPAddr).IP.String()
+			if !s.checkAuthRateLimit(remoteIP) {
+				log.Printf("[WARN] SFTP rate limit exceeded for IP %s", remoteIP)
+				// adding a small delay to slow down brute force attempts
+				time.Sleep(2 * time.Second)
+				return nil, fmt.Errorf("too many authentication attempts")
+			}
+
+			// if password auth is not enabled, reject
+			if s.Auth == "" {
+				log.Printf("[WARN] SFTP password authentication attempt when disabled for user %s from %s", c.User(), c.RemoteAddr())
+				return nil, fmt.Errorf("password authentication disabled")
+			}
+
+			if c.User() == s.SFTPUser && string(pass) == s.Auth {
+				// successful login - clear rate limiting record
+				s.resetAuthRateLimit(remoteIP)
+				return &ssh.Permissions{}, nil
+			}
+			log.Printf("[WARN] SFTP password authentication failed for user %s from %s", c.User(), c.RemoteAddr())
+			return nil, fmt.Errorf("authentication failed")
+		},
+		// set a custom server version string - helps hide implementation details
+		ServerVersion: "SSH-2.0-WebList-SFTP",
+		// set 10 minute idle timeout
+		NoClientAuth: false,
+		MaxAuthTries: 6,
+	}
+
+	// add public key authentication if authorized_keys file is provided
+	if s.SFTPAuthorized != "" {
+		authKeys, err := loadAuthorizedKeys(s.SFTPAuthorized)
+		if err != nil {
+			log.Printf("[WARN] Failed to load authorized keys from %s: %v", s.SFTPAuthorized, err)
+		} else {
+			log.Printf("[INFO] Loaded %d authorized keys for public key authentication", len(authKeys))
+			config.PublicKeyCallback = func(c ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
+				if c.User() != s.SFTPUser {
+					return nil, fmt.Errorf("unknown user %s", c.User())
+				}
+
+				// check if the public key is in the authorized keys
+				pubKeyStr := string(ssh.MarshalAuthorizedKey(pubKey))
+				for _, authorizedKey := range authKeys {
+					authKeyStr := string(ssh.MarshalAuthorizedKey(authorizedKey))
+					if pubKeyStr == authKeyStr {
+						log.Printf("[DEBUG] Public key authentication successful for %s from %s", c.User(), c.RemoteAddr())
+						return &ssh.Permissions{}, nil
+					}
+				}
+
+				log.Printf("[WARN] Public key authentication failed for %s from %s", c.User(), c.RemoteAddr())
+				return nil, fmt.Errorf("unauthorized public key")
+			}
+		}
+	}
+
+	// try to load existing private key or generate a new one if it doesn't exist
+	hostKey, err := loadOrGenerateHostKey(s.SFTPKeyFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to setup host key: %w", err)
+	}
+	config.AddHostKey(hostKey)
+
+	return config, nil
+}
+
+// checkAuthRateLimit checks if authentication attempts from an IP should be rate limited
+// Returns true if the request is allowed, false if it exceeds limits
+func (s *SFTP) checkAuthRateLimit(remoteIP string) bool {
+	s.ipAttemptsMu.Lock()
+	defer s.ipAttemptsMu.Unlock()
+
+	now := time.Now()
+	info, exists := s.ipAttempts[remoteIP]
+
+	// if no previous attempts or window has expired, reset
+	if !exists || now.Sub(info.firstSeen) > 10*time.Minute {
+		s.ipAttempts[remoteIP] = ipAttemptsInfo{
+			count:     1,
+			firstSeen: now,
+			lastSeen:  now,
+		}
+		return true
+	}
+
+	// update attempt record
+	info.count++
+	info.lastSeen = now
+	s.ipAttempts[remoteIP] = info
+
+	// allow max 5 attempts in a 10-minute window
+	return info.count <= 5
+}
+
+// resetAuthRateLimit clears rate limiting data for an IP after successful auth
+func (s *SFTP) resetAuthRateLimit(remoteIP string) {
+	s.ipAttemptsMu.Lock()
+	defer s.ipAttemptsMu.Unlock()
+	delete(s.ipAttempts, remoteIP)
+}
+
+// loadAuthorizedKeys reads and parses an authorized_keys file
+func loadAuthorizedKeys(authorizedKeysFile string) ([]ssh.PublicKey, error) {
+	// basic validation - just make sure the path isn't empty
+	if authorizedKeysFile == "" {
+		return nil, fmt.Errorf("empty authorized keys file path")
+	}
+
+	// read the authorized_keys file
+	// #nosec G304 - authorizedKeysFile is validated above and provided in the application config
+	keyData, err := os.ReadFile(authorizedKeysFile)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read authorized keys file: %w", err)
+	}
+
+	var authorizedKeys []ssh.PublicKey
+
+	// parse the authorized_keys file
+	for len(keyData) > 0 {
+		// parse one key from the file
+		pubKey, comment, options, rest, err := ssh.ParseAuthorizedKey(keyData)
+		if err != nil {
+			// skip bad lines
+			s := bytes.IndexByte(keyData, '\n')
+			if s == -1 {
+				break
+			}
+			keyData = keyData[s+1:]
+			continue
+		}
+
+		// debug logging
+		if comment != "" {
+			log.Printf("[DEBUG] Loaded authorized key: %s", comment)
+		}
+
+		// ignore options for now - we might want to handle these in the future
+		_ = options
+
+		// add the key to our list
+		authorizedKeys = append(authorizedKeys, pubKey)
+
+		// move to the next line
+		keyData = rest
+	}
+
+	return authorizedKeys, nil
 }
