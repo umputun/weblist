@@ -148,6 +148,18 @@ td:nth-child(2), td:nth-child(3) {
   color: var(--color-white-muted);
 }
 
+.brand-name {
+  font-weight: bold;
+  color: var(--color-white);
+  opacity: 1;
+  padding-right: 0.5rem;
+}
+
+.brand-separator {
+  color: var(--color-white-muted);
+  padding: 0 0.5rem 0 0;
+}
+
 .path-parts a:hover {
   text-decoration: none;
   opacity: 1;
