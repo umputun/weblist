@@ -1,3 +1,5 @@
+
+
 A modern, elegant file browser for the web. Weblist provides a clean and intuitive interface for browsing and downloading files from any directory on your server, replacing the ugly default directory listings of Nginx and Apache with a beautiful, functional alternative.
 
 <div align="center">
@@ -15,6 +17,7 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 - **No Setup Required**: Single binary that just works - no configuration needed
 - **Dark Mode**: Easy on the eyes with both light and dark themes
 - **Optional Authentication**: Password-protect your file listings when needed
+- **SFTP Support**: Access the same files via SFTP for more advanced operations
 
 <details markdown>
   <summary>Screenshots</summary>
@@ -88,6 +91,17 @@ weblist [options]
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
 
+SFTP Options (with `--sftp` prefix):
+- `--sftp.enabled`: Enable SFTP server - env: `SFTP_ENABLED`
+- `--sftp.user`: Username for SFTP access - env: `SFTP_USER`
+- `--sftp.address`: Address for SFTP server (default: `:2022`) - env: `SFTP_ADDRESS`
+- `--sftp.key`: SSH private key file (default: `weblist_rsa`) - env: `SFTP_KEY`
+- `--sftp.authorized`: Path to OpenSSH authorized_keys file for public key authentication - env: `SFTP_AUTHORIZED`
+
+Branding Options (with `--brand` prefix):
+- `--brand.name`: Company or organization name to display in navbar - env: `BRAND_NAME`
+- `--brand.color`: Color for navbar and footer (e.g. `3498db` or `#3498db`) - env: `BRAND_COLOR`
+
 ## Authentication
 
 Weblist provides optional password protection for your file listings:
@@ -105,6 +119,63 @@ When authentication is enabled:
 - A logout button appears in the top right corner when logged in
 
 Authentication is completely optional and only activated when the `--auth` parameter is provided.
+
+## SFTP Access
+
+Weblist can also provide SFTP access to the same files:
+
+```bash
+# Enable SFTP with password authentication
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user
+
+# Use a custom SFTP port
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.address :2222
+
+# Specify a custom SSH host key file
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.key /path/to/ssh_key
+
+# Enable SFTP with public key authentication (no password needed)
+weblist --sftp.enabled --sftp.user sftp_user --sftp.authorized /path/to/authorized_keys
+```
+
+When SFTP is enabled:
+- The same directory is served via SFTP and HTTP
+- File exclusions apply to both HTTP and SFTP
+- Authentication can use either:
+  - Password authentication: Uses the same password as HTTP authentication (requires `--auth` parameter)
+  - Public key authentication: Uses OpenSSH-format authorized_keys file (requires `--sftp.authorized` parameter)
+- The username for SFTP is specified with the `--sftp.user` parameter
+- SFTP access is read-only for security reasons
+- SSH host keys are stored to prevent client warnings about changing keys
+  - By default, the key is stored as `weblist_rsa` in the current directory
+  - You can specify a custom key file with `--sftp.key`
+
+SFTP support is optional and only enabled when both `--sftp.enabled` and `--sftp.user` parameters are provided. Either the `--auth` or `--sftp.authorized` parameter is required when enabling SFTP.
+
+## Custom Branding
+
+Weblist allows you to customize the appearance with your organization's branding:
+
+```bash
+# Set a custom organization name in the navigation bar
+weblist --brand.name "My Company"
+
+# Set a custom color for the navigation bar and footer (with or without # prefix)
+weblist --brand.color "#3498db"
+# or
+weblist --brand.color "3498db"
+
+# Combine both branding options
+weblist --brand.name "My Company" --brand.color "#3498db"
+```
+
+When branding is enabled:
+- Your organization name appears in the navigation bar
+- The specified color is applied to both the navigation bar and footer
+- The branding is consistently displayed across all pages
+- These settings can be combined with all other Weblist options
+
+Custom branding is optional and only activated when the `--brand-name` and/or `--brand-color` parameters are provided.
 
 ## Docker
 
@@ -125,6 +196,7 @@ services:
     restart: always
     ports:
       - "8080:8080"
+      - "2022:2022"  # SFTP port
     volumes:
       - /path/to/files:/data:ro
     environment:
@@ -132,5 +204,12 @@ services:
       - THEME=light
       - ROOT_DIR=/data
       - EXCLUDE=.git,.env
-      - AUTH=your_password  # Optional: Enable authentication
+      - AUTH=your_password  # Optional: Enable password authentication
+      - BRAND_NAME=My Company  # Optional: Display company name in navbar
+      - BRAND_COLOR=#3498db  # Optional: Custom color for navbar and footer
+      - SFTP_ENABLED=true   # Optional: Enable SFTP server
+      - SFTP_USER=sftp_user # Optional: Username for SFTP access
+      - SFTP_ADDRESS=:2022  # Optional: SFTP port
+      - SFTP_KEY=/data/ssh_key  # Optional: Path to SSH host key
+      - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth
 ```
