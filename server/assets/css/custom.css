@@ -269,4 +269,4 @@ main.container {
 }
 
 /* Import existing styles converted to use our new variables */
-@import 'weblist-app.css'; 
+/* @import 'weblist-app.css'; */ 
