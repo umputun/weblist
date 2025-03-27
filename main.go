@@ -18,12 +18,16 @@ import (
 )
 
 type options struct {
-	Listen  string   `short:"l" long:"listen" env:"LISTEN" default:":8080" description:"address to listen on"`
-	Theme   string   `short:"t" long:"theme" env:"THEME" default:"light" description:"theme to use (light or dark)"`
-	RootDir string   `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
-	Exclude []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
-	Auth    string   `short:"a" long:"auth" env:"AUTH" description:"password for basic authentication (username is 'weblist')"`
-	Title   string   `long:"title" env:"TITLE" description:"custom title for the site (used in browser title and breadcrumb home)"`
+	Listen         string   `short:"l" long:"listen" env:"LISTEN" default:":8080" description:"address to listen on"`
+	Theme          string   `short:"t" long:"theme" env:"THEME" default:"light" description:"theme to use (light or dark)"`
+	RootDir        string   `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
+	Exclude        []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
+	Auth           string   `short:"a" long:"auth" env:"AUTH" description:"password for basic authentication (username is 'weblist')"`
+	Title          string   `long:"title" env:"TITLE" description:"custom title for the site (used in browser title and breadcrumb home)"`
+	SFTP           string   `long:"sftp" env:"SFTP" description:"username for SFTP access (enables SFTP server)"`
+	SFTPAddress    string   `long:"sftp-address" env:"SFTP_ADDRESS" default:":2022" description:"address to listen for SFTP connections"`
+	SFTPKeyFile    string   `long:"sftp-key" env:"SFTP_KEY" default:"weblist_rsa" description:"SSH private key file path"`
+	SFTPAuthorized string   `long:"sftp-authorized" env:"SFTP_AUTHORIZED" description:"public key authentication file path"`
 
 	HideFooter bool `short:"f" long:"hide-footer" env:"HIDE_FOOTER"  description:"hide footer"`
 	Version    bool `short:"v" long:"version" env:"VERSION" description:"show version and exit"`
@@ -76,23 +80,72 @@ func runServer(ctx context.Context, opts *options) error {
 	}
 	opts.RootDir = absRootDir
 
+	// create OS filesystem locked to the root directory
+	fs := os.DirFS(opts.RootDir)
+
+	// prepare common configuration
+	config := server.Config{
+		ListenAddr:     opts.Listen,
+		Theme:          opts.Theme,
+		HideFooter:     opts.HideFooter,
+		RootDir:        opts.RootDir,
+		Version:        versionInfo(),
+		Exclude:        opts.Exclude,
+		Auth:           opts.Auth,
+		Title:          opts.Title,
+		SFTPUser:       opts.SFTP,
+		SFTPAddress:    opts.SFTPAddress,
+		SFTPKeyFile:    opts.SFTPKeyFile,
+		SFTPAuthorized: opts.SFTPAuthorized,
+	}
+
+	// create HTTP server
 	srv := &server.Web{
-		Config: server.Config{
-			ListenAddr: opts.Listen,
-			Theme:      opts.Theme,
-			HideFooter: opts.HideFooter,
-			RootDir:    opts.RootDir,
-			Version:    versionInfo(),
-			Exclude:    opts.Exclude,
-			Auth:       opts.Auth,
-			Title:      opts.Title,
-		},
-		FS: os.DirFS(opts.RootDir), // create OS filesystem locked to the root directory
+		Config: config,
+		FS:     fs,
 	}
-	if err := srv.Run(ctx); err != nil {
-		return fmt.Errorf("failed to run server: %w", err)
+
+	// create error channel for goroutines
+	errCh := make(chan error, 2)
+
+	// start HTTP server in a goroutine
+	go func() {
+		if err := srv.Run(ctx); err != nil {
+			errCh <- fmt.Errorf("HTTP server failed: %w", err)
+		}
+	}()
+
+	// if SFTP is enabled, start SFTP server
+	if opts.SFTP != "" {
+		// for SFTP, either a password or an authorized_keys file must be provided
+		if opts.Auth == "" && opts.SFTPAuthorized == "" {
+			return fmt.Errorf("either password (-a/--auth) or authorized keys file (--sftp-authorized) is required for SFTP server")
+		}
+
+		sftpSrv := &server.SFTP{
+			Config: config,
+			FS:     fs,
+		}
+
+		go func() {
+			if opts.SFTPAuthorized != "" {
+				log.Printf("[INFO] starting SFTP server on %s with username %s (public key authentication enabled)", opts.SFTPAddress, opts.SFTP)
+			} else {
+				log.Printf("[INFO] starting SFTP server on %s with username %s (password authentication enabled)", opts.SFTPAddress, opts.SFTP)
+			}
+			if err := sftpSrv.Run(ctx); err != nil {
+				errCh <- fmt.Errorf("SFTP server failed: %w", err)
+			}
+		}()
 	}
-	return nil
+
+	// wait for any error or context cancellation
+	select {
+	case err := <-errCh:
+		return err
+	case <-ctx.Done():
+		return nil
+	}
 }
 
 // showVersionInfo displays the version information from Go's build info

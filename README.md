@@ -17,6 +17,7 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 - **No Setup Required**: Single binary that just works - no configuration needed
 - **Dark Mode**: Easy on the eyes with both light and dark themes
 - **Optional Authentication**: Password-protect your file listings when needed
+- **SFTP Support**: Access the same files via SFTP for more advanced operations
 
 <details markdown>
   <summary>Screenshots</summary>
@@ -87,6 +88,10 @@ weblist [options]
 - `-e, --exclude`: Files and directories to exclude (can be repeated) - env: `EXCLUDE`
 - `-f, --hide-footer`: Hide footer - env: `HIDE_FOOTER`
 - `-a, --auth`: Enable authentication with the specified password - env: `AUTH`
+- `--sftp`: Enable SFTP server with specified username - env: `SFTP`
+- `--sftp-address`: Address for SFTP server (default: `:2022`) - env: `SFTP_ADDRESS`
+- `--sftp-key`: SSH private key file (default: `weblist_rsa`) - env: `SFTP_KEY`
+- `--sftp-authorized`: Path to OpenSSH authorized_keys file for public key authentication - env: `SFTP_AUTHORIZED`
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
 
@@ -108,6 +113,38 @@ When authentication is enabled:
 
 Authentication is completely optional and only activated when the `--auth` parameter is provided.
 
+## SFTP Access
+
+Weblist can also provide SFTP access to the same files:
+
+```bash
+# Enable SFTP with password authentication
+weblist --auth your_password --sftp sftp_user
+
+# Use a custom SFTP port
+weblist --auth your_password --sftp sftp_user --sftp-address :2222
+
+# Specify a custom SSH host key file
+weblist --auth your_password --sftp sftp_user --sftp-key /path/to/ssh_key
+
+# Enable SFTP with public key authentication (no password needed)
+weblist --sftp sftp_user --sftp-authorized /path/to/authorized_keys
+```
+
+When SFTP is enabled:
+- The same directory is served via SFTP and HTTP
+- File exclusions apply to both HTTP and SFTP
+- Authentication can use either:
+  - Password authentication: Uses the same password as HTTP authentication (requires `--auth` parameter)
+  - Public key authentication: Uses OpenSSH-format authorized_keys file (requires `--sftp-authorized` parameter)
+- The username for SFTP is specified with the `--sftp` parameter
+- SFTP access is read-only for security reasons
+- SSH host keys are stored to prevent client warnings about changing keys
+  - By default, the key is stored as `weblist_rsa` in the current directory
+  - You can specify a custom key file with `--sftp-key`
+
+SFTP support is optional and only enabled when the `--sftp` parameter is provided. Either the `--auth` or `--sftp-authorized` parameter is required when enabling SFTP.
+
 ## Docker
 
 Perfect for NAS devices or home servers:
@@ -127,6 +164,7 @@ services:
     restart: always
     ports:
       - "8080:8080"
+      - "2022:2022"  # SFTP port
     volumes:
       - /path/to/files:/data:ro
     environment:
@@ -134,5 +172,9 @@ services:
       - THEME=light
       - ROOT_DIR=/data
       - EXCLUDE=.git,.env
-      - AUTH=your_password  # Optional: Enable authentication
+      - AUTH=your_password  # Optional: Enable password authentication
+      - SFTP=sftp_user      # Optional: Enable SFTP access
+      - SFTP_ADDRESS=:2022  # Optional: SFTP port
+      - SFTP_KEY=/data/ssh_key  # Optional: Path to SSH host key
+      - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth
 ```
