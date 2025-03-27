@@ -28,15 +28,26 @@ github.com/go-pkgz/rest/realip
 # github.com/go-pkgz/routegroup v1.3.1
 ## explicit; go 1.22
 github.com/go-pkgz/routegroup
+# github.com/go-pkgz/testutils v0.2.1
+## explicit; go 1.22
+github.com/go-pkgz/testutils
 # github.com/jessevdk/go-flags v1.6.1
 ## explicit; go 1.20
 github.com/jessevdk/go-flags
+# github.com/kr/fs v0.1.0
+## explicit
+github.com/kr/fs
 # github.com/mattn/go-colorable v0.1.14
 ## explicit; go 1.18
 github.com/mattn/go-colorable
 # github.com/mattn/go-isatty v0.0.20
 ## explicit; go 1.15
 github.com/mattn/go-isatty
+# github.com/pkg/sftp v1.13.9
+## explicit; go 1.15
+github.com/pkg/sftp
+github.com/pkg/sftp/internal/encoding/ssh/filexfer
+github.com/pkg/sftp/internal/encoding/ssh/filexfer/openssh
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib
@@ -54,6 +65,12 @@ golang.org/x/crypto/argon2
 golang.org/x/crypto/bcrypt
 golang.org/x/crypto/blake2b
 golang.org/x/crypto/blowfish
+golang.org/x/crypto/chacha20
+golang.org/x/crypto/curve25519
+golang.org/x/crypto/internal/alias
+golang.org/x/crypto/internal/poly1305
+golang.org/x/crypto/ssh
+golang.org/x/crypto/ssh/internal/bcrypt_pbkdf
 # golang.org/x/sys v0.31.0
 ## explicit; go 1.23.0
 golang.org/x/sys/cpu
