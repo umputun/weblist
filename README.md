@@ -88,14 +88,19 @@ weblist [options]
 - `-e, --exclude`: Files and directories to exclude (can be repeated) - env: `EXCLUDE`
 - `-f, --hide-footer`: Hide footer - env: `HIDE_FOOTER`
 - `-a, --auth`: Enable authentication with the specified password - env: `AUTH`
-- `--brand-name`: Company or organization name to display in navbar - env: `BRAND_NAME`
-- `--brand-color`: Color for navbar and footer (e.g. `3498db` or `#3498db`) - env: `BRAND_COLOR`
-- `--sftp`: Enable SFTP server with specified username - env: `SFTP`
-- `--sftp-address`: Address for SFTP server (default: `:2022`) - env: `SFTP_ADDRESS`
-- `--sftp-key`: SSH private key file (default: `weblist_rsa`) - env: `SFTP_KEY`
-- `--sftp-authorized`: Path to OpenSSH authorized_keys file for public key authentication - env: `SFTP_AUTHORIZED`
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
+
+SFTP Options (with `--sftp` prefix):
+- `--sftp.enabled`: Enable SFTP server - env: `SFTP_ENABLED`
+- `--sftp.user`: Username for SFTP access - env: `SFTP_USER`
+- `--sftp.address`: Address for SFTP server (default: `:2022`) - env: `SFTP_ADDRESS`
+- `--sftp.key`: SSH private key file (default: `weblist_rsa`) - env: `SFTP_KEY`
+- `--sftp.authorized`: Path to OpenSSH authorized_keys file for public key authentication - env: `SFTP_AUTHORIZED`
+
+Branding Options (with `--brand` prefix):
+- `--brand.name`: Company or organization name to display in navbar - env: `BRAND_NAME`
+- `--brand.color`: Color for navbar and footer (e.g. `3498db` or `#3498db`) - env: `BRAND_COLOR`
 
 ## Authentication
 
@@ -121,16 +126,16 @@ Weblist can also provide SFTP access to the same files:
 
 ```bash
 # Enable SFTP with password authentication
-weblist --auth your_password --sftp sftp_user
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user
 
 # Use a custom SFTP port
-weblist --auth your_password --sftp sftp_user --sftp-address :2222
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.address :2222
 
 # Specify a custom SSH host key file
-weblist --auth your_password --sftp sftp_user --sftp-key /path/to/ssh_key
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.key /path/to/ssh_key
 
 # Enable SFTP with public key authentication (no password needed)
-weblist --sftp sftp_user --sftp-authorized /path/to/authorized_keys
+weblist --sftp.enabled --sftp.user sftp_user --sftp.authorized /path/to/authorized_keys
 ```
 
 When SFTP is enabled:
@@ -138,14 +143,14 @@ When SFTP is enabled:
 - File exclusions apply to both HTTP and SFTP
 - Authentication can use either:
   - Password authentication: Uses the same password as HTTP authentication (requires `--auth` parameter)
-  - Public key authentication: Uses OpenSSH-format authorized_keys file (requires `--sftp-authorized` parameter)
-- The username for SFTP is specified with the `--sftp` parameter
+  - Public key authentication: Uses OpenSSH-format authorized_keys file (requires `--sftp.authorized` parameter)
+- The username for SFTP is specified with the `--sftp.user` parameter
 - SFTP access is read-only for security reasons
 - SSH host keys are stored to prevent client warnings about changing keys
   - By default, the key is stored as `weblist_rsa` in the current directory
-  - You can specify a custom key file with `--sftp-key`
+  - You can specify a custom key file with `--sftp.key`
 
-SFTP support is optional and only enabled when the `--sftp` parameter is provided. Either the `--auth` or `--sftp-authorized` parameter is required when enabling SFTP.
+SFTP support is optional and only enabled when both `--sftp.enabled` and `--sftp.user` parameters are provided. Either the `--auth` or `--sftp.authorized` parameter is required when enabling SFTP.
 
 ## Custom Branding
 
@@ -153,15 +158,15 @@ Weblist allows you to customize the appearance with your organization's branding
 
 ```bash
 # Set a custom organization name in the navigation bar
-weblist --brand-name "My Company"
+weblist --brand.name "My Company"
 
 # Set a custom color for the navigation bar and footer (with or without # prefix)
-weblist --brand-color "#3498db"
+weblist --brand.color "#3498db"
 # or
-weblist --brand-color "3498db"
+weblist --brand.color "3498db"
 
 # Combine both branding options
-weblist --brand-name "My Company" --brand-color "#3498db"
+weblist --brand.name "My Company" --brand.color "#3498db"
 ```
 
 When branding is enabled:
@@ -202,7 +207,8 @@ services:
       - AUTH=your_password  # Optional: Enable password authentication
       - BRAND_NAME=My Company  # Optional: Display company name in navbar
       - BRAND_COLOR=#3498db  # Optional: Custom color for navbar and footer
-      - SFTP=sftp_user      # Optional: Enable SFTP access
+      - SFTP_ENABLED=true   # Optional: Enable SFTP server
+      - SFTP_USER=sftp_user # Optional: Username for SFTP access
       - SFTP_ADDRESS=:2022  # Optional: SFTP port
       - SFTP_KEY=/data/ssh_key  # Optional: Path to SSH host key
       - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth

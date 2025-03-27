@@ -24,18 +24,23 @@ type options struct {
 	Exclude        []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
 	Auth           string   `short:"a" long:"auth" env:"AUTH" description:"password for basic authentication (username is 'weblist')"`
 	Title          string   `long:"title" env:"TITLE" description:"custom title for the site (used in browser title and breadcrumb home)"`
-	SFTP           string   `long:"sftp" env:"SFTP" description:"username for SFTP access (enables SFTP server)"`
-	SFTPAddress    string   `long:"sftp-address" env:"SFTP_ADDRESS" default:":2022" description:"address to listen for SFTP connections"`
-	SFTPKeyFile    string   `long:"sftp-key" env:"SFTP_KEY" default:"weblist_rsa" description:"SSH private key file path"`
-	SFTPAuthorized string   `long:"sftp-authorized" env:"SFTP_AUTHORIZED" description:"public key authentication file path"`
+
+	SFTP struct {
+		Enabled    bool   `long:"enabled" env:"ENABLED" description:"enable SFTP server"`
+		User       string `long:"user" env:"USER" description:"username for SFTP access"`
+		Address    string `long:"address" env:"ADDRESS" default:":2022" description:"address to listen for SFTP connections"`
+		KeyFile    string `long:"key" env:"KEY" default:"weblist_rsa" description:"SSH private key file path"`
+		Authorized string `long:"authorized" env:"AUTHORIZED" description:"public key authentication file path"`
+	} `group:"SFTP options" namespace:"sftp" env-namespace:"SFTP"`
+
+	Branding struct {
+		Name  string `long:"name" env:"NAME" description:"company or organization name to display in navbar"`
+		Color string `long:"color" env:"COLOR" description:"color for navbar and footer (e.g. #3498db or 3498db)"`
+	} `group:"Branding options" namespace:"brand" env-namespace:"BRAND"`
 
 	HideFooter bool `short:"f" long:"hide-footer" env:"HIDE_FOOTER"  description:"hide footer"`
 	Version    bool `short:"v" long:"version" env:"VERSION" description:"show version and exit"`
 	Dbg        bool `long:"dbg" env:"DEBUG" description:"debug mode"`
-
-	// branding options
-	BrandName  string `long:"brand-name" env:"BRAND_NAME" description:"company or organization name to display in navbar"`
-	BrandColor string `long:"brand-color" env:"BRAND_COLOR" description:"color for navbar and footer (e.g. #3498db)"`
 }
 
 var opts options
@@ -97,12 +102,12 @@ func runServer(ctx context.Context, opts *options) error {
 		Exclude:        opts.Exclude,
 		Auth:           opts.Auth,
 		Title:          opts.Title,
-		SFTPUser:       opts.SFTP,
-		SFTPAddress:    opts.SFTPAddress,
-		SFTPKeyFile:    opts.SFTPKeyFile,
-		SFTPAuthorized: opts.SFTPAuthorized,
-		BrandName:      opts.BrandName,
-		BrandColor:     opts.BrandColor,
+		SFTPUser:       opts.SFTP.User,
+		SFTPAddress:    opts.SFTP.Address,
+		SFTPKeyFile:    opts.SFTP.KeyFile,
+		SFTPAuthorized: opts.SFTP.Authorized,
+		BrandName:      opts.Branding.Name,
+		BrandColor:     opts.Branding.Color,
 	}
 
 	// create HTTP server
@@ -122,9 +127,9 @@ func runServer(ctx context.Context, opts *options) error {
 	}()
 
 	// if SFTP is enabled, start SFTP server
-	if opts.SFTP != "" {
+	if opts.SFTP.Enabled && opts.SFTP.User != "" {
 		// for SFTP, either a password or an authorized_keys file must be provided
-		if opts.Auth == "" && opts.SFTPAuthorized == "" {
+		if opts.Auth == "" && opts.SFTP.Authorized == "" {
 			return fmt.Errorf("either password (-a/--auth) or authorized keys file (--sftp-authorized) is required for SFTP server")
 		}
 
@@ -134,10 +139,10 @@ func runServer(ctx context.Context, opts *options) error {
 		}
 
 		go func() {
-			if opts.SFTPAuthorized != "" {
-				log.Printf("[INFO] starting SFTP server on %s with username %s (public key authentication enabled)", opts.SFTPAddress, opts.SFTP)
+			if opts.SFTP.Authorized != "" {
+				log.Printf("[INFO] starting SFTP server on %s with username %s (public key authentication enabled)", opts.SFTP.Address, opts.SFTP.User)
 			} else {
-				log.Printf("[INFO] starting SFTP server on %s with username %s (password authentication enabled)", opts.SFTPAddress, opts.SFTP)
+				log.Printf("[INFO] starting SFTP server on %s with username %s (password authentication enabled)", opts.SFTP.Address, opts.SFTP.User)
 			}
 			if err := sftpSrv.Run(ctx); err != nil {
 				errCh <- fmt.Errorf("SFTP server failed: %w", err)
