@@ -8,7 +8,6 @@ import (
 	"io"
 	"io/fs"
 	"log"
-	"mime"
 	"net/http"
 	"path/filepath"
 	"sort"
@@ -273,7 +272,7 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = file.Close() }()
 
 	// determine content type and file properties
-	contentType, isTextFile, isHTMLFile, _, _ := determineContentType(filePath)
+	contentType, isTextFile, isHTMLFile, _, _ := DetermineContentType(filePath)
 
 	// for text files, check if the request wants dark mode
 	isDarkMode := r.URL.Query().Get("theme") == "dark"
@@ -530,7 +529,7 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 	defer func() { _ = file.Close() }()
 
 	// determine content type and file properties
-	contentType, isText, isHTML, isPDF, isImage := determineContentType(path)
+	contentType, isText, isHTML, isPDF, isImage := DetermineContentType(path)
 
 	// prepare data for the modal template
 	data := struct {
@@ -578,59 +577,6 @@ func (wb *Web) parseFileTemplates() (*template.Template, error) {
 			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 		},
 	}).ParseFS(content, "templates/index.html", "templates/file.html")
-}
-
-// getCommonTextExtensions returns a map of common text file extensions
-func getCommonTextExtensions() map[string]bool {
-	return map[string]bool{
-		".yml":      true,
-		".yaml":     true,
-		".toml":     true,
-		".ini":      true,
-		".conf":     true,
-		".config":   true,
-		".md":       true,
-		".markdown": true,
-		".env":      true,
-		".lock":     true,
-		".go":       true,
-		".py":       true,
-		".js":       true,
-		".ts":       true,
-		".jsx":      true,
-		".tsx":      true,
-		".sh":       true,
-		".bash":     true,
-		".zsh":      true,
-		".log":      true,
-	}
-}
-
-// determineContentType determines content type and related flags for a file
-func determineContentType(filePath string) (contentType string, isText, isHTML, isPDF, isImage bool) {
-	ext := filepath.Ext(filePath)
-	extLower := strings.ToLower(ext)
-	commonTextExtensions := getCommonTextExtensions()
-
-	if commonTextExtensions[extLower] {
-		contentType = "text/plain"
-	} else {
-		contentType = mime.TypeByExtension(ext)
-		if contentType == "" {
-			contentType = "text/plain"
-		}
-	}
-
-	isText = strings.HasPrefix(contentType, "text/") ||
-		strings.HasPrefix(contentType, "application/json") ||
-		strings.HasPrefix(contentType, "application/xml") ||
-		strings.Contains(contentType, "html") ||
-		commonTextExtensions[extLower]
-	isHTML = strings.Contains(contentType, "html")
-	isPDF = contentType == "application/pdf"
-	isImage = strings.HasPrefix(contentType, "image/")
-
-	return contentType, isText, isHTML, isPDF, isImage
 }
 
 // getSortParams retrieves sort parameters from query or cookies and returns them

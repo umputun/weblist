@@ -39,20 +39,9 @@ func (f FileInfo) TimeString() string {
 	return f.LastModified.Format("02-Jan-2006 15:04:05")
 }
 
-// IsViewable checks if the file can be viewed in a browser
-func (f FileInfo) IsViewable() bool {
-	if f.IsDir {
-		return false
-	}
-
-	ext := filepath.Ext(f.Name)
-	if ext == "" {
-		return false
-	}
-
-	// special handling for common text formats that might not have proper MIME types
-	extLower := strings.ToLower(ext)
-	commonTextExtensions := map[string]bool{
+// GetCommonTextExtensions returns a map of common text file extensions
+func GetCommonTextExtensions() map[string]bool {
+	return map[string]bool{
 		".yml":      true,
 		".yaml":     true,
 		".toml":     true,
@@ -74,8 +63,49 @@ func (f FileInfo) IsViewable() bool {
 		".zsh":      true,
 		".log":      true,
 	}
+}
+
+// DetermineContentType determines content type and related flags for a file
+func DetermineContentType(filePath string) (contentType string, isText, isHTML, isPDF, isImage bool) {
+	ext := filepath.Ext(filePath)
+	extLower := strings.ToLower(ext)
+	commonTextExtensions := GetCommonTextExtensions()
 
 	if commonTextExtensions[extLower] {
+		contentType = "text/plain"
+	} else {
+		contentType = mime.TypeByExtension(ext)
+		if contentType == "" {
+			contentType = "text/plain"
+		}
+	}
+
+	isText = strings.HasPrefix(contentType, "text/") ||
+		strings.HasPrefix(contentType, "application/json") ||
+		strings.HasPrefix(contentType, "application/xml") ||
+		strings.Contains(contentType, "html") ||
+		commonTextExtensions[extLower]
+	isHTML = strings.Contains(contentType, "html")
+	isPDF = contentType == "application/pdf"
+	isImage = strings.HasPrefix(contentType, "image/")
+
+	return contentType, isText, isHTML, isPDF, isImage
+}
+
+// IsViewable checks if the file can be viewed in a browser
+func (f FileInfo) IsViewable() bool {
+	if f.IsDir {
+		return false
+	}
+
+	ext := filepath.Ext(f.Name)
+	if ext == "" {
+		return false
+	}
+
+	// special handling for common text formats that might not have proper MIME types
+	extLower := strings.ToLower(ext)
+	if GetCommonTextExtensions()[extLower] {
 		return true
 	}
 
