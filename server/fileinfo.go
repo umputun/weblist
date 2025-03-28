@@ -65,7 +65,20 @@ func GetCommonTextExtensions() map[string]bool {
 	}
 }
 
-// DetermineContentType determines content type and related flags for a file
+// DetermineContentType analyzes a file to determine its content type and common format flags.
+// It uses a multi-step detection process:
+// 1. Checks against a predefined list of known text file extensions
+// 2. Falls back to standard MIME type detection based on file extension
+// 3. Defaults to text/plain if no type could be determined
+// 
+// Returns:
+// - contentType: The MIME type string for the file
+// - isText: True for any text-based content (plain text, code, HTML, JSON, XML)
+// - isHTML: True specifically for HTML content
+// - isPDF: True for PDF documents
+// - isImage: True for all image formats
+//
+// This is used for deciding how to present files in the UI (view vs. download).
 func DetermineContentType(filePath string) (contentType string, isText, isHTML, isPDF, isImage bool) {
 	ext := filepath.Ext(filePath)
 	extLower := strings.ToLower(ext)

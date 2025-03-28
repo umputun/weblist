@@ -251,7 +251,15 @@ func (s *SFTP) startSFTPServer(channel ssh.Channel) {
 	}
 }
 
-// jailedFilesystem implements sftp.Handlers to restrict access to the root directory
+// jailedFilesystem implements the sftp.Handlers interfaces to create a secure,
+// read-only view of the filesystem for SFTP clients. It provides several security layers:
+// 1. Path containment - prevents clients from accessing files outside the root directory
+// 2. Read-only enforcement - actively denies all write/modify operations
+// 3. Path filtering - excludes sensitive files/directories based on patterns
+// 4. No symlink support - prevents potential security bypasses via symbolic links
+//
+// This is the core security boundary for the SFTP server, ensuring that remote
+// users cannot access unauthorized files or modify content.
 type jailedFilesystem struct {
 	rootDir  string   // physical root directory path
 	excludes []string // patterns to exclude
@@ -488,7 +496,12 @@ func (l *listerat) ListAt(ls []os.FileInfo, offset int64) (int, error) {
 	return n, nil
 }
 
-// virtualFileInfo implements os.FileInfo for virtual directory entries
+// virtualFileInfo implements os.FileInfo for virtual directory entries that don't physically
+// exist in the filesystem but are needed for proper SFTP navigation. It's critical for:
+// 1. Creating ".." (parent directory) entries required by SFTP protocol in every directory
+// 2. Handling edge cases like presenting a single file as a directory listing
+// 3. Ensuring compatibility with standard SFTP clients that expect these navigation aids
+// Without these virtual entries, many SFTP clients would fail to navigate correctly.
 type virtualFileInfo struct {
 	name    string
 	size    int64
@@ -504,8 +517,16 @@ func (v *virtualFileInfo) ModTime() time.Time { return v.modTime }
 func (v *virtualFileInfo) IsDir() bool        { return v.isDir }
 func (v *virtualFileInfo) Sys() interface{}   { return nil }
 
-// securePath validates and normalizes a path for use with fs.FS
-// It returns the path relative to the fs.FS root (no leading slash)
+// securePath is a security-critical function that validates and normalizes filesystem paths
+// from SFTP clients. It implements several security checks:
+// 1. Normalizes paths to remove redundant components (like multiple slashes)
+// 2. Explicitly checks for path traversal attempts using ".." components
+// 3. Validates against the exclusion list to prevent access to sensitive files
+// 4. Converts paths to the format required by fs.FS (no leading slash)
+//
+// The function is deliberately defensive with multiple layers of validation to prevent
+// security bypasses. Even though fs.FS already handles some containment, this provides
+// defense in depth against path traversal attacks.
 func (j *jailedFilesystem) securePath(requestPath string) (string, error) {
 	// handle root path specially
 	if requestPath == "" || requestPath == "/" {
@@ -845,8 +866,15 @@ func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
 	return config, nil
 }
 
-// checkAuthRateLimit checks if authentication attempts from an IP should be rate limited
-// Returns true if the request is allowed, false if it exceeds limits
+// checkAuthRateLimit implements a security mechanism to prevent brute-force attacks.
+// It tracks authentication attempts by IP address with the following rules:
+// 1. Maximum of 5 attempts allowed within a 10-minute sliding window
+// 2. Window starts with the first authentication attempt
+// 3. After 10 minutes of inactivity, the counter resets for that IP
+// 4. Successful authentication will reset the counter immediately
+//
+// Returns true if the attempt is allowed, false if it exceeds the rate limit.
+// This is a critical security feature to protect against password guessing.
 func (s *SFTP) checkAuthRateLimit(remoteIP string) bool {
 	s.ipAttemptsMu.Lock()
 	defer s.ipAttemptsMu.Unlock()

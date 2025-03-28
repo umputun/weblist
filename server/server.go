@@ -784,7 +784,12 @@ func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 	return files, nil
 }
 
-// shouldExclude checks if a path should be excluded based on the Exclude patterns
+// shouldExclude checks if a path should be excluded based on the Exclude patterns.
+// It performs several matching strategies:
+// 1. Exact path match with the pattern
+// 2. Any directory component matches the pattern (e.g. ".git" would exclude ".git/config")
+// 3. Path ends with the pattern as a directory component
+// All paths are normalized to use forward slashes for consistent matching across platforms.
 func (wb *Web) shouldExclude(path string) bool {
 	if len(wb.Exclude) == 0 {
 		return false
@@ -820,7 +825,13 @@ func (wb *Web) shouldExclude(path string) bool {
 	return false
 }
 
-// sortFiles sorts the file list based on the specified criteria
+// sortFiles sorts the file list based on the specified criteria (name, date, or size).
+// The sort maintains several important properties:
+// 1. The ".." parent directory entry always appears first
+// 2. Directories are always grouped before files, regardless of sort field
+// 3. When directories are sorted by size, they're sorted by name instead for consistency
+// 4. Files are sorted by the requested field with case-insensitive name comparison
+// 5. The sortDir parameter (asc/desc) reverses the sort order when set to "desc"
 func (wb *Web) sortFiles(files []FileInfo, sortBy, sortDir string) {
 	// first separate directories and files
 	sort.SliceStable(files, func(i, j int) bool {
@@ -905,7 +916,14 @@ func (wb *Web) getPathParts(path, sortBy, sortDir string) []map[string]string {
 	return result
 }
 
-// authMiddleware checks if the user is authenticated
+// authMiddleware enforces authentication for protected routes.
+// It uses a multi-tiered authentication approach:
+// 1. Login page (/login) and static assets are always accessible without authentication
+// 2. Checks for a valid authentication cookie first
+// 3. Falls back to HTTP Basic Auth with username "weblist" and password from config
+// 4. On successful Basic Auth, sets a cookie for future requests to avoid repeated authentication
+// 5. Redirects unauthenticated requests to the login page
+// This middleware should be added after all other middleware but before route handlers.
 func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// skip authentication for login page and assets
