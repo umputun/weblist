@@ -949,3 +949,401 @@ func TestSFTPKeyPersistence(t *testing.T) {
 	// stop the second server
 	cancel2()
 }
+
+// TestTimeoutConn tests the timeoutConn implementation
+func TestTimeoutConn(t *testing.T) {
+	// create a pipe to simulate network connection
+	clientConn, serverConn := net.Pipe()
+	defer clientConn.Close()
+	defer serverConn.Close()
+
+	// create a timeout connection with a very short timeout for testing
+	timeoutConn := &timeoutConn{
+		Conn:         serverConn,
+		idleTimeout:  500 * time.Millisecond,
+		lastActivity: time.Now(),
+	}
+
+	// test reading within timeout
+	go func() {
+		_, err := clientConn.Write([]byte("test data"))
+		require.NoError(t, err)
+	}()
+
+	buf := make([]byte, 10)
+	n, err := timeoutConn.Read(buf)
+	require.NoError(t, err)
+	assert.Equal(t, "test data", string(buf[:n]))
+
+	// test writing within timeout
+	go func() {
+		readBuf := make([]byte, 10)
+		_, err := clientConn.Read(readBuf)
+		require.NoError(t, err)
+	}()
+
+	n, err = timeoutConn.Write([]byte("response"))
+	require.NoError(t, err)
+	assert.Equal(t, 8, n)
+
+	// test timeout
+	time.Sleep(600 * time.Millisecond) // wait for timeout to occur
+
+	_, err = timeoutConn.Read(buf)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "idle timeout exceeded")
+
+	_, err = timeoutConn.Write([]byte("data"))
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "idle timeout exceeded")
+}
+
+// TestMemReaderAt tests the memReaderAt implementation
+func TestMemReaderAt(t *testing.T) {
+	// create test data
+	testData := []byte("This is test data for memory reader test")
+	reader := &memReaderAt{data: testData}
+
+	// test reading from the beginning
+	buf := make([]byte, 10)
+	n, err := reader.ReadAt(buf, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, 10, n)
+	assert.Equal(t, "This is te", string(buf))
+
+	// test reading from middle
+	n, err = reader.ReadAt(buf, 8)
+	assert.NoError(t, err)
+	assert.Equal(t, 10, n)
+	assert.Equal(t, "test data ", string(buf))
+
+	// test reading to the end
+	n, err = reader.ReadAt(buf, int64(len(testData)-5))
+	assert.Equal(t, 5, n)
+	assert.Equal(t, io.EOF, err)
+	assert.Equal(t, string(testData[len(testData)-5:]), string(buf[:n]))
+
+	// test reading past the end
+	n, err = reader.ReadAt(buf, int64(len(testData)))
+	assert.Equal(t, 0, n)
+	assert.Equal(t, io.EOF, err)
+}
+
+// TestVirtualFileInfo tests the virtualFileInfo implementation
+func TestVirtualFileInfo(t *testing.T) {
+	now := time.Now()
+	v := &virtualFileInfo{
+		name:    "test-dir",
+		size:    1024,
+		mode:    os.ModeDir | 0755,
+		modTime: now,
+		isDir:   true,
+	}
+
+	assert.Equal(t, "test-dir", v.Name())
+	assert.Equal(t, int64(1024), v.Size())
+	assert.Equal(t, os.ModeDir|0755, v.Mode())
+	assert.Equal(t, now, v.ModTime())
+	assert.True(t, v.IsDir())
+	assert.Nil(t, v.Sys())
+}
+
+// TestListerAt tests the listerat implementation
+func TestListerAt(t *testing.T) {
+	// create test file infos
+	fileInfos := []os.FileInfo{
+		&virtualFileInfo{name: "file1", size: 100},
+		&virtualFileInfo{name: "file2", size: 200},
+		&virtualFileInfo{name: "file3", size: 300},
+		&virtualFileInfo{name: "file4", size: 400},
+	}
+
+	lister := &listerat{entries: fileInfos}
+
+	// test listing from start
+	dest := make([]os.FileInfo, 2)
+	n, err := lister.ListAt(dest, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, n)
+	assert.Equal(t, "file1", dest[0].Name())
+	assert.Equal(t, "file2", dest[1].Name())
+
+	// test listing from middle
+	n, err = lister.ListAt(dest, 2)
+	assert.NoError(t, err)
+	assert.Equal(t, 2, n)
+	assert.Equal(t, "file3", dest[0].Name())
+	assert.Equal(t, "file4", dest[1].Name())
+
+	// test partial list at end
+	dest = make([]os.FileInfo, 3)
+	n, err = lister.ListAt(dest, 3)
+	assert.Equal(t, 1, n)
+	assert.Equal(t, io.EOF, err)
+	assert.Equal(t, "file4", dest[0].Name())
+
+	// test listing past end
+	n, err = lister.ListAt(dest, 4)
+	assert.Equal(t, 0, n)
+	assert.Equal(t, io.EOF, err)
+}
+
+// Since ssh.Request.Reply field is not exported, we can't properly test the replyRequest function
+// in isolation. The integration tests above verify that it works correctly in the real flow.
+
+// TestAuthRateLimit tests the rate limiting functionality
+func TestAuthRateLimit(t *testing.T) {
+	s := &SFTP{
+		Config: Config{
+			SFTPUser:    "testuser",
+			SFTPAddress: "127.0.0.1:0",
+			Auth:        "testpass",
+		},
+		ipAttempts: make(map[string]ipAttemptsInfo),
+	}
+
+	ip := "192.168.1.1"
+
+	// first attempt should be allowed
+	allowed := s.checkAuthRateLimit(ip)
+	assert.True(t, allowed)
+
+	// record should exist now
+	s.ipAttemptsMu.Lock()
+	info, exists := s.ipAttempts[ip]
+	s.ipAttemptsMu.Unlock()
+	assert.True(t, exists)
+	assert.Equal(t, 1, info.count)
+
+	// make more attempts up to the limit
+	for i := 0; i < 4; i++ {
+		allowed = s.checkAuthRateLimit(ip)
+		assert.True(t, allowed)
+	}
+
+	// the next attempt should be blocked (6th attempt)
+	allowed = s.checkAuthRateLimit(ip)
+	assert.False(t, allowed)
+
+	// test resetting limit
+	s.resetAuthRateLimit(ip)
+
+	s.ipAttemptsMu.Lock()
+	_, exists = s.ipAttempts[ip]
+	s.ipAttemptsMu.Unlock()
+	assert.False(t, exists)
+
+	// should be allowed again
+	allowed = s.checkAuthRateLimit(ip)
+	assert.True(t, allowed)
+}
+
+// TestReadlink tests the Readlink implementation
+func TestReadlink(t *testing.T) {
+	// create jailed filesystem
+	jailed := &jailedFilesystem{
+		rootDir:  "/tmp",
+		excludes: []string{},
+		fsys:     os.DirFS("/tmp"),
+	}
+
+	// create test request
+	req := &sftp.Request{
+		Method:   "Readlink",
+		Filepath: "/some/symlink",
+	}
+
+	// test Readlink (which should not be supported)
+	_, err := jailed.Readlink(req)
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "symlinks are not supported")
+}
+
+// TestValidateConfig tests the validateConfig function
+func TestValidateConfig(t *testing.T) {
+	// test with valid config using password
+	s1 := &SFTP{
+		Config: Config{
+			SFTPUser: "user",
+			Auth:     "pass",
+		},
+	}
+	err := s1.validateConfig()
+	assert.NoError(t, err)
+
+	// test with valid config using authorized keys
+	s2 := &SFTP{
+		Config: Config{
+			SFTPUser:       "user",
+			SFTPAuthorized: "/path/to/keys",
+		},
+	}
+	err = s2.validateConfig()
+	assert.NoError(t, err)
+
+	// test with missing username
+	s3 := &SFTP{
+		Config: Config{
+			Auth: "pass",
+		},
+	}
+	err = s3.validateConfig()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "username is required")
+
+	// test with missing authentication
+	s4 := &SFTP{
+		Config: Config{
+			SFTPUser: "user",
+		},
+	}
+	err = s4.validateConfig()
+	assert.Error(t, err)
+	assert.Contains(t, err.Error(), "either password")
+}
+
+// TestBufferedFileReaderAt tests the bufferedFileReaderAt implementation
+func TestBufferedFileReaderAt(t *testing.T) {
+	// create a temporary file for testing
+	tmpFile, err := os.CreateTemp("", "buffered-read-test-*")
+	require.NoError(t, err)
+	defer os.Remove(tmpFile.Name())
+
+	// write test data to the file
+	testData := []byte("This is test data for buffered reader test")
+	_, err = tmpFile.Write(testData)
+	require.NoError(t, err)
+	require.NoError(t, tmpFile.Close())
+
+	// open the file for testing
+	file, err := os.Open(tmpFile.Name())
+	require.NoError(t, err)
+	defer file.Close()
+
+	// get file info for size
+	info, err := file.Stat()
+	require.NoError(t, err)
+
+	// create a bufferedFileReaderAt
+	reader := &bufferedFileReaderAt{
+		file:     file,
+		fileSize: info.Size(),
+		path:     tmpFile.Name(),
+	}
+
+	// test reading from the beginning
+	buf := make([]byte, 10)
+	n, err := reader.ReadAt(buf, 0)
+	assert.NoError(t, err)
+	assert.Equal(t, 10, n)
+	assert.Equal(t, "This is te", string(buf))
+
+	// test reading from the middle
+	n, err = reader.ReadAt(buf, 8)
+	assert.NoError(t, err)
+	assert.Equal(t, 10, n)
+	assert.Equal(t, "test data ", string(buf))
+
+	// test reading at the end (partial read)
+	n, err = reader.ReadAt(buf, int64(len(testData)-5))
+	assert.Equal(t, 5, n)
+	assert.Equal(t, io.EOF, err)
+	assert.Equal(t, string(testData[len(testData)-5:]), string(buf[:n]))
+
+	// test reading past the end
+	n, err = reader.ReadAt(buf, int64(len(testData)))
+	assert.Equal(t, 0, n)
+	assert.Equal(t, io.EOF, err)
+
+	// test Close
+	err = reader.Close()
+	assert.NoError(t, err)
+}
+
+// TestIsDir tests the IsDir function on virtualFileInfo
+func TestIsDir(t *testing.T) {
+	// test with directory
+	dirInfo := &virtualFileInfo{
+		name:  "testdir",
+		mode:  os.ModeDir,
+		isDir: true,
+	}
+	assert.True(t, dirInfo.IsDir())
+
+	// test with file
+	fileInfo := &virtualFileInfo{
+		name:  "testfile",
+		mode:  0644,
+		isDir: false,
+	}
+	assert.False(t, fileInfo.IsDir())
+}
+
+func TestSetupSSHServerConfig(t *testing.T) {
+	tests := []struct {
+		name                     string
+		config                   Config
+		wantErr                  bool
+		checkAuthCallbackPresent bool
+		pubKeyCallbackPresent    bool
+	}{
+		{
+			name: "password auth only",
+			config: Config{
+				SFTPUser:    "testuser",
+				Auth:        "testpass",
+				SFTPKeyFile: "testkey",
+			},
+			wantErr:                  false,
+			checkAuthCallbackPresent: true,
+			pubKeyCallbackPresent:    false,
+		},
+		{
+			name: "public key auth only",
+			config: Config{
+				SFTPUser:       "testuser",
+				SFTPKeyFile:    "testkey",
+				SFTPAuthorized: "nonexistent", // will not find keys but should not error
+			},
+			wantErr:                  false,
+			checkAuthCallbackPresent: true,
+			pubKeyCallbackPresent:    false, // no keys loaded from nonexistent file
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// create a temporary key file
+			keyFile, err := os.CreateTemp("", "ssh-test-key-*")
+			require.NoError(t, err)
+			keyPath := keyFile.Name()
+			keyFile.Close()
+			defer os.Remove(keyPath)
+
+			// update the config with the temp key file
+			tt.config.SFTPKeyFile = keyPath
+
+			// create SFTP server
+			s := &SFTP{
+				Config: tt.config,
+			}
+
+			// setup SSH server config
+			config, err := s.setupSSHServerConfig()
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			require.NotNil(t, config)
+
+			// verify the server config
+			assert.Equal(t, "SSH-2.0-WebList-SFTP", config.ServerVersion)
+			assert.Equal(t, false, config.NoClientAuth)
+			assert.Equal(t, 6, config.MaxAuthTries)
+
+			// verify the auth rate limiter is initialized
+			assert.NotNil(t, s.ipAttempts)
+		})
+	}
+}

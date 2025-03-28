@@ -2309,12 +2309,12 @@ func TestHTMLRendering(t *testing.T) {
 
 // mockFile represents a mock file for testing
 type mockFile struct {
-	content   []byte
-	isDir     bool
-	name      string
-	modTime   time.Time
-	size      int64
-	failRead  bool
+	content  []byte
+	isDir    bool
+	name     string
+	modTime  time.Time
+	size     int64
+	failRead bool
 }
 
 // mockFS is a mock filesystem for testing
@@ -2410,4 +2410,68 @@ func (m *mockFileInfo) IsDir() bool {
 
 func (m *mockFileInfo) Sys() interface{} {
 	return nil
+}
+
+func TestHandleLoginPage(t *testing.T) {
+	srv := setupTestServer(t)
+	srv.BrandName = "Test Brand"
+	srv.BrandColor = "ff0000"
+
+	// create a request to pass to our handler
+	req, err := http.NewRequest("GET", "/login", nil)
+	require.NoError(t, err)
+
+	// create a ResponseRecorder to record the response
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(srv.handleLoginPage)
+
+	// call the handler
+	handler.ServeHTTP(rr, req)
+
+	// check the response status code is 200 OK
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// check that the response contains expected elements
+	responseBody := rr.Body.String()
+	assert.Contains(t, responseBody, "Test Brand")
+	assert.Contains(t, responseBody, "Test Title")
+	assert.Contains(t, responseBody, "<form")
+	assert.Contains(t, responseBody, "method=\"post\"")
+	assert.Contains(t, responseBody, "action=\"/login\"")
+}
+
+func TestNormalizeBrandColor(t *testing.T) {
+	tests := []struct {
+		name  string
+		input string
+		want  string
+	}{
+		{
+			name:  "empty color",
+			input: "",
+			want:  "",
+		},
+		{
+			name:  "already has hash prefix",
+			input: "#ffffff",
+			want:  "#ffffff",
+		},
+		{
+			name:  "hex without hash prefix",
+			input: "ff0000",
+			want:  "#ff0000",
+		},
+		{
+			name:  "named color",
+			input: "blue",
+			want:  "#blue",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := normalizeBrandColor(tt.input)
+			assert.Equal(t, tt.want, got)
+		})
+	}
 }
