@@ -4,6 +4,9 @@ ARG GIT_BRANCH
 ARG GITHUB_SHA
 ARG CI
 
+# Install mailcap package which contains mime.types
+RUN apk add --no-cache mailcap
+
 ADD . /build
 WORKDIR /build
 
@@ -21,6 +24,7 @@ FROM ghcr.io/umputun/baseimage/scratch:latest
 LABEL org.opencontainers.image.source="https://github.com/umputun/weblist"
 
 COPY --from=build /build/weblist /srv/weblist
+COPY --from=build /etc/mime.types /etc/mime.types
 VOLUME ["/data"]
 WORKDIR /data
 
