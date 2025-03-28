@@ -93,6 +93,10 @@ func (wb *Web) Run(ctx context.Context) error {
 	// handler for all static assets
 	router.HandleFunc("GET /assets/{path...}", func(w http.ResponseWriter, r *http.Request) {
 		path := strings.TrimPrefix(r.URL.Path, "/assets/")
+		if path == "" {
+			http.NotFound(w, r)
+			return
+		}
 		if path == "favicon.ico" { // special case for favicon.ico which maps to favicon.png
 			path = "favicon.png"
 		}
