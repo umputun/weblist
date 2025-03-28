@@ -2476,3 +2476,114 @@ func TestNormalizeBrandColor(t *testing.T) {
 		})
 	}
 }
+
+func TestHighlightCode(t *testing.T) {
+	web := &Web{
+		Config: Config{
+			EnableSyntaxHighlighting: true,
+		},
+	}
+
+	tests := []struct {
+		name         string
+		code         string
+		filename     string
+		theme        string
+		wantContains []string
+		wantErr      bool
+	}{
+		{
+			name:     "Go code with light theme",
+			code:     "package main\n\nfunc main() {\n\tprint(\"Hello\")\n}",
+			filename: "main.go",
+			theme:    "light",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"chroma",
+				"Hello",
+				"package",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "Go code with dark theme",
+			code:     "package main\n\nfunc main() {\n\tprint(\"Hello\")\n}",
+			filename: "main.go",
+			theme:    "dark",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"chroma",
+				"Hello",
+				"package",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "JavaScript code",
+			code:     "function hello() {\n\tconsole.log(\"Hello\");\n}",
+			filename: "script.js",
+			theme:    "light",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"chroma",
+				"Hello",
+				"function",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "HTML code",
+			code:     "<html><body><h1>Hello</h1></body></html>",
+			filename: "index.html",
+			theme:    "light",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"chroma",
+				"html",
+				"Hello",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "Unknown language falls back to plain text",
+			code:     "This is plain text",
+			filename: "unknown.xyz",
+			theme:    "light",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"<pre>",
+				"This is plain text",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "Empty code",
+			code:     "",
+			filename: "empty.txt",
+			theme:    "light",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"<pre class=\"chroma\">",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := web.highlightCode(tt.code, tt.filename, tt.theme)
+			
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			
+			assert.NoError(t, err)
+			
+			// Check that the result contains expected strings
+			for _, expected := range tt.wantContains {
+				assert.Contains(t, result, expected, "Result should contain %q", expected)
+			}
+		})
+	}
+}
