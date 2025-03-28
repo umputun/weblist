@@ -2572,15 +2572,15 @@ func TestHighlightCode(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			result, err := web.highlightCode(tt.code, tt.filename, tt.theme)
-			
+
 			if tt.wantErr {
 				assert.Error(t, err)
 				return
 			}
-			
+
 			assert.NoError(t, err)
-			
-			// Check that the result contains expected strings
+
+			// check that the result contains expected strings
 			for _, expected := range tt.wantContains {
 				assert.Contains(t, result, expected, "Result should contain %q", expected)
 			}

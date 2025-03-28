@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
+	"crypto/subtle"
 	"crypto/x509"
 	"encoding/pem"
 	"fmt"
@@ -814,7 +815,7 @@ func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
 				return nil, fmt.Errorf("password authentication disabled")
 			}
 
-			if c.User() == s.SFTPUser && string(pass) == s.Auth {
+			if subtle.ConstantTimeCompare([]byte(c.User()), []byte(s.SFTPUser)) == 1 && subtle.ConstantTimeCompare(pass, []byte(s.Auth)) == 1 {
 				// successful login - clear rate limiting record
 				s.resetAuthRateLimit(remoteIP)
 				return &ssh.Permissions{}, nil
@@ -837,7 +838,7 @@ func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
 		} else {
 			log.Printf("[INFO] Loaded %d authorized keys for public key authentication", len(authKeys))
 			config.PublicKeyCallback = func(c ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
-				if c.User() != s.SFTPUser {
+				if subtle.ConstantTimeCompare([]byte(c.User()), []byte(s.SFTPUser)) != 1 {
 					return nil, fmt.Errorf("unknown user %s", c.User())
 				}
 
