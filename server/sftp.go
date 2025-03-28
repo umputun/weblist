@@ -310,6 +310,7 @@ func (j *jailedFilesystem) Fileread(r *sftp.Request) (io.ReaderAt, error) {
 
 	// for small files (under 10MB), just read the entire file into memory
 	// this is more efficient for small files that are frequently accessed
+	// while large files use a buffered approach to avoid excessive memory usage
 	if info.Size() < 10*1024*1024 {
 		data, err := io.ReadAll(file)
 		if err := file.Close(); err != nil {
