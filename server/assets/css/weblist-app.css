@@ -422,26 +422,55 @@ pre {
     width: 95%;
   }
   
+  /* Improved mobile layout for breadcrumbs and logout */
   .breadcrumbs {
-    flex-direction: column;
-    align-items: flex-start;
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "path logout";
     padding: 0.6rem 0.8rem;
     border-radius: var(--border-radius-sm);
+    align-items: center;
+  }
+  
+  .path-parts {
+    grid-area: path;
+    max-width: calc(100% - 80px);
+    overflow-x: auto;
+    white-space: nowrap;
+    padding-right: 0.5rem;
   }
   
   .logout-button {
-    margin-top: var(--spacing-sm);
-    align-self: flex-end;
+    grid-area: logout;
+    margin: 0;
+  }
+  
+  .logout-button a {
+    padding: 0.3rem 0.5rem;
+    white-space: nowrap;
   }
   
   table {
     font-size: 0.9rem;
   }
   
-  /* Change column widths on mobile */
+  /* Improved table layout for mobile */
   table th:first-child, table td:first-child { width: 50%; }
-  table th:nth-child(2), table td:nth-child(2) { width: 30%; }
-  table th:nth-child(3), table td:nth-child(3) { width: 20%; }
+  table th:nth-child(2), table td:nth-child(2) { width: 35%; }
+  table th:nth-child(3), table td:nth-child(3) { width: 15%; }
+  
+  /* Prevent text overflow in table cells */
+  table td {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  
+  /* Add more spacing between columns */
+  table th, table td {
+    padding: var(--spacing-xs) var(--spacing-sm);
+  }
   
   /* Adjust login box on mobile */
   .centered-login-box {
