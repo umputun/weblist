@@ -89,20 +89,14 @@ func (wb *Web) Run(ctx context.Context) error {
 	router.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
 	router.HandleFunc("GET /partials/file-modal", wb.handleFileModal) // handle modal content
 	router.HandleFunc("GET /view/{path...}", wb.handleViewFile)       // handle file viewing
-	router.HandleFunc("GET /assets/css/custom.css", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFileFS(w, r, assetsFS, "css/custom.css")
-	})
-	router.HandleFunc("GET /assets/css/weblist-app.css", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFileFS(w, r, assetsFS, "css/weblist-app.css")
-	})
-	router.HandleFunc("GET /assets/css/syntax.css", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFileFS(w, r, assetsFS, "css/syntax.css")
-	})
-	router.HandleFunc("GET /assets/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFileFS(w, r, assetsFS, "favicon.png")
-	})
-	router.HandleFunc("GET /assets/favicon.png", func(w http.ResponseWriter, r *http.Request) {
-		http.ServeFileFS(w, r, assetsFS, "favicon.png")
+
+	// handler for all static assets
+	router.HandleFunc("GET /assets/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/assets/")
+		if path == "favicon.ico" { // special case for favicon.ico which maps to favicon.png
+			path = "favicon.png"
+		}
+		http.ServeFileFS(w, r, assetsFS, path)
 	})
 	router.HandleFunc("GET /{path...}", wb.handleDownload) // handle file downloads with just the path
 
