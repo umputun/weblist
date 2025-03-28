@@ -991,7 +991,7 @@ func (wb *Web) highlightCode(code, filename, theme string) (string, error) {
 		lexer = lexers.Analyse(code)
 		if lexer == nil {
 			// fall back to plain text if no lexer found
-			return fmt.Sprintf(`<div class="highlight-wrapper"><pre>%s</pre></div>`, template.HTMLEscapeString(code)), nil
+			return fmt.Sprintf(`<div class="highlight-wrapper"><pre class="chroma">%s</pre></div>`, template.HTMLEscapeString(code)), nil
 		}
 	}
 
@@ -1013,12 +1013,12 @@ func (wb *Web) highlightCode(code, filename, theme string) (string, error) {
 	// tokenize and format the code
 	iterator, err := lexer.Tokenise(nil, code)
 	if err != nil {
-		return fmt.Sprintf(`<div class="highlight-wrapper"><pre>%s</pre></div>`, template.HTMLEscapeString(code)), err
+		return fmt.Sprintf(`<div class="highlight-wrapper"><pre class="chroma">%s</pre></div>`, template.HTMLEscapeString(code)), err
 	}
 
 	// format the tokens
 	if err := formatter.Format(&buf, style, iterator); err != nil {
-		return fmt.Sprintf(`<div class="highlight-wrapper"><pre>%s</pre></div>`, template.HTMLEscapeString(code)), err
+		return fmt.Sprintf(`<div class="highlight-wrapper"><pre class="chroma">%s</pre></div>`, template.HTMLEscapeString(code)), err
 	}
 
 	// write HTML footer

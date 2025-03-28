@@ -2551,7 +2551,7 @@ func TestHighlightCode(t *testing.T) {
 			theme:    "light",
 			wantContains: []string{
 				"<div class=\"highlight-wrapper\">",
-				"<pre>",
+				"<pre class=\"chroma\">",
 				"This is plain text",
 			},
 			wantErr: false,
