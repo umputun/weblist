@@ -269,4 +269,45 @@ main.container {
 }
 
 /* Import existing styles converted to use our new variables */
-/* @import 'weblist-app.css'; */ 
+/* @import 'weblist-app.css'; */
+
+.centered-login-box {
+  max-width: 400px;
+  margin: 8rem auto 0;
+  padding: 2rem;
+  border-radius: var(--border-radius-lg);
+  box-shadow: var(--shadow-md);
+  background-color: var(--color-surface);
+}
+
+.centered-login-box form {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--spacing-md);
+  margin-bottom: 0;
+}
+
+.centered-login-box input[type="password"] {
+  margin-bottom: 0;
+}
+
+.centered-login-box button {
+  width: auto;
+  min-width: 120px;
+  margin-top: var(--spacing-md);
+  color: var(--color-white);
+  background-color: var(--color-primary);
+  border: 1px solid var(--color-primary);
+}
+
+.centered-login-box button:hover {
+  background-color: var(--color-primary-hover);
+  border-color: var(--color-primary-hover);
+}
+
+.centered-login-box h3 {
+  text-align: center;
+  margin-bottom: var(--spacing-lg);
+  color: var(--color-text);
+} 
