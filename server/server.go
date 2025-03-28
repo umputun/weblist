@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/subtle"
 	"embed"
 	"fmt"
 	"html/template"
@@ -203,7 +204,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	isAuthenticated := false
 	if wb.Auth != "" {
 		cookie, err := r.Cookie("auth")
-		if err == nil && cookie.Value == wb.Auth {
+		if err == nil && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(wb.Auth)) == 1 {
 			isAuthenticated = true
 		}
 	}
@@ -436,7 +437,9 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
-	if username != "weblist" || password != wb.Auth {
+	usernameMatch := subtle.ConstantTimeCompare([]byte(username), []byte("weblist")) != 1
+	passwordMatch := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) != 1
+	if usernameMatch || passwordMatch {
 		// authentication failed, show error
 		tmpl, err := template.New("login.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/login.html")
 		if err != nil {
@@ -692,7 +695,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	isAuthenticated := false
 	if wb.Auth != "" {
 		cookie, err := r.Cookie("auth")
-		if err == nil && cookie.Value == wb.Auth {
+		if err == nil && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(wb.Auth)) == 1 {
 			isAuthenticated = true
 		}
 	}
@@ -941,7 +944,7 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 
 		// check if user is authenticated via cookie
 		cookie, err := r.Cookie("auth")
-		if err == nil && cookie.Value == wb.Auth {
+		if err == nil && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(wb.Auth)) == 1 {
 			// user is authenticated, proceed
 			next.ServeHTTP(w, r)
 			return
@@ -949,7 +952,9 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 
 		// check if user is authenticated via basic auth
 		username, password, ok := r.BasicAuth()
-		if ok && username == "weblist" && password == wb.Auth {
+		usernameMatch := subtle.ConstantTimeCompare([]byte(username), []byte("weblist")) == 1
+		passwordMatch := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) == 1
+		if ok && usernameMatch && passwordMatch {
 			// set cookie for future requests
 			http.SetCookie(w, &http.Cookie{
 				Name:     "auth",
