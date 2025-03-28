@@ -1900,9 +1900,9 @@ func TestFileViewAndModal(t *testing.T) {
 		assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
 
 		body := rr.Body.String()
-		assert.Contains(t, body, "file1 content")   // the actual content from testdata/file1.txt
-		assert.Contains(t, body, "<pre>")           // content should be wrapped in pre tag
-		assert.Contains(t, body, "<!DOCTYPE html>") // should render with HTML template
+		assert.Contains(t, body, "file1 content")     // the actual content from testdata/file1.txt
+		assert.Contains(t, body, "highlight-wrapper") // content should be wrapped in highlight-wrapper div
+		assert.Contains(t, body, "<!DOCTYPE html>")   // should render with HTML template
 	})
 
 	t.Run("view non-existent file", func(t *testing.T) {
@@ -2468,10 +2468,122 @@ func TestNormalizeBrandColor(t *testing.T) {
 		},
 	}
 
+	srv := setupTestServer(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeBrandColor(tt.input)
+			got := srv.normalizeBrandColor(tt.input)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestHighlightCode(t *testing.T) {
+	web := &Web{
+		Config: Config{
+			EnableSyntaxHighlighting: true,
+		},
+	}
+
+	tests := []struct {
+		name         string
+		code         string
+		filename     string
+		theme        string
+		wantContains []string
+		wantErr      bool
+	}{
+		{
+			name:     "Go code with light theme",
+			code:     "package main\n\nfunc main() {\n\tprint(\"Hello\")\n}",
+			filename: "main.go",
+			theme:    "light",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"chroma",
+				"Hello",
+				"package",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "Go code with dark theme",
+			code:     "package main\n\nfunc main() {\n\tprint(\"Hello\")\n}",
+			filename: "main.go",
+			theme:    "dark",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"chroma",
+				"Hello",
+				"package",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "JavaScript code",
+			code:     "function hello() {\n\tconsole.log(\"Hello\");\n}",
+			filename: "script.js",
+			theme:    "light",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"chroma",
+				"Hello",
+				"function",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "HTML code",
+			code:     "<html><body><h1>Hello</h1></body></html>",
+			filename: "index.html",
+			theme:    "light",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"chroma",
+				"html",
+				"Hello",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "Unknown language falls back to plain text",
+			code:     "This is plain text",
+			filename: "unknown.xyz",
+			theme:    "light",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"<pre class=\"chroma\">",
+				"This is plain text",
+			},
+			wantErr: false,
+		},
+		{
+			name:     "Empty code",
+			code:     "",
+			filename: "empty.txt",
+			theme:    "light",
+			wantContains: []string{
+				"<div class=\"highlight-wrapper\">",
+				"<pre class=\"chroma\">",
+			},
+			wantErr: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := web.highlightCode(tt.code, tt.filename, tt.theme)
+			
+			if tt.wantErr {
+				assert.Error(t, err)
+				return
+			}
+			
+			assert.NoError(t, err)
+			
+			// Check that the result contains expected strings
+			for _, expected := range tt.wantContains {
+				assert.Contains(t, result, expected, "Result should contain %q", expected)
+			}
 		})
 	}
 }

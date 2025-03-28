@@ -10,6 +10,7 @@
     <title>{{ .FileName }}</title>
     <link rel="stylesheet" href="/assets/css/custom.css">
     <link rel="stylesheet" href="/assets/css/weblist-app.css">
+    <link rel="stylesheet" href="/assets/css/syntax.css">
     <style>
         /* Set dark background immediately (before content loads) */
         html {
@@ -32,13 +33,159 @@
             font-family: monospace;
             background-color: var(--color-background) !important;
         }
+        .highlight-wrapper {
+            margin: 0;
+            padding: 0;
+            background-color: var(--color-background) !important;
+        }
+        .highlight-wrapper pre {
+            margin: 0;
+            padding: 1rem;
+            overflow-x: auto;
+        }
+        .highlight-wrapper .line-numbers {
+            color: var(--color-text-muted);
+        }
+        /* Dark theme overrides */
+        [data-theme="dark"] .highlight-wrapper {
+            background-color: var(--color-background) !important;
+        }
+        [data-theme="dark"] .highlight-wrapper pre {
+            background-color: var(--color-background) !important;
+        }
+        /* Chroma syntax highlighting styles */
+        .chroma {
+            color: var(--color-text);
+            background-color: var(--color-background);
+        }
+        .chroma .err { color: #a61717; background-color: #e3d2d2 }
+        .chroma .lnt { color: #999988; }
+        .chroma .ln { color: #999988; }
+        .chroma .k { color: #000080; font-weight: bold }
+        .chroma .o { color: #000000; font-weight: bold }
+        .chroma .cm { color: #999988; font-style: italic }
+        .chroma .cp { color: #999999; font-weight: bold; font-style: italic }
+        .chroma .c1 { color: #999988; font-style: italic }
+        .chroma .cs { color: #999999; font-weight: bold; font-style: italic }
+        .chroma .gd { color: #000000; background-color: #ffdddd }
+        .chroma .ge { color: #000000; font-style: italic }
+        .chroma .gr { color: #aa0000 }
+        .chroma .gh { color: #999999 }
+        .chroma .gi { color: #000000; background-color: #ddffdd }
+        .chroma .go { color: #888888 }
+        .chroma .gp { color: #555555 }
+        .chroma .gs { font-weight: bold }
+        .chroma .gu { color: #aaaaaa }
+        .chroma .gt { color: #aa0000 }
+        .chroma .gl { color: #aaaaaa }
+        .chroma .m { color: #0000FF }
+        .chroma .s { color: #008000 }
+        .chroma .na { color: #000080 }
+        .chroma .nb { color: #0000FF }
+        .chroma .nc { color: #000000; font-weight: bold }
+        .chroma .no { color: #000080 }
+        .chroma .nd { color: #800080 }
+        .chroma .ni { color: #000080 }
+        .chroma .ne { color: #000000; font-weight: bold }
+        .chroma .nf { color: #000000; font-weight: bold }
+        .chroma .nl { color: #000000; font-weight: bold }
+        .chroma .nn { color: #000000; font-weight: bold }
+        .chroma .nt { color: #000080 }
+        .chroma .nv { color: #000080 }
+        .chroma .ow { color: #000000; font-weight: bold }
+        .chroma .w { color: #bbbbbb }
+        .chroma .mf { color: #0000FF }
+        .chroma .mh { color: #0000FF }
+        .chroma .mi { color: #0000FF }
+        .chroma .mo { color: #0000FF }
+        .chroma .sb { color: #008000 }
+        .chroma .sc { color: #008000 }
+        .chroma .sd { color: #008000; font-style: italic }
+        .chroma .s2 { color: #008000 }
+        .chroma .se { color: #800000; font-weight: bold }
+        .chroma .sh { color: #008000 }
+        .chroma .si { color: #008000 }
+        .chroma .sx { color: #008000 }
+        .chroma .sr { color: #008000 }
+        .chroma .s1 { color: #008000 }
+        .chroma .ss { color: #000080 }
+        .chroma .bp { color: #000080 }
+        .chroma .vc { color: #000080 }
+        .chroma .vg { color: #000080 }
+        .chroma .vi { color: #000080 }
+        .chroma .il { color: #0000FF }
+        /* Dark theme specific styles */
+        [data-theme="dark"] .chroma {
+            color: #f8f8f2;
+            background-color: #272822;
+        }
+        [data-theme="dark"] .chroma .err { color: #960050; background-color: #1e0010 }
+        [data-theme="dark"] .chroma .lnt { color: #f8f8f2; }
+        [data-theme="dark"] .chroma .ln { color: #f8f8f2; }
+        [data-theme="dark"] .chroma .k { color: #66d9ef; font-weight: bold }
+        [data-theme="dark"] .chroma .o { color: #f8f8f2; font-weight: bold }
+        [data-theme="dark"] .chroma .cm { color: #75715e; font-style: italic }
+        [data-theme="dark"] .chroma .cp { color: #75715e; font-weight: bold; font-style: italic }
+        [data-theme="dark"] .chroma .c1 { color: #75715e; font-style: italic }
+        [data-theme="dark"] .chroma .cs { color: #75715e; font-weight: bold; font-style: italic }
+        [data-theme="dark"] .chroma .gd { color: #f8f8f2; background-color: #1e0010 }
+        [data-theme="dark"] .chroma .ge { color: #f8f8f2; font-style: italic }
+        [data-theme="dark"] .chroma .gr { color: #aa0000 }
+        [data-theme="dark"] .chroma .gh { color: #999999 }
+        [data-theme="dark"] .chroma .gi { color: #f8f8f2; background-color: #0b3e0f }
+        [data-theme="dark"] .chroma .go { color: #888888 }
+        [data-theme="dark"] .chroma .gp { color: #555555 }
+        [data-theme="dark"] .chroma .gs { font-weight: bold }
+        [data-theme="dark"] .chroma .gu { color: #aaaaaa }
+        [data-theme="dark"] .chroma .gt { color: #aa0000 }
+        [data-theme="dark"] .chroma .gl { color: #aaaaaa }
+        [data-theme="dark"] .chroma .m { color: #ae81ff }
+        [data-theme="dark"] .chroma .s { color: #e6db74 }
+        [data-theme="dark"] .chroma .na { color: #a6e22e }
+        [data-theme="dark"] .chroma .nb { color: #f8f8f2; }
+        [data-theme="dark"] .chroma .nc { color: #a6e22e; font-weight: bold }
+        [data-theme="dark"] .chroma .no { color: #66d9ef; }
+        [data-theme="dark"] .chroma .nd { color: #a6e22e; }
+        [data-theme="dark"] .chroma .ni { color: #f8f8f2; }
+        [data-theme="dark"] .chroma .ne { color: #a6e22e; font-weight: bold }
+        [data-theme="dark"] .chroma .nf { color: #a6e22e; font-weight: bold }
+        [data-theme="dark"] .chroma .nl { color: #f8f8f2; font-weight: bold }
+        [data-theme="dark"] .chroma .nn { color: #f8f8f2; font-weight: bold }
+        [data-theme="dark"] .chroma .nt { color: #f92672; }
+        [data-theme="dark"] .chroma .nv { color: #f8f8f2; }
+        [data-theme="dark"] .chroma .ow { color: #f8f8f2; font-weight: bold }
+        [data-theme="dark"] .chroma .w { color: #f8f8f2; }
+        [data-theme="dark"] .chroma .mf { color: #ae81ff; }
+        [data-theme="dark"] .chroma .mh { color: #ae81ff; }
+        [data-theme="dark"] .chroma .mi { color: #ae81ff; }
+        [data-theme="dark"] .chroma .mo { color: #ae81ff; }
+        [data-theme="dark"] .chroma .sb { color: #e6db74; }
+        [data-theme="dark"] .chroma .sc { color: #e6db74; }
+        [data-theme="dark"] .chroma .sd { color: #e6db74; font-style: italic }
+        [data-theme="dark"] .chroma .s2 { color: #e6db74; }
+        [data-theme="dark"] .chroma .se { color: #ae81ff; font-weight: bold }
+        [data-theme="dark"] .chroma .sh { color: #e6db74; }
+        [data-theme="dark"] .chroma .si { color: #e6db74; }
+        [data-theme="dark"] .chroma .sx { color: #e6db74; }
+        [data-theme="dark"] .chroma .sr { color: #e6db74; }
+        [data-theme="dark"] .chroma .s1 { color: #e6db74; }
+        [data-theme="dark"] .chroma .ss { color: #e6db74; }
+        [data-theme="dark"] .chroma .bp { color: #f8f8f2; }
+        [data-theme="dark"] .chroma .vc { color: #f8f8f2; }
+        [data-theme="dark"] .chroma .vg { color: #f8f8f2; }
+        [data-theme="dark"] .chroma .vi { color: #f8f8f2; }
+        [data-theme="dark"] .chroma .il { color: #ae81ff; }
     </style>
 </head>
 <body>
 {{ if .IsHTML }}
     <div class="html-content">{{ .Content | safe }}</div>
 {{ else }}
-    <pre>{{ .Content | html }}</pre>
+    {{ if contains .Content "highlight-wrapper" }}
+        {{ .Content | safe }}
+    {{ else }}
+        <pre>{{ .Content | html }}</pre>
+    {{ end }}
 {{ end }}
 </body>
 </html>

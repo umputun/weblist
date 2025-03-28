@@ -18,12 +18,13 @@ import (
 )
 
 type options struct {
-	Listen         string   `short:"l" long:"listen" env:"LISTEN" default:":8080" description:"address to listen on"`
-	Theme          string   `short:"t" long:"theme" env:"THEME" default:"light" description:"theme to use (light or dark)"`
-	RootDir        string   `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
-	Exclude        []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
-	Auth           string   `short:"a" long:"auth" env:"AUTH" description:"password for basic authentication (username is 'weblist')"`
-	Title          string   `long:"title" env:"TITLE" description:"custom title for the site (used in browser title and breadcrumb home)"`
+	Listen                   string   `short:"l" long:"listen" env:"LISTEN" default:":8080" description:"address to listen on"`
+	Theme                    string   `short:"t" long:"theme" env:"THEME" default:"light" description:"theme to use (light or dark)"`
+	RootDir                  string   `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
+	Exclude                  []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
+	Auth                     string   `short:"a" long:"auth" env:"AUTH" description:"password for basic auth (username is 'weblist')"`
+	Title                    string   `long:"title" env:"TITLE" description:"custom title for the site (used in browser title and home)"`
+	EnableSyntaxHighlighting bool     `long:"syntax-highlight" env:"SYNTAX_HIGHLIGHT" description:"enable syntax highlighting for code files"`
 
 	SFTP struct {
 		Enabled    bool   `long:"enabled" env:"ENABLED" description:"enable SFTP server"`
@@ -94,20 +95,21 @@ func runServer(ctx context.Context, opts *options) error {
 
 	// prepare common configuration
 	config := server.Config{
-		ListenAddr:     opts.Listen,
-		Theme:          opts.Theme,
-		HideFooter:     opts.HideFooter,
-		RootDir:        opts.RootDir,
-		Version:        versionInfo(),
-		Exclude:        opts.Exclude,
-		Auth:           opts.Auth,
-		Title:          opts.Title,
-		SFTPUser:       opts.SFTP.User,
-		SFTPAddress:    opts.SFTP.Address,
-		SFTPKeyFile:    opts.SFTP.KeyFile,
-		SFTPAuthorized: opts.SFTP.Authorized,
-		BrandName:      opts.Branding.Name,
-		BrandColor:     opts.Branding.Color,
+		ListenAddr:               opts.Listen,
+		Theme:                    opts.Theme,
+		HideFooter:               opts.HideFooter,
+		RootDir:                  opts.RootDir,
+		EnableSyntaxHighlighting: opts.EnableSyntaxHighlighting,
+		Version:                  versionInfo(),
+		Exclude:                  opts.Exclude,
+		Auth:                     opts.Auth,
+		Title:                    opts.Title,
+		SFTPUser:                 opts.SFTP.User,
+		SFTPAddress:              opts.SFTP.Address,
+		SFTPKeyFile:              opts.SFTP.KeyFile,
+		SFTPAuthorized:           opts.SFTP.Authorized,
+		BrandName:                opts.Branding.Name,
+		BrandColor:               opts.Branding.Color,
 	}
 
 	// create HTTP server
