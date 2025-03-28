@@ -14,6 +14,10 @@ import (
 	"strings"
 	"time"
 
+	"github.com/alecthomas/chroma/v2"
+	"github.com/alecthomas/chroma/v2/formatters/html"
+	"github.com/alecthomas/chroma/v2/lexers"
+	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/didip/tollbooth/v8"
 	"github.com/go-pkgz/lgr"
 	"github.com/go-pkgz/rest"
@@ -33,26 +37,27 @@ type Web struct {
 
 // Config represents server configuration.
 type Config struct {
-	ListenAddr     string   // address to listen on for HTTP server
-	Theme          string   // UI theme (light/dark)
-	HideFooter     bool     // whether to hide the footer in the UI
-	RootDir        string   // root directory to serve files from
-	Version        string   // version information to display in UI
-	Exclude        []string // patterns of files/directories to exclude
-	Auth           string   // password for basic authentication
-	Title          string   // custom title for the site
-	SFTPUser       string   // username for SFTP authentication
-	SFTPAddress    string   // address to listen for SFTP connections
-	SFTPKeyFile    string   // path to SSH private key file
-	SFTPAuthorized string   // path to authorized_keys file for public key authentication
-	BrandName      string   // company or organization name for branding
-	BrandColor     string   // color for navbar and footer
+	ListenAddr               string   // address to listen on for HTTP server
+	Theme                    string   // UI theme (light/dark)
+	HideFooter               bool     // whether to hide the footer in the UI
+	RootDir                  string   // root directory to serve files from
+	Version                  string   // version information to display in UI
+	Exclude                  []string // patterns of files/directories to exclude
+	Auth                     string   // password for basic authentication
+	Title                    string   // custom title for the site
+	SFTPUser                 string   // username for SFTP authentication
+	SFTPAddress              string   // address to listen for SFTP connections
+	SFTPKeyFile              string   // path to SSH private key file
+	SFTPAuthorized           string   // path to authorized_keys file for public key authentication
+	BrandName                string   // company or organization name for branding
+	BrandColor               string   // color for navbar and footer
+	EnableSyntaxHighlighting bool     // whether to enable syntax highlighting for code files
 }
 
 // Run starts the web server.
 func (wb *Web) Run(ctx context.Context) error {
 	// normalize brand color if provided
-	wb.BrandColor = normalizeBrandColor(wb.BrandColor)
+	wb.BrandColor = wb.normalizeBrandColor(wb.BrandColor)
 
 	// create router and set up routes
 	mux := http.NewServeMux()
@@ -88,6 +93,9 @@ func (wb *Web) Run(ctx context.Context) error {
 	})
 	router.HandleFunc("GET /assets/css/weblist-app.css", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, assetsFS, "css/weblist-app.css")
+	})
+	router.HandleFunc("GET /assets/css/syntax.css", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, assetsFS, "css/syntax.css")
 	})
 	router.HandleFunc("GET /assets/favicon.ico", func(w http.ResponseWriter, r *http.Request) {
 		http.ServeFileFS(w, r, assetsFS, "favicon.png")
@@ -172,11 +180,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// parse templates from embedded filesystem
-	tmpl, err := template.New("index.html").Funcs(template.FuncMap{
-		"safe": func(s string) template.HTML {
-			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
-		},
-	}).ParseFS(content, "templates/index.html", "templates/file.html")
+	tmpl, err := template.New("index.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/index.html", "templates/file.html")
 	if err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -315,6 +319,17 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 			IsHTML:   isHTMLFile,
 		}
 
+		// if it's a text file but not HTML, apply syntax highlighting
+		if isTextFile && !isHTMLFile && wb.EnableSyntaxHighlighting {
+			highlighted, err := wb.highlightCode(string(fileContent), fileInfo.Name(), theme)
+			if err != nil {
+				log.Printf("[WARN] failed to highlight code: %v", err)
+				// fall back to plain text if highlighting fails
+			} else {
+				data.Content = highlighted
+			}
+		}
+
 		// execute the file-view template
 		if err := tmpl.ExecuteTemplate(w, "file-view", data); err != nil {
 			log.Printf("[ERROR] failed to execute file-view template: %v", err)
@@ -383,11 +398,7 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 // handleLoginPage renders the login page
 func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
-	tmpl, err := template.New("login.html").Funcs(template.FuncMap{
-		"safe": func(s string) template.HTML {
-			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
-		},
-	}).ParseFS(content, "templates/login.html")
+	tmpl, err := template.New("login.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/login.html")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
 		return
@@ -427,11 +438,7 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	if username != "weblist" || password != wb.Auth {
 		// authentication failed, show error
-		tmpl, err := template.New("login.html").Funcs(template.FuncMap{
-			"safe": func(s string) template.HTML {
-				return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
-			},
-		}).ParseFS(content, "templates/login.html")
+		tmpl, err := template.New("login.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/login.html")
 		if err != nil {
 			http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
 			return
@@ -570,13 +577,19 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// parseFileTemplates parses templates needed for file viewing and modal display
-func (wb *Web) parseFileTemplates() (*template.Template, error) {
-	return template.New("index.html").Funcs(template.FuncMap{
+// getTemplateFuncs returns the common template functions map
+func (wb *Web) getTemplateFuncs() template.FuncMap {
+	return template.FuncMap{
 		"safe": func(s string) template.HTML {
 			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 		},
-	}).ParseFS(content, "templates/index.html", "templates/file.html")
+		"contains": strings.Contains,
+	}
+}
+
+// parseFileTemplates parses templates needed for file viewing and modal display
+func (wb *Web) parseFileTemplates() (*template.Template, error) {
+	return template.New("index.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/index.html", "templates/file.html")
 }
 
 // getSortParams retrieves sort parameters from query or cookies and returns them
@@ -654,11 +667,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	}
 
 	// parse templates from embedded filesystem
-	tmpl, err := template.New("index.html").Funcs(template.FuncMap{
-		"safe": func(s string) template.HTML {
-			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
-		},
-	}).ParseFS(content, "templates/index.html", "templates/file.html")
+	tmpl, err := template.New("index.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/index.html", "templates/file.html")
 	if err != nil {
 		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -853,12 +862,6 @@ func (wb *Web) sortFiles(files []FileInfo, sortBy, sortDir string) {
 		// both are directories or both are files
 		var result bool
 
-		// if both are directories and we're sorting by size,
-		// sort them by name in ascending order for predictability
-		if files[i].IsDir && files[j].IsDir && sortBy == "size" {
-			return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
-		}
-
 		// sort based on the specified field
 		switch sortBy {
 		case "name":
@@ -866,6 +869,10 @@ func (wb *Web) sortFiles(files []FileInfo, sortBy, sortDir string) {
 		case "date":
 			result = files[i].LastModified.Before(files[j].LastModified)
 		case "size":
+			if files[i].IsDir && files[j].IsDir {
+				// if both are directories, sort by name in ascending order regardless of sortDir
+				return strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
+			}
 			result = files[i].Size < files[j].Size
 		default:
 			result = strings.ToLower(files[i].Name) < strings.ToLower(files[j].Name)
@@ -962,7 +969,7 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 }
 
 // normalizeBrandColor ensures the brand color has a # prefix if it's a hex color
-func normalizeBrandColor(color string) string {
+func (wb *Web) normalizeBrandColor(color string) string {
 	if color == "" {
 		return ""
 	}
@@ -973,4 +980,49 @@ func normalizeBrandColor(color string) string {
 	}
 
 	return color
+}
+
+// highlightCode applies syntax highlighting to the given code content
+func (wb *Web) highlightCode(code, filename, theme string) (string, error) {
+	// get lexer for the file
+	lexer := lexers.Get(filename)
+	if lexer == nil {
+		// try to detect language from content if filename doesn't help
+		lexer = lexers.Analyse(code)
+		if lexer == nil {
+			// fall back to plain text if no lexer found
+			return fmt.Sprintf("<pre>%s</pre>", code), nil
+		}
+	}
+
+	// get style based on theme
+	var style *chroma.Style
+	if theme == "dark" {
+		style = styles.Get("monokai")
+	} else {
+		style = styles.Get("github")
+	}
+
+	// create HTML formatter with line numbers
+	formatter := html.New(html.WithClasses(true))
+
+	// write HTML header
+	var buf strings.Builder
+	buf.WriteString(`<div class="highlight-wrapper">`)
+
+	// tokenize and format the code
+	iterator, err := lexer.Tokenise(nil, code)
+	if err != nil {
+		return fmt.Sprintf("<pre>%s</pre>", code), err
+	}
+
+	// format the tokens
+	if err := formatter.Format(&buf, style, iterator); err != nil {
+		return fmt.Sprintf("<pre>%s</pre>", code), err
+	}
+
+	// write HTML footer
+	buf.WriteString("</div>")
+
+	return buf.String(), nil
 }

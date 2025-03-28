@@ -12,10 +12,12 @@ require (
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/stretchr/testify v1.10.0
 	github.com/umputun/go-flags v1.5.1
+	github.com/alecthomas/chroma/v2 v2.15.0 // indirect
 )
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/dlclark/regexp2 v1.11.4 // indirect
 	github.com/go-pkgz/expirable-cache/v3 v3.0.0 // indirect
 	github.com/go-pkgz/testutils v0.2.1 // indirect
 	github.com/kr/fs v0.1.0 // indirect

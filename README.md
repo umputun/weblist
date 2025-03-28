@@ -18,6 +18,7 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 - **Dark Mode**: Easy on the eyes with both light and dark themes
 - **Optional Authentication**: Password-protect your file listings when needed
 - **SFTP Support**: Access the same files via SFTP for more advanced operations
+- **Syntax Highlighting**: Beautiful code highlighting for various programming languages (optional)
 
 <details markdown>
   <summary>Screenshots</summary>
@@ -53,6 +54,9 @@ weblist --exclude .git --exclude .env
 
 # Enable password protection
 weblist --auth your_password
+
+# Enable syntax highlighting for code files
+weblist --syntax-highlight
 ```
 
 ## Installation
@@ -90,6 +94,7 @@ weblist [options]
 - `-a, --auth`: Enable authentication with the specified password - env: `AUTH`
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
+- `--syntax-highlight`: Enable syntax highlighting for code files - env: `SYNTAX_HIGHLIGHT`
 
 SFTP Options (with `--sftp` prefix):
 - `--sftp.enabled`: Enable SFTP server - env: `SFTP_ENABLED`
@@ -212,4 +217,5 @@ services:
       - SFTP_ADDRESS=:2022  # Optional: SFTP port
       - SFTP_KEY=/data/ssh_key  # Optional: Path to SSH host key
       - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth
+      - SYNTAX_HIGHLIGHT=true  # Optional: Enable syntax highlighting for code files
 ```

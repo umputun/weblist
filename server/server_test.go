@@ -1900,9 +1900,9 @@ func TestFileViewAndModal(t *testing.T) {
 		assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
 
 		body := rr.Body.String()
-		assert.Contains(t, body, "file1 content")   // the actual content from testdata/file1.txt
-		assert.Contains(t, body, "<pre>")           // content should be wrapped in pre tag
-		assert.Contains(t, body, "<!DOCTYPE html>") // should render with HTML template
+		assert.Contains(t, body, "file1 content")     // the actual content from testdata/file1.txt
+		assert.Contains(t, body, "highlight-wrapper") // content should be wrapped in highlight-wrapper div
+		assert.Contains(t, body, "<!DOCTYPE html>")   // should render with HTML template
 	})
 
 	t.Run("view non-existent file", func(t *testing.T) {
@@ -2468,9 +2468,10 @@ func TestNormalizeBrandColor(t *testing.T) {
 		},
 	}
 
+	srv := setupTestServer(t)
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got := normalizeBrandColor(tt.input)
+			got := srv.normalizeBrandColor(tt.input)
 			assert.Equal(t, tt.want, got)
 		})
 	}
