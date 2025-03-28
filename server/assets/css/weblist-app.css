@@ -411,7 +411,6 @@ pre {
 .centered-login-box input[type="password"] {
   margin-bottom: var(--spacing-md);
   width: 100%;
-  max-width: 100%;
   min-width: 100%;
   box-sizing: border-box;
 }
