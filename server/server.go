@@ -60,49 +60,10 @@ func (wb *Web) Run(ctx context.Context) error {
 	// normalize brand color if provided
 	wb.BrandColor = wb.normalizeBrandColor(wb.BrandColor)
 
-	// create router and set up routes
-	mux := http.NewServeMux()
-	router := routegroup.New(mux)
-
-	router.Use(rest.Trace, rest.RealIP, rest.Recoverer(lgr.Default()))
-	router.Use(rest.Throttle(1000))
-	router.Use(tollbooth.HTTPMiddleware(tollbooth.NewLimiter(50, nil)))
-	router.Use(rest.SizeLimit(1024 * 1024)) // 1M max request size
-	router.Use(logger.New(logger.Log(lgr.Default()), logger.Prefix("[DEBUG]")).Handler)
-	router.Use(rest.AppInfo("weblist", "umputun", wb.Version), rest.Ping)
-
-	// serve static assets from embedded filesystem
-	assetsFS, err := fs.Sub(content, "assets")
+	router, err := wb.router()
 	if err != nil {
-		return fmt.Errorf("failed to load embedded assets: %w", err)
+		return fmt.Errorf("failed to create router: %w", err)
 	}
-
-	// add authentication middleware if Auth is set
-	if wb.Auth != "" {
-		router.HandleFunc("GET /login", wb.handleLoginPage)
-		router.HandleFunc("POST /login", wb.handleLoginSubmit)
-		router.HandleFunc("GET /logout", wb.handleLogout)
-		router.Use(wb.authMiddleware)
-	}
-
-	router.HandleFunc("GET /", wb.handleRoot)
-	router.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
-	router.HandleFunc("GET /partials/file-modal", wb.handleFileModal) // handle modal content
-	router.HandleFunc("GET /view/{path...}", wb.handleViewFile)       // handle file viewing
-
-	// handler for all static assets
-	router.HandleFunc("GET /assets/{path...}", func(w http.ResponseWriter, r *http.Request) {
-		path := strings.TrimPrefix(r.URL.Path, "/assets/")
-		if path == "" {
-			http.NotFound(w, r)
-			return
-		}
-		if path == "favicon.ico" { // special case for favicon.ico which maps to favicon.png
-			path = "favicon.png"
-		}
-		http.ServeFileFS(w, r, assetsFS, path)
-	})
-	router.HandleFunc("GET /{path...}", wb.handleDownload) // handle file downloads with just the path
 
 	srv := &http.Server{
 		Addr:              wb.ListenAddr,
@@ -137,6 +98,55 @@ func (wb *Web) Run(ctx context.Context) error {
 		log.Printf("[INFO] server shutdown completed")
 		return nil
 	}
+}
+
+// router creates a new router for the web server, configures middleware, and sets up routes.
+func (wb *Web) router() (http.Handler, error) {
+	// create router and set up routes
+	mux := http.NewServeMux()
+	router := routegroup.New(mux)
+
+	router.Use(rest.Trace, rest.RealIP, rest.Recoverer(lgr.Default()))
+	router.Use(rest.Throttle(1000))
+	router.Use(tollbooth.HTTPMiddleware(tollbooth.NewLimiter(50, nil)))
+	router.Use(rest.SizeLimit(1024 * 1024)) // 1M max request size
+	router.Use(logger.New(logger.Log(lgr.Default()), logger.Prefix("[DEBUG]")).Handler)
+	router.Use(rest.AppInfo("weblist", "umputun", wb.Version), rest.Ping)
+
+	// serve static assets from embedded filesystem
+	assetsFS, err := fs.Sub(content, "assets")
+	if err != nil {
+		return nil, fmt.Errorf("failed to load embedded assets: %w", err)
+	}
+
+	// add authentication middleware if Auth is set
+	if wb.Auth != "" {
+		router.HandleFunc("GET /login", wb.handleLoginPage)
+		router.HandleFunc("POST /login", wb.handleLoginSubmit)
+		router.HandleFunc("GET /logout", wb.handleLogout)
+		router.Use(wb.authMiddleware)
+	}
+
+	router.HandleFunc("GET /", wb.handleRoot)
+	router.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
+	router.HandleFunc("GET /partials/file-modal", wb.handleFileModal) // handle modal content
+	router.HandleFunc("GET /view/{path...}", wb.handleViewFile)       // handle file viewing
+
+	// handler for all static assets
+	router.HandleFunc("GET /assets/{path...}", func(w http.ResponseWriter, r *http.Request) {
+		path := strings.TrimPrefix(r.URL.Path, "/assets/")
+		if path == "" {
+			http.NotFound(w, r)
+			return
+		}
+		if path == "favicon.ico" { // special case for favicon.ico which maps to favicon.png
+			path = "favicon.png"
+		}
+		http.ServeFileFS(w, r, assetsFS, path)
+	})
+	router.HandleFunc("GET /{path...}", wb.handleDownload) // handle file downloads with just the path
+
+	return router, nil
 }
 
 // handleRoot displays the root directory listing
