@@ -37,7 +37,7 @@ type options struct {
 
 	Branding struct {
 		Name  string `long:"name" env:"NAME" description:"company or organization name to display in navbar"`
-		Color string `long:"color" env:"COLOR" description:"color for navbar and footer (e.g. #3498db or 3498db)"`
+		Color string `long:"color" env:"COLOR" description:"color for navbar (e.g. #3498db or 3498db)"`
 	} `group:"Branding options" namespace:"brand" env-namespace:"BRAND"`
 
 	HideFooter bool `short:"f" long:"hide-footer" env:"HIDE_FOOTER"  description:"hide footer"`
