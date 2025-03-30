@@ -53,6 +53,7 @@ type Config struct {
 	BrandName                string   // company or organization name for branding
 	BrandColor               string   // color for navbar and footer
 	EnableSyntaxHighlighting bool     // whether to enable syntax highlighting for code files
+	CustomFooter             string   // custom footer text (can contain HTML)
 }
 
 // Run starts the web server.
@@ -229,6 +230,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		IsAuthenticated bool
 		BrandName       string
 		BrandColor      string
+		CustomFooter    string
 	}{
 		Files:           fileList,
 		Path:            path,
@@ -241,6 +243,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		BrandColor:      wb.BrandColor,
 		Title:           wb.Title,
 		IsAuthenticated: isAuthenticated,
+		CustomFooter:    wb.CustomFooter,
 	}
 
 	// execute just the page-content template
@@ -414,19 +417,21 @@ func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
 	}
 
 	data := struct {
-		Theme      string
-		HideFooter bool
-		Title      string
-		Error      string
-		BrandName  string
-		BrandColor string
+		Theme        string
+		HideFooter   bool
+		Title        string
+		Error        string
+		BrandName    string
+		BrandColor   string
+		CustomFooter string
 	}{
-		Theme:      wb.Theme,
-		HideFooter: wb.HideFooter,
-		Title:      wb.Title,
-		BrandName:  wb.BrandName,
-		BrandColor: wb.BrandColor,
-		Error:      "", // empty error by default
+		Theme:        wb.Theme,
+		HideFooter:   wb.HideFooter,
+		Title:        wb.Title,
+		BrandName:    wb.BrandName,
+		BrandColor:   wb.BrandColor,
+		Error:        "", // empty error by default
+		CustomFooter: wb.CustomFooter,
 	}
 
 	if err := tmpl.Execute(w, data); err != nil {
@@ -462,6 +467,7 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 			Error      string
 			BrandName  string
 			BrandColor string
+				CustomFooter string
 		}{
 			Theme:      wb.Theme,
 			HideFooter: wb.HideFooter,
@@ -469,6 +475,7 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 			BrandName:  wb.BrandName,
 			BrandColor: wb.BrandColor,
 			Error:      "Invalid username or password",
+				CustomFooter: wb.CustomFooter,
 		}
 
 		if err := tmpl.Execute(w, data); err != nil {
@@ -721,6 +728,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		Title           string
 		BrandName       string
 		BrandColor      string
+		CustomFooter    string
 	}{
 		Files:           fileList,
 		Path:            path,
@@ -734,6 +742,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		Title:           wb.Title,
 		BrandName:       wb.BrandName,
 		BrandColor:      wb.BrandColor,
+		CustomFooter:    wb.CustomFooter,
 	}
 
 	// execute the entire template

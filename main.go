@@ -24,6 +24,7 @@ type options struct {
 	Exclude                  []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
 	Auth                     string   `short:"a" long:"auth" env:"AUTH" description:"password for basic auth (username is 'weblist')"`
 	Title                    string   `long:"title" env:"TITLE" description:"custom title for the site (used in browser title and home)"`
+	CustomFooter             string   `long:"custom-footer" env:"CUSTOM_FOOTER" description:"custom footer text (can contain HTML)"`
 	EnableSyntaxHighlighting bool     `long:"syntax-highlight" env:"SYNTAX_HIGHLIGHT" description:"enable syntax highlighting for code files"`
 
 	SFTP struct {
@@ -104,6 +105,7 @@ func runServer(ctx context.Context, opts *options) error {
 		Exclude:                  opts.Exclude,
 		Auth:                     opts.Auth,
 		Title:                    opts.Title,
+		CustomFooter:             opts.CustomFooter,
 		SFTPUser:                 opts.SFTP.User,
 		SFTPAddress:              opts.SFTP.Address,
 		SFTPKeyFile:              opts.SFTP.KeyFile,
