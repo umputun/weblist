@@ -198,13 +198,14 @@ footer {
   left: 0;
   width: 100%;
   padding: 0.8rem;
-  background-color: var(--color-primary);
-  color: var(--color-white);
+  background-color: var(--color-surface);
+  color: var(--color-text);
   z-index: 100;
   font-size: 0.85rem;
   line-height: 1.2;
   text-align: center;
   box-shadow: 0 -2px 10px var(--color-shadow);
+  border-top: 1px solid var(--color-border);
 }
 
 .footer-content {
@@ -212,7 +213,7 @@ footer {
   justify-content: center;
   align-items: center;
   gap: 1rem;
-  color: var(--color-white-semi);
+  color: var(--color-text-muted);
 }
 
 .footer-item {
@@ -228,11 +229,11 @@ footer {
   width: 14px;
   height: 14px;
   vertical-align: middle;
-  fill: var(--color-white) !important;
+  fill: var(--color-text-muted) !important;
 }
 
 .footer-dot {
-  color: var(--color-white-muted);
+  color: var(--color-text-muted);
   font-size: 0.7rem;
   display: inline-block;
 }
@@ -241,7 +242,7 @@ footer {
   display: inline-flex;
   align-items: center;
   text-decoration: none !important;
-  color: var(--color-white);
+  color: var(--color-primary-text, var(--color-primary));
   transition: opacity 0.2s;
   opacity: 0.9;
 }
@@ -518,11 +519,11 @@ pre {
 }
 
 [data-theme="dark"] .footer-icon {
-  fill: var(--color-white) !important;
+  fill: var(--color-text-muted) !important;
 }
 
 [data-theme="dark"] .footer-link svg {
-  fill: var(--color-white) !important;
+  fill: var(--color-text-muted) !important;
 }
 
 [data-theme="dark"] .view-icon svg,
