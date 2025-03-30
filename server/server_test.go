@@ -2587,3 +2587,113 @@ func TestHighlightCode(t *testing.T) {
 		})
 	}
 }
+
+func TestRouter(t *testing.T) {
+	// create a test server with test configuration
+	srv := setupTestServer(t)
+
+	// test with default configuration
+	t.Run("default router configuration", func(t *testing.T) {
+		router, err := srv.router()
+		require.NoError(t, err)
+		require.NotNil(t, router)
+
+		// create test server using the router
+		ts := httptest.NewServer(router)
+		defer ts.Close()
+
+		// test cases to verify routes are working
+		tests := []struct {
+			name           string
+			path           string
+			expectedStatus int
+			expectedBody   string
+		}{
+			{
+				name:           "Root path",
+				path:           "/",
+				expectedStatus: http.StatusOK,
+				expectedBody:   "file1.txt", // should contain this test file
+			},
+			{
+				name:           "CSS Asset",
+				path:           "/assets/css/custom.css",
+				expectedStatus: http.StatusOK,
+				expectedBody:   "", // empty because we don't actually create this file in tests
+			},
+			{
+				name:           "File download",
+				path:           "/file1.txt",
+				expectedStatus: http.StatusOK,
+				expectedBody:   "file1 content",
+			},
+			{
+				name:           "Directory path redirects to view",
+				path:           "/dir1",
+				expectedStatus: http.StatusSeeOther,
+				expectedBody:   "",
+			},
+			{
+				name:           "Invalid path",
+				path:           "/nonexistent",
+				expectedStatus: http.StatusNotFound,
+				expectedBody:   "file not found",
+			},
+		}
+
+		// create client that doesn't follow redirects
+		client := &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
+
+		// run tests
+		for _, tc := range tests {
+			t.Run(tc.name, func(t *testing.T) {
+				resp, err := client.Get(ts.URL + tc.path)
+				require.NoError(t, err)
+				defer resp.Body.Close()
+
+				assert.Equal(t, tc.expectedStatus, resp.StatusCode)
+
+				if tc.expectedBody != "" {
+					body, err := io.ReadAll(resp.Body)
+					require.NoError(t, err)
+					assert.Contains(t, string(body), tc.expectedBody)
+				}
+			})
+		}
+	})
+
+	// test with authentication enabled
+	t.Run("router with authentication", func(t *testing.T) {
+		// create server with auth
+		authSrv := &Web{
+			Config: Config{
+				RootDir: "testdata",
+				Auth:    "testpassword",
+			},
+			FS: os.DirFS("testdata"),
+		}
+
+		router, err := authSrv.router()
+		require.NoError(t, err)
+		require.NotNil(t, router)
+
+		// create test server
+		ts := httptest.NewServer(router)
+		defer ts.Close()
+
+		// test login route is available
+		resp, err := http.Get(ts.URL + "/login")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		assert.Contains(t, string(body), "Login")
+		assert.Contains(t, string(body), "<form")
+	})
+}
