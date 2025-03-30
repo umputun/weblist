@@ -29,7 +29,7 @@ type options struct {
 
 	SFTP struct {
 		Enabled    bool   `long:"enabled" env:"ENABLED" description:"enable SFTP server"`
-		User       string `long:"user" env:"USER" description:"username for SFTP access"`
+		User       string `long:"user" env:"USER" default:"weblist" description:"username for SFTP access"`
 		Address    string `long:"address" env:"ADDRESS" default:":2022" description:"address to listen for SFTP connections"`
 		KeyFile    string `long:"key" env:"KEY" default:"weblist_rsa" description:"SSH private key file path"`
 		Authorized string `long:"authorized" env:"AUTHORIZED" description:"public key authentication file path"`
