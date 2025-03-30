@@ -41,28 +41,19 @@ func (f FileInfo) TimeString() string {
 
 // GetCommonTextExtensions returns a map of common text file extensions
 func GetCommonTextExtensions() map[string]bool {
-	return map[string]bool{
-		".yml":      true,
-		".yaml":     true,
-		".toml":     true,
-		".ini":      true,
-		".conf":     true,
-		".config":   true,
-		".md":       true,
-		".markdown": true,
-		".env":      true,
-		".lock":     true,
-		".go":       true,
-		".py":       true,
-		".js":       true,
-		".ts":       true,
-		".jsx":      true,
-		".tsx":      true,
-		".sh":       true,
-		".bash":     true,
-		".zsh":      true,
-		".log":      true,
+	exts := []string{
+		"txt", "text", "log", "csv", "json", "xml", "css", "scss", "less",
+		"js", "jsx", "ts", "tsx", "go", "py", "java", "c", "cpp", "h", "hpp", "rb",
+		"php", "swift", "pl", "sh", "bash", "zsh", "yaml", "yml", "toml", "ini", "conf",
+		"config", "env", "lock", "md", "markdown", "rst", "adoc", "asciidoc", "bat", "cmd",
+		"ps1", "psm1", "r", "m", "mat", "sas", "sql", "vb", "vbs", "cs", "fs", "fsx",
 	}
+
+	res := make(map[string]bool, len(exts))
+	for _, ext := range exts {
+		res[strings.ToLower("."+ext)] = true
+	}
+	return res
 }
 
 // DetermineContentType analyzes a file to determine its content type and common format flags.
@@ -70,7 +61,7 @@ func GetCommonTextExtensions() map[string]bool {
 // 1. Checks against a predefined list of known text file extensions
 // 2. Falls back to standard MIME type detection based on file extension
 // 3. Defaults to text/plain if no type could be determined
-// 
+//
 // Returns:
 // - contentType: The MIME type string for the file
 // - isText: True for any text-based content (plain text, code, HTML, JSON, XML)
@@ -84,9 +75,16 @@ func DetermineContentType(filePath string) (contentType string, isText, isHTML, 
 	extLower := strings.ToLower(ext)
 	commonTextExtensions := GetCommonTextExtensions()
 
+	// Check if this is a common text extension we know about
 	if commonTextExtensions[extLower] {
-		contentType = "text/plain"
+		// For React/JSX files, explicitly set application/javascript to ensure proper handling
+		if extLower == ".jsx" || extLower == ".tsx" {
+			contentType = "application/javascript"
+		} else {
+			contentType = "text/plain"
+		}
 	} else {
+		// Try standard MIME type detection
 		contentType = mime.TypeByExtension(ext)
 		if contentType == "" {
 			contentType = "text/plain"
@@ -94,10 +92,11 @@ func DetermineContentType(filePath string) (contentType string, isText, isHTML, 
 	}
 
 	isText = strings.HasPrefix(contentType, "text/") ||
-		strings.HasPrefix(contentType, "application/json") ||
-		strings.HasPrefix(contentType, "application/xml") ||
-		strings.Contains(contentType, "html") ||
-		commonTextExtensions[extLower]
+	  strings.HasPrefix(contentType, "application/json") ||
+	  strings.HasPrefix(contentType, "application/xml") ||
+	  strings.HasPrefix(contentType, "application/javascript") ||
+	  strings.Contains(contentType, "html") ||
+	  commonTextExtensions[extLower]
 	isHTML = strings.Contains(contentType, "html")
 	isPDF = contentType == "application/pdf"
 	isImage = strings.HasPrefix(contentType, "image/")
@@ -127,11 +126,12 @@ func (f FileInfo) IsViewable() bool {
 		return false
 	}
 
-	// check if it's a text file, image, HTML, or PDF
+	// check if it's a text file, image, HTML, PDF, JavaScript, or JSON/XML
 	return strings.HasPrefix(mimeType, "text/") ||
-		strings.HasPrefix(mimeType, "image/") ||
-		mimeType == "application/pdf" ||
-		strings.HasPrefix(mimeType, "application/json") ||
-		strings.HasPrefix(mimeType, "application/xml") ||
-		strings.Contains(mimeType, "html")
+	  strings.HasPrefix(mimeType, "image/") ||
+	  mimeType == "application/pdf" ||
+	  strings.HasPrefix(mimeType, "application/json") ||
+	  strings.HasPrefix(mimeType, "application/xml") ||
+	  strings.HasPrefix(mimeType, "application/javascript") ||
+	  strings.Contains(mimeType, "html")
 }
