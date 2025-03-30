@@ -51,7 +51,7 @@ type Config struct {
 	SFTPKeyFile              string   // path to SSH private key file
 	SFTPAuthorized           string   // path to authorized_keys file for public key authentication
 	BrandName                string   // company or organization name for branding
-	BrandColor               string   // color for navbar and footer
+	BrandColor               string   // color for navbar
 	EnableSyntaxHighlighting bool     // whether to enable syntax highlighting for code files
 	CustomFooter             string   // custom footer text (can contain HTML)
 }
