@@ -106,7 +106,7 @@ SFTP Options (with `--sftp` prefix):
 
 Branding Options (with `--brand` prefix):
 - `--brand.name`: Company or organization name to display in navbar - env: `BRAND_NAME`
-- `--brand.color`: Color for navbar and footer (e.g. `3498db` or `#3498db`) - env: `BRAND_COLOR`
+- `--brand.color`: Color for navbar (e.g. `3498db` or `#3498db`) - env: `BRAND_COLOR`
 
 ## Authentication
 
@@ -166,7 +166,7 @@ Weblist allows you to customize the appearance with your organization's branding
 # Set a custom organization name in the navigation bar
 weblist --brand.name "My Company"
 
-# Set a custom color for the navigation bar and footer (with or without # prefix)
+# Set a custom color for the navigation bar (with or without # prefix)
 weblist --brand.color "#3498db"
 # or
 weblist --brand.color "3498db"
@@ -180,7 +180,7 @@ weblist --brand.name "My Company" --brand.color "#3498db" --custom-footer "© 20
 
 When branding is enabled:
 - Your organization name appears in the navigation bar
-- The specified color is applied to both the navigation bar and footer
+- The specified color is applied to the navigation bar
 - Custom footer text replaces the default footer links (allows HTML links)
 - The branding is consistently displayed across all pages
 - These settings can be combined with all other Weblist options
@@ -216,7 +216,7 @@ services:
       - EXCLUDE=.git,.env
       - AUTH=your_password  # Optional: Enable password authentication
       - BRAND_NAME=My Company  # Optional: Display company name in navbar
-      - BRAND_COLOR=#3498db  # Optional: Custom color for navbar and footer
+      - BRAND_COLOR=#3498db  # Optional: Custom color for navbar
       - CUSTOM_FOOTER="<a href='https://example.com'>Example</a> | © 2025"  # Optional: Custom footer text
       - SFTP_ENABLED=true   # Optional: Enable SFTP server
       - SFTP_USER=sftp_user # Optional: Username for SFTP access
