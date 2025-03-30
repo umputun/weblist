@@ -95,6 +95,7 @@ weblist [options]
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
 - `--syntax-highlight`: Enable syntax highlighting for code files - env: `SYNTAX_HIGHLIGHT`
+- `--custom-footer`: Custom footer text (can contain HTML) - env: `CUSTOM_FOOTER`
 
 SFTP Options (with `--sftp` prefix):
 - `--sftp.enabled`: Enable SFTP server - env: `SFTP_ENABLED`
@@ -170,17 +171,21 @@ weblist --brand.color "#3498db"
 # or
 weblist --brand.color "3498db"
 
-# Combine both branding options
-weblist --brand.name "My Company" --brand.color "#3498db"
+# Use a custom footer text (can contain HTML)
+weblist --custom-footer "Powered by <a href='https://example.com'>Example</a> | © 2025"
+
+# Combine branding options
+weblist --brand.name "My Company" --brand.color "#3498db" --custom-footer "© 2025 My Company"
 ```
 
 When branding is enabled:
 - Your organization name appears in the navigation bar
 - The specified color is applied to both the navigation bar and footer
+- Custom footer text replaces the default footer links (allows HTML links)
 - The branding is consistently displayed across all pages
 - These settings can be combined with all other Weblist options
 
-Custom branding is optional and only activated when the `--brand-name` and/or `--brand-color` parameters are provided.
+Custom branding is optional and only activated when the related parameters are provided.
 
 ## Docker
 
@@ -212,6 +217,7 @@ services:
       - AUTH=your_password  # Optional: Enable password authentication
       - BRAND_NAME=My Company  # Optional: Display company name in navbar
       - BRAND_COLOR=#3498db  # Optional: Custom color for navbar and footer
+      - CUSTOM_FOOTER="<a href='https://example.com'>Example</a> | © 2025"  # Optional: Custom footer text
       - SFTP_ENABLED=true   # Optional: Enable SFTP server
       - SFTP_USER=sftp_user # Optional: Username for SFTP access
       - SFTP_ADDRESS=:2022  # Optional: SFTP port
