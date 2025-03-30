@@ -52,6 +52,9 @@
 {{ if not .HideFooter }}
 <footer{{ if .BrandColor }} style="background-color: {{ .BrandColor }}"{{ end }}>
     <div class="footer-content">
+        {{ if .CustomFooter }}
+            {{ .CustomFooter | safe }}
+        {{ else }}
         <span class="footer-item">
             <a href="https://weblist.umputun.dev" class="footer-link">
                 <img src="/assets/favicon.png" class="footer-icon" width="14" height="14" alt="weblist" style="filter: brightness(0) invert(1);"/>
@@ -76,6 +79,7 @@
                 GitHub
             </a>
         </span>
+        {{ end }}
     </div>
 </footer>
 {{ end }}

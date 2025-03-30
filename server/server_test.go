@@ -1781,6 +1781,54 @@ func TestTitleFunctionality(t *testing.T) {
 	assert.Contains(t, rr.Body.String(), "<title>Login - Custom Title</title>")
 }
 
+func TestCustomFooter(t *testing.T) {
+	// create a server with a custom footer
+	testdataDir, err := filepath.Abs("testdata")
+	require.NoError(t, err)
+
+	customFooterHTML := "Custom Footer <a href=\"https://example.com\">with a link</a>"
+
+	srv := &Web{
+		Config: Config{
+			ListenAddr:   ":0",
+			Theme:        "light",
+			RootDir:      testdataDir,
+			CustomFooter: customFooterHTML,
+		},
+		FS: os.DirFS(testdataDir),
+	}
+
+	// test custom footer appears in the index page
+	req, err := http.NewRequest("GET", "/", nil)
+	require.NoError(t, err)
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(srv.handleRoot)
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// check that the custom footer appears in the HTML
+	assert.Contains(t, rr.Body.String(), customFooterHTML)
+
+	// check that the default footer links don't appear
+	assert.NotContains(t, rr.Body.String(), "https://weblist.umputun.dev")
+	assert.NotContains(t, rr.Body.String(), "https://github.com/umputun/weblist")
+
+	// test custom footer appears in the login page too
+	req, err = http.NewRequest("GET", "/login", nil)
+	require.NoError(t, err)
+
+	rr = httptest.NewRecorder()
+	handler = http.HandlerFunc(srv.handleLoginPage)
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+
+	// check that the custom footer appears in the login page HTML
+	assert.Contains(t, rr.Body.String(), customFooterHTML)
+}
+
 // Skip TestHandleLoginPage as templates are embedded and tests are failing
 
 func TestHandleLoginSubmit(t *testing.T) {
