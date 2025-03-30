@@ -461,21 +461,21 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		}
 
 		data := struct {
-			Theme      string
-			HideFooter bool
-			Title      string
-			Error      string
-			BrandName  string
-			BrandColor string
-				CustomFooter string
+			Theme        string
+			HideFooter   bool
+			Title        string
+			Error        string
+			BrandName    string
+			BrandColor   string
+			CustomFooter string
 		}{
-			Theme:      wb.Theme,
-			HideFooter: wb.HideFooter,
-			Title:      wb.Title,
-			BrandName:  wb.BrandName,
-			BrandColor: wb.BrandColor,
-			Error:      "Invalid username or password",
-				CustomFooter: wb.CustomFooter,
+			Theme:        wb.Theme,
+			HideFooter:   wb.HideFooter,
+			Title:        wb.Title,
+			BrandName:    wb.BrandName,
+			BrandColor:   wb.BrandColor,
+			Error:        "Invalid username or password",
+			CustomFooter: wb.CustomFooter,
 		}
 
 		if err := tmpl.Execute(w, data); err != nil {

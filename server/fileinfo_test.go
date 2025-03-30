@@ -152,8 +152,8 @@ func TestDetermineContentType(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			gotType, gotIsText, gotIsHTML, gotIsPDF, gotIsImage := DetermineContentType(tt.filePath)
-			
-			// Some MIME types might have charset added, so check if it starts with the expected type
+
+			// some MIME types might have charset added, so check if it starts with the expected type
 			if tt.wantIsHTML {
 				assert.Contains(t, gotType, "text/html")
 			} else if tt.name == "pdf file" {
@@ -165,7 +165,7 @@ func TestDetermineContentType(t *testing.T) {
 			} else {
 				assert.Contains(t, gotType, tt.wantType)
 			}
-			
+
 			assert.Equal(t, tt.wantIsText, gotIsText)
 			assert.Equal(t, tt.wantIsHTML, gotIsHTML)
 			assert.Equal(t, tt.wantIsPDF, gotIsPDF)
