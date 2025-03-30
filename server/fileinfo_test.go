@@ -154,15 +154,16 @@ func TestDetermineContentType(t *testing.T) {
 			gotType, gotIsText, gotIsHTML, gotIsPDF, gotIsImage := DetermineContentType(tt.filePath)
 
 			// some MIME types might have charset added, so check if it starts with the expected type
-			if tt.wantIsHTML {
+			switch {
+			case tt.wantIsHTML:
 				assert.Contains(t, gotType, "text/html")
-			} else if tt.name == "pdf file" {
+			case tt.name == "pdf file":
 				assert.Equal(t, tt.wantType, gotType)
-			} else if tt.name == "image file" {
+			case tt.name == "image file":
 				assert.Equal(t, tt.wantType, gotType)
-			} else if tt.name == "jsx file" || tt.name == "tsx file" {
+			case tt.name == "jsx file" || tt.name == "tsx file":
 				assert.Equal(t, tt.wantType, gotType)
-			} else {
+			default:
 				assert.Contains(t, gotType, tt.wantType)
 			}
 

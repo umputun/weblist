@@ -26,6 +26,7 @@ linters:
     - iface
     - gocyclo
     - lll
+    - nestif
   settings:
     goconst:
       min-len: 2

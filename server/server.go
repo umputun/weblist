@@ -290,70 +290,69 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 	// determine content type and file properties
 	contentType, isTextFile, isHTMLFile, _, _ := DetermineContentType(filePath)
 
-	// for text files, check if the request wants dark mode
-	isDarkMode := r.URL.Query().Get("theme") == "dark"
-
-	if isTextFile {
-		// read file content
-		fileContent, err := io.ReadAll(file)
-		if err != nil {
-			http.Error(w, "error reading file", http.StatusInternalServerError)
-			return
-		}
-
-		// use template for viewing
-		w.Header().Set("Content-Type", "text/html")
-
-		// determine theme based on query param
-		theme := "light"
-		if isDarkMode {
-			theme = "dark"
-		}
-
-		// parse templates
-		tmpl, err := wb.parseFileTemplates()
-		if err != nil {
-			log.Printf("[ERROR] failed to parse view template: %v", err)
-			http.Error(w, "error rendering file view", http.StatusInternalServerError)
-			return
-		}
-
-		// prepare data for the template
-		data := struct {
-			FileName string
-			Content  string
-			Theme    string
-			IsHTML   bool
-		}{
-			FileName: fileInfo.Name(),
-			Content:  string(fileContent),
-			Theme:    theme,
-			IsHTML:   isHTMLFile,
-		}
-
-		// if it's a text file but not HTML, apply syntax highlighting
-		if isTextFile && !isHTMLFile && wb.EnableSyntaxHighlighting {
-			highlighted, err := wb.highlightCode(string(fileContent), fileInfo.Name(), theme)
-			if err != nil {
-				log.Printf("[WARN] failed to highlight code: %v", err)
-				// fall back to plain text if highlighting fails
-			} else {
-				data.Content = highlighted
-			}
-		}
-
-		// execute the file-view template
-		if err := tmpl.ExecuteTemplate(w, "file-view", data); err != nil {
-			log.Printf("[ERROR] failed to execute file-view template: %v", err)
-			http.Error(w, "error rendering file view", http.StatusInternalServerError)
-		}
-	} else {
-		// for non-text files (images, PDFs, etc.)
+	// handle non-text files (images, PDFs, etc.)
+	if !isTextFile {
 		w.Header().Set("Content-Type", contentType)
 		w.Header().Set("Content-Length", fmt.Sprintf("%d", fileInfo.Size()))
-
-		// serve the content directly
 		http.ServeContent(w, r, fileInfo.Name(), fileInfo.ModTime(), file.(io.ReadSeeker))
+		return
+	}
+
+	// from here, we're only handling text files
+
+	// read file content
+	fileContent, err := io.ReadAll(file)
+	if err != nil {
+		http.Error(w, "error reading file", http.StatusInternalServerError)
+		return
+	}
+
+	// use template for viewing
+	w.Header().Set("Content-Type", "text/html")
+
+	// determine theme based on query param
+	isDarkMode := r.URL.Query().Get("theme") == "dark"
+	theme := "light"
+	if isDarkMode {
+		theme = "dark"
+	}
+
+	// parse templates
+	tmpl, err := wb.parseFileTemplates()
+	if err != nil {
+		log.Printf("[ERROR] failed to parse view template: %v", err)
+		http.Error(w, "error rendering file view", http.StatusInternalServerError)
+		return
+	}
+
+	// prepare data for the template
+	data := struct {
+		FileName string
+		Content  string
+		Theme    string
+		IsHTML   bool
+	}{
+		FileName: fileInfo.Name(),
+		Content:  string(fileContent),
+		Theme:    theme,
+		IsHTML:   isHTMLFile,
+	}
+
+	// apply syntax highlighting for non-HTML text files if enabled
+	if !isHTMLFile && wb.EnableSyntaxHighlighting {
+		highlighted, err := wb.highlightCode(string(fileContent), fileInfo.Name(), theme)
+		if err != nil {
+			log.Printf("[WARN] failed to highlight code: %v", err)
+			// fall back to plain text if highlighting fails
+		} else {
+			data.Content = highlighted
+		}
+	}
+
+	// execute the file-view template
+	if err := tmpl.ExecuteTemplate(w, "file-view", data); err != nil {
+		log.Printf("[ERROR] failed to execute file-view template: %v", err)
+		http.Error(w, "error rendering file view", http.StatusInternalServerError)
 	}
 }
 
@@ -450,42 +449,17 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
+	// check credentials
 	usernameMatch := subtle.ConstantTimeCompare([]byte(username), []byte("weblist")) != 1
 	passwordMatch := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) != 1
+
+	// authentication failed, show error
 	if usernameMatch || passwordMatch {
-		// authentication failed, show error
-		tmpl, err := template.New("login.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/login.html")
-		if err != nil {
-			http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
-			return
-		}
-
-		data := struct {
-			Theme        string
-			HideFooter   bool
-			Title        string
-			Error        string
-			BrandName    string
-			BrandColor   string
-			CustomFooter string
-		}{
-			Theme:        wb.Theme,
-			HideFooter:   wb.HideFooter,
-			Title:        wb.Title,
-			BrandName:    wb.BrandName,
-			BrandColor:   wb.BrandColor,
-			Error:        "Invalid username or password",
-			CustomFooter: wb.CustomFooter,
-		}
-
-		if err := tmpl.Execute(w, data); err != nil {
-			http.Error(w, fmt.Sprintf("failed to execute template: %v", err), http.StatusInternalServerError)
-			return
-		}
+		wb.renderLoginError(w, "Invalid username or password")
 		return
 	}
 
-	// authentication successful, set cookie and redirect
+	// authentication successful, set cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth",
 		Value:    wb.Auth,
@@ -497,6 +471,37 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	// redirect to the home page
 	http.Redirect(w, r, "/", http.StatusSeeOther)
+}
+
+// renderLoginError renders the login page with an error message
+func (wb *Web) renderLoginError(w http.ResponseWriter, errorMsg string) {
+	tmpl, err := template.New("login.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/login.html")
+	if err != nil {
+		http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
+		return
+	}
+
+	data := struct {
+		Theme        string
+		HideFooter   bool
+		Title        string
+		Error        string
+		BrandName    string
+		BrandColor   string
+		CustomFooter string
+	}{
+		Theme:        wb.Theme,
+		HideFooter:   wb.HideFooter,
+		Title:        wb.Title,
+		BrandName:    wb.BrandName,
+		BrandColor:   wb.BrandColor,
+		Error:        errorMsg,
+		CustomFooter: wb.CustomFooter,
+	}
+
+	if err := tmpl.Execute(w, data); err != nil {
+		http.Error(w, fmt.Sprintf("failed to execute template: %v", err), http.StatusInternalServerError)
+	}
 }
 
 // handleLogout handles the logout request
@@ -960,27 +965,13 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// check if user is authenticated via cookie
-		cookie, err := r.Cookie("auth")
-		if err == nil && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(wb.Auth)) == 1 {
-			// user is authenticated, proceed
+		if wb.isAuthenticatedByCookie(r) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		// check if user is authenticated via basic auth
-		username, password, ok := r.BasicAuth()
-		usernameMatch := subtle.ConstantTimeCompare([]byte(username), []byte("weblist")) == 1
-		passwordMatch := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) == 1
-		if ok && usernameMatch && passwordMatch {
-			// set cookie for future requests
-			http.SetCookie(w, &http.Cookie{
-				Name:     "auth",
-				Value:    wb.Auth,
-				Path:     "/",
-				HttpOnly: true,
-				Secure:   r.TLS != nil,
-				MaxAge:   3600 * 24, // 24 hours
-			})
+		if wb.tryBasicAuth(w, r) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -988,6 +979,46 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 		// user is not authenticated, redirect to login page
 		http.Redirect(w, r, "/login", http.StatusSeeOther)
 	})
+}
+
+// isAuthenticatedByCookie checks if the user is authenticated via cookie
+func (wb *Web) isAuthenticatedByCookie(r *http.Request) bool {
+	cookie, err := r.Cookie("auth")
+	if err != nil {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(wb.Auth)) == 1
+}
+
+// tryBasicAuth checks if the user is authenticated via basic auth
+// and sets a cookie on success
+func (wb *Web) tryBasicAuth(w http.ResponseWriter, r *http.Request) bool {
+	username, password, ok := r.BasicAuth()
+
+	// if basic auth is not provided or invalid
+	if !ok {
+		return false
+	}
+
+	usernameMatch := subtle.ConstantTimeCompare([]byte(username), []byte("weblist")) == 1
+	passwordMatch := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) == 1
+
+	// if credentials don't match
+	if !usernameMatch || !passwordMatch {
+		return false
+	}
+
+	// set cookie for future requests
+	http.SetCookie(w, &http.Cookie{
+		Name:     "auth",
+		Value:    wb.Auth,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		MaxAge:   3600 * 24, // 24 hours
+	})
+
+	return true
 }
 
 // normalizeBrandColor ensures the brand color has a # prefix if it's a hex color
