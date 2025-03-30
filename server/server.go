@@ -622,42 +622,55 @@ func (wb *Web) getSortParams(w http.ResponseWriter, r *http.Request) (sortBy, so
 	sortBy = r.URL.Query().Get("sort")
 	sortDir = r.URL.Query().Get("dir")
 
-	// if sort parameters are provided in the query, use and save them to cookies
+	// handle parameters from query
 	if sortBy != "" || sortDir != "" {
-		// if either is set, ensure both have values
-		if sortBy == "" {
-			sortBy = "name" // default sort
-		}
-		if sortDir == "" {
-			sortDir = "asc" // default direction
-		}
+		return wb.processSortQueryParams(w, r, sortBy, sortDir)
+	}
+	
+	// handle parameters from cookies
+	return wb.getSortParamsFromCookies(r)
+}
 
-		// set cookies with sorting preferences
-		http.SetCookie(w, &http.Cookie{
-			Name:     "sortBy",
-			Value:    sortBy,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			MaxAge:   60 * 60 * 24 * 365, // 1 year
-		})
+// processSortQueryParams processes and saves sort parameters from query
+func (wb *Web) processSortQueryParams(w http.ResponseWriter, r *http.Request, sortBy, sortDir string) (resultSortBy, resultSortDir string) {
+	// if either is set, ensure both have values
+	if sortBy == "" {
+		sortBy = "name" // default sort
+	}
+	if sortDir == "" {
+		sortDir = "asc" // default direction
+	}
 
-		http.SetCookie(w, &http.Cookie{
-			Name:     "sortDir",
-			Value:    sortDir,
-			Path:     "/",
-			HttpOnly: true,
-			Secure:   r.TLS != nil,
-			MaxAge:   60 * 60 * 24 * 365, // 1 year
-		})
-	} else {
-		// if no sort parameters in query, try to get from cookies
-		if sortByCookie, err := r.Cookie("sortBy"); err == nil {
-			sortBy = sortByCookie.Value
-		}
-		if sortDirCookie, err := r.Cookie("sortDir"); err == nil {
-			sortDir = sortDirCookie.Value
-		}
+	// set cookies with sorting preferences
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sortBy",
+		Value:    sortBy,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		MaxAge:   60 * 60 * 24 * 365, // 1 year
+	})
+
+	http.SetCookie(w, &http.Cookie{
+		Name:     "sortDir",
+		Value:    sortDir,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   r.TLS != nil,
+		MaxAge:   60 * 60 * 24 * 365, // 1 year
+	})
+	
+	return sortBy, sortDir
+}
+
+// getSortParamsFromCookies gets sort parameters from cookies with defaults
+func (wb *Web) getSortParamsFromCookies(r *http.Request) (sortBy, sortDir string) {
+	// try to get from cookies
+	if sortByCookie, err := r.Cookie("sortBy"); err == nil {
+		sortBy = sortByCookie.Value
+	}
+	if sortDirCookie, err := r.Cookie("sortDir"); err == nil {
+		sortDir = sortDirCookie.Value
 	}
 
 	// if still empty after checking cookies, use defaults

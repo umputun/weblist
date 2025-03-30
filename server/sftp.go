@@ -793,6 +793,35 @@ func (s *SFTP) validateConfig() error {
 	return nil
 }
 
+// setupPublicKeyAuth configures public key authentication for the SSH server
+func (s *SFTP) setupPublicKeyAuth(config *ssh.ServerConfig) {
+	authKeys, err := loadAuthorizedKeys(s.SFTPAuthorized)
+	if err != nil {
+		log.Printf("[WARN] Failed to load authorized keys from %s: %v", s.SFTPAuthorized, err)
+		return
+	}
+	
+	log.Printf("[INFO] Loaded %d authorized keys for public key authentication", len(authKeys))
+	config.PublicKeyCallback = func(c ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
+		if subtle.ConstantTimeCompare([]byte(c.User()), []byte(s.SFTPUser)) != 1 {
+			return nil, fmt.Errorf("unknown user %s", c.User())
+		}
+		
+		// check if the public key is in the authorized keys
+		pubKeyStr := string(ssh.MarshalAuthorizedKey(pubKey))
+		for _, authorizedKey := range authKeys {
+			authKeyStr := string(ssh.MarshalAuthorizedKey(authorizedKey))
+			if pubKeyStr == authKeyStr {
+				log.Printf("[DEBUG] Public key authentication successful for %s from %s", c.User(), c.RemoteAddr())
+				return &ssh.Permissions{}, nil
+			}
+		}
+		
+		log.Printf("[WARN] Public key authentication failed for %s from %s", c.User(), c.RemoteAddr())
+		return nil, fmt.Errorf("unauthorized public key")
+	}
+}
+
 // setupSSHServerConfig configures the SSH server
 func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
 	// initialize the attempts tracking map
@@ -832,30 +861,7 @@ func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
 
 	// add public key authentication if authorized_keys file is provided
 	if s.SFTPAuthorized != "" {
-		authKeys, err := loadAuthorizedKeys(s.SFTPAuthorized)
-		if err != nil {
-			log.Printf("[WARN] Failed to load authorized keys from %s: %v", s.SFTPAuthorized, err)
-		} else {
-			log.Printf("[INFO] Loaded %d authorized keys for public key authentication", len(authKeys))
-			config.PublicKeyCallback = func(c ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
-				if subtle.ConstantTimeCompare([]byte(c.User()), []byte(s.SFTPUser)) != 1 {
-					return nil, fmt.Errorf("unknown user %s", c.User())
-				}
-
-				// check if the public key is in the authorized keys
-				pubKeyStr := string(ssh.MarshalAuthorizedKey(pubKey))
-				for _, authorizedKey := range authKeys {
-					authKeyStr := string(ssh.MarshalAuthorizedKey(authorizedKey))
-					if pubKeyStr == authKeyStr {
-						log.Printf("[DEBUG] Public key authentication successful for %s from %s", c.User(), c.RemoteAddr())
-						return &ssh.Permissions{}, nil
-					}
-				}
-
-				log.Printf("[WARN] Public key authentication failed for %s from %s", c.User(), c.RemoteAddr())
-				return nil, fmt.Errorf("unauthorized public key")
-			}
-		}
+		s.setupPublicKeyAuth(config)
 	}
 
 	// try to load existing private key or generate a new one if it doesn't exist

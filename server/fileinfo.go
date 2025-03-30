@@ -78,16 +78,16 @@ func DetermineContentType(filePath string) (contentType string, isText, isHTML, 
 	extLower := strings.ToLower(ext)
 	commonTextExtensions := GetCommonTextExtensions()
 
-	// check if this is a common text extension we know about
-	if commonTextExtensions[extLower] {
-		// for React/JSX files, explicitly set application/javascript to ensure proper handling
-		if extLower == ".jsx" || extLower == ".tsx" {
-			contentType = "application/javascript"
-		} else {
-			contentType = "text/plain"
-		}
-	} else {
-		// try standard MIME type detection
+	// determine content type based on extension
+	switch {
+	// special handling for React/JSX files
+	case extLower == ".jsx" || extLower == ".tsx":
+		contentType = "application/javascript"
+	// handle other known text extensions
+	case commonTextExtensions[extLower]:
+		contentType = "text/plain"
+	// for unknown extensions, try standard MIME type detection
+	default:
 		contentType = mime.TypeByExtension(ext)
 		if contentType == "" {
 			contentType = "text/plain"
