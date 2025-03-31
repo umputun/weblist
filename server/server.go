@@ -1210,6 +1210,62 @@ func (wb *Web) highlightCode(code, filename, theme string) (string, error) {
 	return buf.String(), nil
 }
 
+// writeJSONError writes a JSON error response with the specified status code
+func writeJSONError(w http.ResponseWriter, status int, errMsg string) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(map[string]string{"error": errMsg}); err != nil {
+		log.Printf("[ERROR] failed to encode error response: %v", err)
+	}
+}
+
+// parseSortParams extracts and validates sort parameters from the request
+func parseSortParams(sortParam string) (sortBy, sortDir string) {
+	sortBy = "name" // default sort by name
+	sortDir = "asc" // default sort direction
+
+	if sortParam == "" {
+		return sortBy, sortDir
+	}
+
+	// check if first character is + or -
+	if strings.HasPrefix(sortParam, "+") {
+		sortDir = "asc"
+		sortParam = sortParam[1:]
+	} else if strings.HasPrefix(sortParam, "-") {
+		sortDir = "desc"
+		sortParam = sortParam[1:]
+	}
+
+	// validate sort field
+	switch sortParam {
+	case "name", "size", "mtime":
+		sortBy = sortParam
+	default:
+		// invalid sort field, use default
+		sortBy = "name"
+	}
+
+	// convert "mtime" to "date" for internal usage
+	if sortBy == "mtime" {
+		sortBy = "date"
+	}
+
+	return sortBy, sortDir
+}
+
+// fileResponse represents a file entry for JSON response
+type fileResponse struct {
+	Name         string    `json:"name"`
+	Path         string    `json:"path"`
+	IsDir        bool      `json:"is_dir"`
+	Size         int64     `json:"size"`
+	SizeHuman    string    `json:"size_human,omitempty"`
+	LastModified time.Time `json:"last_modified"`
+	TimeStr      string    `json:"time_str,omitempty"`
+	IsViewable   bool      `json:"is_viewable,omitempty"`
+}
+
 // handleAPIList handles API requests for listing files with JSON response
 // It supports query parameters:
 // - path: the directory path to list (defaults to root if not provided)
@@ -1226,65 +1282,24 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	// check if the path exists and is a directory
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		http.Error(w, fmt.Sprintf(`{"error": "directory not found: %v"}`, err), http.StatusNotFound)
+		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("directory not found: %v", err))
 		return
 	}
 
 	if !fileInfo.IsDir() {
-		w.Header().Set("Content-Type", "application/json")
-		http.Error(w, `{"error": "not a directory"}`, http.StatusBadRequest)
+		writeJSONError(w, http.StatusBadRequest, "not a directory")
 		return
 	}
 
 	// parse the sort parameter
 	sortParam := r.URL.Query().Get("sort")
-	sortBy := "name" // default sort by name
-	sortDir := "asc" // default sort direction
-
-	// if sort parameter is provided, parse it
-	if sortParam != "" {
-		// check if first character is + or -
-		if strings.HasPrefix(sortParam, "+") {
-			sortDir = "asc"
-			sortParam = sortParam[1:]
-		} else if strings.HasPrefix(sortParam, "-") {
-			sortDir = "desc"
-			sortParam = sortParam[1:]
-		}
-
-		// validate sort field
-		switch sortParam {
-		case "name", "size", "mtime":
-			sortBy = sortParam
-		default:
-			// invalid sort field, use default
-			sortBy = "name"
-		}
-
-		// convert "mtime" to "date" for internal usage
-		if sortBy == "mtime" {
-			sortBy = "date"
-		}
-	}
+	sortBy, sortDir := parseSortParams(sortParam)
 
 	// get the file list
 	fileList, err := wb.getFileList(path, sortBy, sortDir)
 	if err != nil {
-		http.Error(w, fmt.Sprintf(`{"error": "error reading directory: %v"}`, err), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("error reading directory: %v", err))
 		return
-	}
-
-	// prepare file list for JSON response
-	type fileResponse struct {
-		Name         string    `json:"name"`
-		Path         string    `json:"path"`
-		IsDir        bool      `json:"is_dir"`
-		Size         int64     `json:"size"`
-		SizeHuman    string    `json:"size_human,omitempty"`
-		LastModified time.Time `json:"last_modified"`
-		TimeStr      string    `json:"time_str,omitempty"`
-		IsViewable   bool      `json:"is_viewable,omitempty"`
 	}
 
 	// create a display path that looks nicer in the UI
@@ -1293,6 +1308,7 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 		displayPath = ""
 	}
 
+	// prepare file list for JSON response
 	files := make([]fileResponse, 0, len(fileList))
 	for _, f := range fileList {
 		files = append(files, fileResponse{
@@ -1307,17 +1323,11 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// we need to ensure the Sort field in the response matches what the user requested
+	// determine the response sort field
 	responseSortBy := sortBy
-
-	// if the query parameter is "+size" or "-size", we should use "size" in the response
-	// note that the sort parameter might include the +/- prefix
 	if strings.Contains(sortParam, "size") {
 		responseSortBy = "size"
-	}
-
-	// if the query parameter is "+mtime" or "-mtime", we should use "date" in the response
-	if strings.Contains(sortParam, "mtime") {
+	} else if strings.Contains(sortParam, "mtime") {
 		responseSortBy = "date"
 	}
 
@@ -1337,7 +1347,6 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	// set content type and encode to JSON
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		w.Header().Set("Content-Type", "application/json")
-		http.Error(w, fmt.Sprintf(`{"error": "error encoding JSON: %v"}`, err), http.StatusInternalServerError)
+		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("error encoding JSON: %v", err))
 	}
 }
