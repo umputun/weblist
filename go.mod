@@ -9,7 +9,7 @@ require (
 	github.com/fatih/color v1.18.0
 	github.com/go-pkgz/lgr v0.12.0
 	github.com/go-pkgz/rest v1.20.3
-	github.com/go-pkgz/routegroup v1.3.1
+	github.com/go-pkgz/routegroup v1.4.1
 	github.com/jessevdk/go-flags v1.6.1
 	github.com/stretchr/testify v1.10.0
 	github.com/umputun/go-flags v1.5.1
@@ -23,7 +23,7 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/dlclark/regexp2 v1.11.4 // indirect
+	github.com/dlclark/regexp2 v1.11.5 // indirect
 	github.com/go-pkgz/expirable-cache/v3 v3.0.0 // indirect
 	github.com/kr/fs v0.1.0 // indirect
 	github.com/mattn/go-colorable v0.1.14 // indirect

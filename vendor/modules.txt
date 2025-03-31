@@ -14,7 +14,7 @@ github.com/didip/tollbooth/v8/errors
 github.com/didip/tollbooth/v8/internal/time/rate
 github.com/didip/tollbooth/v8/libstring
 github.com/didip/tollbooth/v8/limiter
-# github.com/dlclark/regexp2 v1.11.4
+# github.com/dlclark/regexp2 v1.11.5
 ## explicit; go 1.13
 github.com/dlclark/regexp2
 github.com/dlclark/regexp2/syntax
@@ -35,7 +35,7 @@ github.com/go-pkgz/lgr
 github.com/go-pkgz/rest
 github.com/go-pkgz/rest/logger
 github.com/go-pkgz/rest/realip
-# github.com/go-pkgz/routegroup v1.3.1
+# github.com/go-pkgz/routegroup v1.4.1
 ## explicit; go 1.22
 github.com/go-pkgz/routegroup
 # github.com/google/uuid v1.6.0
