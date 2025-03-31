@@ -800,13 +800,13 @@ func (s *SFTP) setupPublicKeyAuth(config *ssh.ServerConfig) {
 		log.Printf("[WARN] Failed to load authorized keys from %s: %v", s.SFTPAuthorized, err)
 		return
 	}
-	
+
 	log.Printf("[INFO] Loaded %d authorized keys for public key authentication", len(authKeys))
 	config.PublicKeyCallback = func(c ssh.ConnMetadata, pubKey ssh.PublicKey) (*ssh.Permissions, error) {
 		if subtle.ConstantTimeCompare([]byte(c.User()), []byte(s.SFTPUser)) != 1 {
 			return nil, fmt.Errorf("unknown user %s", c.User())
 		}
-		
+
 		// check if the public key is in the authorized keys
 		pubKeyStr := string(ssh.MarshalAuthorizedKey(pubKey))
 		for _, authorizedKey := range authKeys {
@@ -816,7 +816,7 @@ func (s *SFTP) setupPublicKeyAuth(config *ssh.ServerConfig) {
 				return &ssh.Permissions{}, nil
 			}
 		}
-		
+
 		log.Printf("[WARN] Public key authentication failed for %s from %s", c.User(), c.RemoteAddr())
 		return nil, fmt.Errorf("unauthorized public key")
 	}

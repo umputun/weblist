@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"crypto/rand"
 	"crypto/subtle"
 	"embed"
 	"fmt"
@@ -23,8 +24,8 @@ import (
 	"github.com/go-pkgz/lgr"
 	"github.com/go-pkgz/rest"
 	"github.com/go-pkgz/rest/logger"
-
 	"github.com/go-pkgz/routegroup"
+	"github.com/google/uuid"
 )
 
 //go:embed templates/* assets/*
@@ -38,22 +39,24 @@ type Web struct {
 
 // Config represents server configuration.
 type Config struct {
-	ListenAddr               string   // address to listen on for HTTP server
-	Theme                    string   // UI theme (light/dark)
-	HideFooter               bool     // whether to hide the footer in the UI
-	RootDir                  string   // root directory to serve files from
-	Version                  string   // version information to display in UI
-	Exclude                  []string // patterns of files/directories to exclude
-	Auth                     string   // password for basic authentication
-	Title                    string   // custom title for the site
-	SFTPUser                 string   // username for SFTP authentication
-	SFTPAddress              string   // address to listen for SFTP connections
-	SFTPKeyFile              string   // path to SSH private key file
-	SFTPAuthorized           string   // path to authorized_keys file for public key authentication
-	BrandName                string   // company or organization name for branding
-	BrandColor               string   // color for navbar
-	EnableSyntaxHighlighting bool     // whether to enable syntax highlighting for code files
-	CustomFooter             string   // custom footer text (can contain HTML)
+	ListenAddr               string        // address to listen on for HTTP server
+	Theme                    string        // UI theme (light/dark)
+	HideFooter               bool          // whether to hide the footer in the UI
+	RootDir                  string        // root directory to serve files from
+	Version                  string        // version information to display in UI
+	Exclude                  []string      // patterns of files/directories to exclude
+	Auth                     string        // password for basic authentication
+	Title                    string        // custom title for the site
+	SFTPUser                 string        // username for SFTP authentication
+	SFTPAddress              string        // address to listen for SFTP connections
+	SFTPKeyFile              string        // path to SSH private key file
+	SFTPAuthorized           string        // path to authorized_keys file for public key authentication
+	BrandName                string        // company or organization name for branding
+	BrandColor               string        // color for navbar
+	EnableSyntaxHighlighting bool          // whether to enable syntax highlighting for code files
+	CustomFooter             string        // custom footer text (can contain HTML)
+	InsecureCookies          bool          // allow cookies without secure flag
+	SessionTTL               time.Duration // session timeout duration
 }
 
 // Run starts the web server.
@@ -408,12 +411,26 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleLoginPage renders the login page
-func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
+func (wb *Web) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	tmpl, err := template.New("login.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/login.html")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	// generate CSRF token
+	csrfToken := wb.generateCSRFToken()
+
+	// set CSRF token in a cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrf_token",
+		Value:    csrfToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   wb.isRequestSecure(r),
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(5 * time.Minute.Seconds()), // CSRF token valid for 5 minutes
+	})
 
 	data := struct {
 		Theme        string
@@ -423,6 +440,7 @@ func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
 		BrandName    string
 		BrandColor   string
 		CustomFooter string
+		CSRFToken    string
 	}{
 		Theme:        wb.Theme,
 		HideFooter:   wb.HideFooter,
@@ -431,6 +449,7 @@ func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
 		BrandColor:   wb.BrandColor,
 		Error:        "", // empty error by default
 		CustomFooter: wb.CustomFooter,
+		CSRFToken:    csrfToken,
 	}
 
 	if err := tmpl.Execute(w, data); err != nil {
@@ -446,6 +465,14 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// verify CSRF token
+	formToken := r.FormValue("csrf_token")
+	cookieToken, err := r.Cookie("csrf_token")
+	if err != nil || formToken == "" || subtle.ConstantTimeCompare([]byte(formToken), []byte(cookieToken.Value)) != 1 {
+		wb.renderLoginError(w, r, "Invalid or missing CSRF token")
+		return
+	}
+
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
@@ -455,18 +482,34 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 	// authentication failed, show error
 	if usernameMatch || passwordMatch {
-		wb.renderLoginError(w, "Invalid username or password")
+		wb.renderLoginError(w, r, "Invalid username or password")
 		return
 	}
 
-	// authentication successful, set cookie
+	// clear the CSRF token cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrf_token",
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   wb.isRequestSecure(r),
+		MaxAge:   -1, // delete the cookie
+	})
+
+	// authentication successful, set session cookie
+	maxAge := int(wb.SessionTTL.Seconds())
+	if maxAge == 0 {
+		maxAge = 3600 * 24 // default to 24 hours if not specified
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth",
 		Value:    wb.Auth,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		MaxAge:   3600 * 24, // 24 hours
+		Secure:   wb.isRequestSecure(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   maxAge,
 	})
 
 	// redirect to the home page
@@ -474,12 +517,26 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 }
 
 // renderLoginError renders the login page with an error message
-func (wb *Web) renderLoginError(w http.ResponseWriter, errorMsg string) {
+func (wb *Web) renderLoginError(w http.ResponseWriter, r *http.Request, errorMsg string) {
 	tmpl, err := template.New("login.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/login.html")
 	if err != nil {
 		http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
 		return
 	}
+
+	// generate a new CSRF token
+	csrfToken := wb.generateCSRFToken()
+
+	// set CSRF token in cookie
+	http.SetCookie(w, &http.Cookie{
+		Name:     "csrf_token",
+		Value:    csrfToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   wb.isRequestSecure(r),
+		SameSite: http.SameSiteStrictMode,
+		MaxAge:   int(5 * time.Minute.Seconds()),
+	})
 
 	data := struct {
 		Theme        string
@@ -489,6 +546,7 @@ func (wb *Web) renderLoginError(w http.ResponseWriter, errorMsg string) {
 		BrandName    string
 		BrandColor   string
 		CustomFooter string
+		CSRFToken    string
 	}{
 		Theme:        wb.Theme,
 		HideFooter:   wb.HideFooter,
@@ -497,6 +555,7 @@ func (wb *Web) renderLoginError(w http.ResponseWriter, errorMsg string) {
 		BrandColor:   wb.BrandColor,
 		Error:        errorMsg,
 		CustomFooter: wb.CustomFooter,
+		CSRFToken:    csrfToken,
 	}
 
 	if err := tmpl.Execute(w, data); err != nil {
@@ -512,7 +571,7 @@ func (wb *Web) handleLogout(w http.ResponseWriter, r *http.Request) {
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   wb.isRequestSecure(r),
 		MaxAge:   -1, // delete the cookie
 	})
 
@@ -626,7 +685,7 @@ func (wb *Web) getSortParams(w http.ResponseWriter, r *http.Request) (sortBy, so
 	if sortBy != "" || sortDir != "" {
 		return wb.processSortQueryParams(w, r, sortBy, sortDir)
 	}
-	
+
 	// handle parameters from cookies
 	return wb.getSortParamsFromCookies(r)
 }
@@ -647,7 +706,7 @@ func (wb *Web) processSortQueryParams(w http.ResponseWriter, r *http.Request, so
 		Value:    sortBy,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   wb.isRequestSecure(r),
 		MaxAge:   60 * 60 * 24 * 365, // 1 year
 	})
 
@@ -656,10 +715,10 @@ func (wb *Web) processSortQueryParams(w http.ResponseWriter, r *http.Request, so
 		Value:    sortDir,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
+		Secure:   wb.isRequestSecure(r),
 		MaxAge:   60 * 60 * 24 * 365, // 1 year
 	})
-	
+
 	return sortBy, sortDir
 }
 
@@ -1022,13 +1081,19 @@ func (wb *Web) tryBasicAuth(w http.ResponseWriter, r *http.Request) bool {
 	}
 
 	// set cookie for future requests
+	maxAge := int(wb.SessionTTL.Seconds())
+	if maxAge == 0 {
+		maxAge = 3600 * 24 // default to 24 hours if not specified
+	}
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth",
 		Value:    wb.Auth,
 		Path:     "/",
 		HttpOnly: true,
-		Secure:   r.TLS != nil,
-		MaxAge:   3600 * 24, // 24 hours
+		Secure:   wb.isRequestSecure(r),
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   maxAge,
 	})
 
 	return true
@@ -1046,6 +1111,56 @@ func (wb *Web) normalizeBrandColor(color string) string {
 	}
 
 	return color
+}
+
+// generateCSRFToken creates a random token for CSRF protection
+func (wb *Web) generateCSRFToken() string {
+	const tokenLength = 32
+	b := make([]byte, tokenLength)
+	_, err := io.ReadFull(rand.Reader, b)
+	if err != nil {
+		// if crypto/rand fails, use uuid which has its own entropy source
+		log.Printf("[WARN] Failed to generate random CSRF token: %v, using UUID fallback", err)
+		return uuid.NewString()
+	}
+	return fmt.Sprintf("%x", b)
+}
+
+// isRequestSecure checks if the request is secure by examining TLS status and common proxy headers
+func (wb *Web) isRequestSecure(r *http.Request) bool {
+	// if insecure cookies is enabled, we don't care about the request security
+	if wb.InsecureCookies {
+		return false
+	}
+
+	// check if the connection itself is secure
+	if r != nil && r.TLS != nil {
+		return true
+	}
+
+	// check common proxy headers for HTTPS
+	if r != nil {
+		// x-Forwarded-Proto is the de-facto standard header for proxies
+		if r.Header.Get("X-Forwarded-Proto") == "https" {
+			return true
+		}
+		// check Forwarded header (RFC 7239)
+		if fwd := r.Header.Get("Forwarded"); fwd != "" {
+			// RFC 7239 specifies that Forwarded header may contain multiple
+			// comma-separated entries, each with semicolon-separated parameters
+			for _, entry := range strings.Split(fwd, ",") {
+				entry = strings.TrimSpace(entry)
+				for _, part := range strings.Split(entry, ";") {
+					part = strings.TrimSpace(part)
+					if strings.HasPrefix(part, "proto=") && strings.ToLower(strings.TrimPrefix(part, "proto=")) == "https" {
+						return true
+					}
+				}
+			}
+		}
+	}
+
+	return false
 }
 
 // highlightCode applies syntax highlighting to the given code content

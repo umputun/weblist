@@ -9,6 +9,7 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"time"
 
 	"github.com/fatih/color"
 	"github.com/go-pkgz/lgr"
@@ -18,14 +19,19 @@ import (
 )
 
 type options struct {
-	Listen                   string   `short:"l" long:"listen" env:"LISTEN" default:":8080" description:"address to listen on"`
-	Theme                    string   `short:"t" long:"theme" env:"THEME" default:"light" description:"theme to use (light or dark)"`
-	RootDir                  string   `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
-	Exclude                  []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
-	Auth                     string   `short:"a" long:"auth" env:"AUTH" description:"password for basic auth (username is 'weblist')"`
-	Title                    string   `long:"title" env:"TITLE" description:"custom title for the site (used in browser title and home)"`
-	CustomFooter             string   `long:"custom-footer" env:"CUSTOM_FOOTER" description:"custom footer text (can contain HTML)"`
-	EnableSyntaxHighlighting bool     `long:"syntax-highlight" env:"SYNTAX_HIGHLIGHT" description:"enable syntax highlighting for code files"`
+	Listen  string   `short:"l" long:"listen" env:"LISTEN" default:":8080" description:"address to listen on"`
+	Theme   string   `short:"t" long:"theme" env:"THEME" default:"light" description:"theme to use (light or dark)"`
+	RootDir string   `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
+	Exclude []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
+	Auth    string   `short:"a" long:"auth" env:"AUTH" description:"password for basic auth (username is 'weblist')"`
+	Title   string   `long:"title" env:"TITLE" description:"custom title for the site (used in browser title and home)"`
+
+	HideFooter               bool   `short:"f" long:"hide-footer" env:"HIDE_FOOTER"  description:"hide footer"`
+	CustomFooter             string `long:"custom-footer" env:"CUSTOM_FOOTER" description:"custom footer text (can contain HTML)"`
+	EnableSyntaxHighlighting bool   `long:"syntax-highlight" env:"SYNTAX_HIGHLIGHT" description:"enable syntax highlighting"`
+
+	InsecureCookies bool          `long:"insecure-cookies" env:"INSECURE_COOKIES" description:"allow cookies without secure flag"`
+	SessionTTL      time.Duration `long:"session-ttl" env:"SESSION_TTL" default:"24h" description:"session timeout"`
 
 	SFTP struct {
 		Enabled    bool   `long:"enabled" env:"ENABLED" description:"enable SFTP server"`
@@ -40,9 +46,8 @@ type options struct {
 		Color string `long:"color" env:"COLOR" description:"color for navbar (e.g. #3498db or 3498db)"`
 	} `group:"Branding options" namespace:"brand" env-namespace:"BRAND"`
 
-	HideFooter bool `short:"f" long:"hide-footer" env:"HIDE_FOOTER"  description:"hide footer"`
-	Version    bool `short:"v" long:"version" env:"VERSION" description:"show version and exit"`
-	Dbg        bool `long:"dbg" env:"DEBUG" description:"debug mode"`
+	Version bool `short:"v" long:"version" env:"VERSION" description:"show version and exit"`
+	Dbg     bool `long:"dbg" env:"DEBUG" description:"debug mode"`
 }
 
 var opts options
@@ -112,6 +117,8 @@ func runServer(ctx context.Context, opts *options) error {
 		SFTPAuthorized:           opts.SFTP.Authorized,
 		BrandName:                opts.Branding.Name,
 		BrandColor:               opts.Branding.Color,
+		InsecureCookies:          opts.InsecureCookies,
+		SessionTTL:               opts.SessionTTL,
 	}
 
 	// create HTTP server
