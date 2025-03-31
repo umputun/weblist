@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"io/fs"
@@ -2864,5 +2865,253 @@ func TestRouter(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(body), "Login")
 		assert.Contains(t, string(body), "<form")
+	})
+}
+
+func TestAPIList_Contents(t *testing.T) {
+	testDir := "./testdata"
+	testFS := os.DirFS(testDir)
+
+	web := &Web{
+		Config: Config{
+			RootDir: testDir,
+			Exclude: []string{".DS_Store"}, // exclude macOS files
+		},
+		FS: testFS,
+	}
+
+	t.Run("root directory listing", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/api/list?path=.", nil)
+		require.NoError(t, err)
+
+		rec := httptest.NewRecorder()
+		web.handleAPIList(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var response struct {
+			Path  string `json:"path"`
+			Files []struct {
+				Name  string `json:"name"`
+				IsDir bool   `json:"is_dir"`
+			} `json:"files"`
+		}
+
+		err = json.NewDecoder(rec.Body).Decode(&response)
+		require.NoError(t, err)
+
+		assert.Equal(t, "", response.Path)
+
+		// check that expected directories and files are present
+		expectedFiles := map[string]bool{
+			"dir1":      true,
+			"dir2":      true,
+			"empty-dir": true,
+			"file1.txt": true,
+			"file2.txt": true,
+		}
+
+		foundFiles := make(map[string]bool)
+		dirCount := 0
+		fileCount := 0
+
+		for _, file := range response.Files {
+			foundFiles[file.Name] = true
+			if file.IsDir {
+				dirCount++
+			} else {
+				fileCount++
+			}
+		}
+
+		for name := range expectedFiles {
+			assert.True(t, foundFiles[name], "expected file %s not found in response", name)
+		}
+
+		assert.Equal(t, 3, dirCount, "unexpected number of directories")
+		assert.Equal(t, 2, fileCount, "unexpected number of files")
+	})
+
+	t.Run("subdirectory listing", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/api/list?path=dir1", nil)
+		require.NoError(t, err)
+
+		rec := httptest.NewRecorder()
+		web.handleAPIList(rec, req)
+		assert.Equal(t, http.StatusOK, rec.Code)
+
+		var response struct {
+			Path  string `json:"path"`
+			Files []struct {
+				Name  string `json:"name"`
+				IsDir bool   `json:"is_dir"`
+			} `json:"files"`
+		}
+
+		err = json.NewDecoder(rec.Body).Decode(&response)
+		require.NoError(t, err)
+
+		assert.Equal(t, "dir1", response.Path)
+
+		// check that expected entries are present
+		expectedFiles := map[string]bool{
+			"..":        true,
+			"subdir":    true,
+			"file3.txt": true,
+		}
+
+		for _, file := range response.Files {
+			assert.True(t, expectedFiles[file.Name], "unexpected file %s in response", file.Name)
+		}
+	})
+}
+
+func TestAPIList_Sort(t *testing.T) {
+	tmpDir := t.TempDir()
+
+	// create subdirectories
+	require.NoError(t, os.Mkdir(filepath.Join(tmpDir, "adir"), 0755))
+	require.NoError(t, os.Mkdir(filepath.Join(tmpDir, "bdir"), 0755))
+	require.NoError(t, os.Mkdir(filepath.Join(tmpDir, "cdir"), 0755))
+
+	// create files with different sizes
+	smallFile := filepath.Join(tmpDir, "small.txt")
+	mediumFile := filepath.Join(tmpDir, "medium.txt")
+	largeFile := filepath.Join(tmpDir, "large.txt")
+
+	require.NoError(t, os.WriteFile(smallFile, []byte("test"), 0644))
+	require.NoError(t, os.WriteFile(mediumFile, []byte("test content"), 0644))
+	require.NoError(t, os.WriteFile(largeFile, []byte("this is a larger test content file"), 0644))
+
+	// set different modification times
+	oldTime := time.Now().Add(-24 * time.Hour)
+	mediumTime := time.Now().Add(-12 * time.Hour)
+	recentTime := time.Now().Add(-1 * time.Hour)
+
+	require.NoError(t, os.Chtimes(smallFile, oldTime, oldTime))
+	require.NoError(t, os.Chtimes(mediumFile, mediumTime, mediumTime))
+	require.NoError(t, os.Chtimes(largeFile, recentTime, recentTime))
+
+	web := &Web{
+		Config: Config{
+			RootDir: tmpDir,
+		},
+		FS: os.DirFS(tmpDir),
+	}
+
+	tests := []struct {
+		name      string
+		sortParam string
+		wantSort  string
+		wantDir   string
+	}{
+		{
+			name:      "default sort",
+			sortParam: "",
+			wantSort:  "name",
+			wantDir:   "asc",
+		},
+		{
+			name:      "sort by name asc",
+			sortParam: "+name",
+			wantSort:  "name",
+			wantDir:   "asc",
+		},
+		{
+			name:      "sort by name desc",
+			sortParam: "-name",
+			wantSort:  "name",
+			wantDir:   "desc",
+		},
+		{
+			name:      "sort by size asc",
+			sortParam: "+size",
+			wantSort:  "size",
+			wantDir:   "asc",
+		},
+		{
+			name:      "sort by size desc",
+			sortParam: "-size",
+			wantSort:  "size",
+			wantDir:   "desc",
+		},
+		{
+			name:      "sort by mtime asc",
+			sortParam: "+mtime",
+			wantSort:  "date", // mtime maps to date internally
+			wantDir:   "asc",
+		},
+		{
+			name:      "sort by mtime desc",
+			sortParam: "-mtime",
+			wantSort:  "date", // mtime maps to date internally
+			wantDir:   "desc",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			url := "/api/list?path=."
+			if tt.sortParam != "" {
+				url += "&sort=" + tt.sortParam
+			}
+
+			req, err := http.NewRequest("GET", url, nil)
+			require.NoError(t, err)
+
+			rec := httptest.NewRecorder()
+			web.handleAPIList(rec, req)
+
+			assert.Equal(t, http.StatusOK, rec.Code)
+
+			var response struct {
+				Sort  string `json:"sort"`
+				Dir   string `json:"dir"`
+				Files []struct {
+					Name string `json:"name"`
+				} `json:"files"`
+			}
+
+			err = json.NewDecoder(rec.Body).Decode(&response)
+			require.NoError(t, err)
+
+			assert.Equal(t, tt.wantSort, response.Sort, "incorrect sort field")
+			assert.Equal(t, tt.wantDir, response.Dir, "incorrect sort direction")
+		})
+	}
+
+	t.Run("name ascending order", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/api/list?path=.&sort=+name", nil)
+		require.NoError(t, err)
+
+		rec := httptest.NewRecorder()
+		web.handleAPIList(rec, req)
+
+		var response struct {
+			Files []struct {
+				Name  string `json:"name"`
+				IsDir bool   `json:"is_dir"`
+			} `json:"files"`
+		}
+
+		err = json.NewDecoder(rec.Body).Decode(&response)
+		require.NoError(t, err)
+
+		// dirs should come first in alphabetical order, then files
+		dirNames := []string{}
+		fileNames := []string{}
+
+		for _, file := range response.Files {
+			if file.IsDir {
+				dirNames = append(dirNames, file.Name)
+			} else {
+				fileNames = append(fileNames, file.Name)
+			}
+		}
+
+		// check directory order is alphabetical
+		assert.Equal(t, []string{"adir", "bdir", "cdir"}, dirNames)
+
+		// check file order is alphabetical
+		assert.Equal(t, []string{"large.txt", "medium.txt", "small.txt"}, fileNames)
 	})
 }

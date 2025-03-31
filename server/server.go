@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"crypto/subtle"
 	"embed"
+	"encoding/json"
 	"fmt"
 	"html/template"
 	"io"
@@ -135,6 +136,7 @@ func (wb *Web) router() (http.Handler, error) {
 	router.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
 	router.HandleFunc("GET /partials/file-modal", wb.handleFileModal) // handle modal content
 	router.HandleFunc("GET /view/{path...}", wb.handleViewFile)       // handle file viewing
+	router.HandleFunc("GET /api/list", wb.handleAPIList)              // handle JSON API for file listing
 
 	// handler for all static assets
 	router.HandleFunc("GET /assets/{path...}", func(w http.ResponseWriter, r *http.Request) {
@@ -1206,4 +1208,133 @@ func (wb *Web) highlightCode(code, filename, theme string) (string, error) {
 	buf.WriteString("</div>")
 
 	return buf.String(), nil
+}
+
+// handleAPIList handles API requests for listing files with JSON response
+// It supports query parameters:
+// - path: the directory path to list (defaults to root if not provided)
+// - sort: sort criteria with direction prefix (e.g., +name, -size, +mtime)
+func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
+	// get path from query parameter, default to root directory
+	path := r.URL.Query().Get("path")
+	if path == "" {
+		path = "."
+	}
+	// clean the path to avoid directory traversal
+	path = filepath.ToSlash(filepath.Clean(path))
+
+	// check if the path exists and is a directory
+	fileInfo, err := fs.Stat(wb.FS, path)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error": "directory not found: %v"}`, err), http.StatusNotFound)
+		return
+	}
+
+	if !fileInfo.IsDir() {
+		http.Error(w, `{"error": "not a directory"}`, http.StatusBadRequest)
+		return
+	}
+
+	// parse the sort parameter
+	sortParam := r.URL.Query().Get("sort")
+	sortBy := "name" // default sort by name
+	sortDir := "asc" // default sort direction
+
+	// if sort parameter is provided, parse it
+	if sortParam != "" {
+		// check if first character is + or -
+		if strings.HasPrefix(sortParam, "+") {
+			sortDir = "asc"
+			sortParam = sortParam[1:]
+		} else if strings.HasPrefix(sortParam, "-") {
+			sortDir = "desc"
+			sortParam = sortParam[1:]
+		}
+
+		// validate sort field
+		switch sortParam {
+		case "name", "size", "mtime":
+			sortBy = sortParam
+		default:
+			// invalid sort field, use default
+			sortBy = "name"
+		}
+
+		// convert "mtime" to "date" for internal usage
+		if sortBy == "mtime" {
+			sortBy = "date"
+		}
+	}
+
+	// get the file list
+	fileList, err := wb.getFileList(path, sortBy, sortDir)
+	if err != nil {
+		http.Error(w, fmt.Sprintf(`{"error": "error reading directory: %v"}`, err), http.StatusInternalServerError)
+		return
+	}
+
+	// prepare file list for JSON response
+	type fileResponse struct {
+		Name         string    `json:"name"`
+		Path         string    `json:"path"`
+		IsDir        bool      `json:"is_dir"`
+		Size         int64     `json:"size"`
+		SizeHuman    string    `json:"size_human,omitempty"`
+		LastModified time.Time `json:"last_modified"`
+		TimeStr      string    `json:"time_str,omitempty"`
+		IsViewable   bool      `json:"is_viewable,omitempty"`
+	}
+
+	// create a display path that looks nicer in the UI
+	displayPath := path
+	if path == "." {
+		displayPath = ""
+	}
+
+	files := make([]fileResponse, 0, len(fileList))
+	for _, f := range fileList {
+		files = append(files, fileResponse{
+			Name:         f.Name,
+			Path:         f.Path,
+			IsDir:        f.IsDir,
+			Size:         f.Size,
+			SizeHuman:    f.SizeToString(),
+			LastModified: f.LastModified,
+			TimeStr:      f.TimeString(),
+			IsViewable:   f.IsViewable(),
+		})
+	}
+
+	// we need to ensure the Sort field in the response matches what the user requested
+	responseSortBy := sortBy
+
+	// if the query parameter is "+size" or "-size", we should use "size" in the response
+	// note that the sort parameter might include the +/- prefix
+	if strings.Contains(sortParam, "size") {
+		responseSortBy = "size"
+	}
+
+	// if the query parameter is "+mtime" or "-mtime", we should use "date" in the response
+	if strings.Contains(sortParam, "mtime") {
+		responseSortBy = "date"
+	}
+
+	// create the response
+	response := struct {
+		Path  string         `json:"path"`
+		Files []fileResponse `json:"files"`
+		Sort  string         `json:"sort"`
+		Dir   string         `json:"dir"`
+	}{
+		Path:  displayPath,
+		Files: files,
+		Sort:  responseSortBy,
+		Dir:   sortDir,
+	}
+
+	// set content type and encode to JSON
+	w.Header().Set("Content-Type", "application/json")
+	if err := json.NewEncoder(w).Encode(response); err != nil {
+		http.Error(w, fmt.Sprintf(`{"error": "error encoding JSON: %v"}`, err), http.StatusInternalServerError)
+	}
 }

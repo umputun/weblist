@@ -19,6 +19,7 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 - **Optional Authentication**: Password-protect your file listings when needed
 - **SFTP Support**: Access the same files via SFTP for more advanced operations
 - **Syntax Highlighting**: Beautiful code highlighting for various programming languages (optional)
+- **JSON API**: Programmatic access to file listings via a simple JSON API
 
 <details markdown>
   <summary>Screenshots</summary>
@@ -186,6 +187,99 @@ When branding is enabled:
 - These settings can be combined with all other Weblist options
 
 Custom branding is optional and only activated when the related parameters are provided.
+
+## JSON API
+
+Weblist provides a JSON API for programmatic access to file listings:
+
+```
+GET /api/list?path=path/to/directory&sort=+name
+```
+
+### API Parameters
+
+- `path`: The directory path to list (default: root directory)
+- `sort`: The sort criteria with direction prefix:
+  - `+name` or `-name`: Sort by name (ascending or descending)
+  - `+size` or `-size`: Sort by file size (ascending or descending)
+  - `+mtime` or `-mtime`: Sort by modification time (ascending or descending)
+
+### Example Request
+
+```
+GET /api/list?path=docs&sort=-size
+```
+
+### Example Response
+
+```json
+{
+  "path": "docs",
+  "files": [
+    {
+      "name": "..",
+      "path": ".",
+      "is_dir": true,
+      "size": 0,
+      "size_human": "-",
+      "last_modified": "2023-01-01T12:00:00Z",
+      "time_str": "01-Jan-2023 12:00:00",
+      "is_viewable": false
+    },
+    {
+      "name": "images",
+      "path": "docs/images",
+      "is_dir": true,
+      "size": 0,
+      "size_human": "-",
+      "last_modified": "2023-01-01T12:00:00Z",
+      "time_str": "01-Jan-2023 12:00:00",
+      "is_viewable": false
+    },
+    {
+      "name": "document.pdf",
+      "path": "docs/document.pdf",
+      "is_dir": false,
+      "size": 1048576,
+      "size_human": "1.0M",
+      "last_modified": "2023-01-01T12:00:00Z",
+      "time_str": "01-Jan-2023 12:00:00",
+      "is_viewable": true
+    }
+  ],
+  "sort": "size",
+  "dir": "desc"
+}
+```
+
+The JSON API provides all the same functionality as the web interface, including respecting exclusion rules, authentications, and sorting preferences.
+
+### Accessing Files
+
+To download or access individual files, you can use a simple GET request to the file path:
+
+```
+GET /{path/to/file}
+```
+
+For example:
+```
+GET /docs/document.pdf
+```
+
+This will:
+- Return the file with the appropriate Content-Type header
+- Set Content-Disposition to "attachment" for binary files
+- Allow direct viewing in the browser for compatible file types (text, HTML, images, PDFs)
+
+The path format matches exactly what's returned in the `path` field of the JSON API response.
+
+For viewing text files or code in the browser with syntax highlighting (when enabled):
+```
+GET /view/{path/to/file}
+```
+
+All file access respects the same authentication and exclusion rules as the web interface.
 
 ## Docker
 
