@@ -3115,3 +3115,50 @@ func TestAPIList_Sort(t *testing.T) {
 		assert.Equal(t, []string{"large.txt", "medium.txt", "small.txt"}, fileNames)
 	})
 }
+
+func TestAPIList_ErrorCases(t *testing.T) {
+	testDir := "./testdata"
+	testFS := os.DirFS(testDir)
+
+	web := &Web{
+		Config: Config{
+			RootDir: testDir,
+			Exclude: []string{".DS_Store"}, // exclude macOS files
+		},
+		FS: testFS,
+	}
+
+	t.Run("non-existent directory", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/api/list?path=non-existent-dir", nil)
+		require.NoError(t, err)
+
+		rec := httptest.NewRecorder()
+		web.handleAPIList(rec, req)
+		
+		assert.Equal(t, http.StatusNotFound, rec.Code)
+		assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+		
+		var response map[string]string
+		err = json.NewDecoder(rec.Body).Decode(&response)
+		require.NoError(t, err)
+		
+		assert.Contains(t, response["error"], "directory not found")
+	})
+
+	t.Run("file instead of directory", func(t *testing.T) {
+		req, err := http.NewRequest("GET", "/api/list?path=file1.txt", nil)
+		require.NoError(t, err)
+
+		rec := httptest.NewRecorder()
+		web.handleAPIList(rec, req)
+		
+		assert.Equal(t, http.StatusBadRequest, rec.Code)
+		assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
+		
+		var response map[string]string
+		err = json.NewDecoder(rec.Body).Decode(&response)
+		require.NoError(t, err)
+		
+		assert.Equal(t, "not a directory", response["error"])
+	})
+}

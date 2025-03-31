@@ -1221,14 +1221,15 @@ func writeJSONError(w http.ResponseWriter, status int, errMsg string) {
 
 // parseSortParams extracts and validates sort parameters from the request
 func parseSortParams(sortParam string) (sortBy, sortDir string) {
-	sortBy = "name" // default sort by name
-	sortDir = "asc" // default sort direction
+	// default values
+	sortBy = "name"
+	sortDir = "asc"
 
 	if sortParam == "" {
 		return sortBy, sortDir
 	}
 
-	// check if first character is + or -
+	// parse direction from prefix
 	if strings.HasPrefix(sortParam, "+") {
 		sortDir = "asc"
 		sortParam = sortParam[1:]
@@ -1237,18 +1238,16 @@ func parseSortParams(sortParam string) (sortBy, sortDir string) {
 		sortParam = sortParam[1:]
 	}
 
-	// validate sort field
-	switch sortParam {
-	case "name", "size", "mtime":
-		sortBy = sortParam
-	default:
-		// invalid sort field, use default
-		sortBy = "name"
+	// mapping of valid sort parameters to internal field names
+	sortFieldMap := map[string]string{
+		"name":  "name",
+		"size":  "size",
+		"mtime": "date", // mtime maps to date internally
 	}
 
-	// convert "mtime" to "date" for internal usage
-	if sortBy == "mtime" {
-		sortBy = "date"
+	// check if requested sort field is valid
+	if internalField, ok := sortFieldMap[sortParam]; ok {
+		sortBy = internalField
 	}
 
 	return sortBy, sortDir
@@ -1323,12 +1322,16 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 		})
 	}
 
-	// determine the response sort field
-	responseSortBy := sortBy
+	// determine response sort parameter based on original query parameter
+	responseSortBy := "name" // default
+	
+	// original query parameter takes precedence for the response
 	if strings.Contains(sortParam, "size") {
 		responseSortBy = "size"
 	} else if strings.Contains(sortParam, "mtime") {
-		responseSortBy = "date"
+		responseSortBy = "date"  // mtime is represented as date in the UI
+	} else if strings.Contains(sortParam, "name") || sortParam == "" {
+		responseSortBy = "name"
 	}
 
 	// create the response
