@@ -1226,11 +1226,13 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	// check if the path exists and is a directory
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
+		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, fmt.Sprintf(`{"error": "directory not found: %v"}`, err), http.StatusNotFound)
 		return
 	}
 
 	if !fileInfo.IsDir() {
+		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, `{"error": "not a directory"}`, http.StatusBadRequest)
 		return
 	}
@@ -1335,6 +1337,7 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	// set content type and encode to JSON
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
+		w.Header().Set("Content-Type", "application/json")
 		http.Error(w, fmt.Sprintf(`{"error": "error encoding JSON: %v"}`, err), http.StatusInternalServerError)
 	}
 }
