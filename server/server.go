@@ -6,6 +6,7 @@ import (
 	"crypto/subtle"
 	"embed"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -94,10 +95,20 @@ func (wb *Web) Run(ctx context.Context) error {
 	case <-ctx.Done():
 		// gracefully shutdown when context is canceled
 		log.Printf("[DEBUG] server shutdown initiated")
-		shutdownCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		// create a new derived context with timeout for shutdown
+		// we can't use the parent context as it may already be canceled
+		baseCtx := context.Background() //nolint:contextcheck // we need a fresh context since parent may be canceled
+		if ctx.Err() == nil {
+			baseCtx = ctx
+		}
+		shutdownCtx, cancel := context.WithTimeout(baseCtx, 5*time.Second)
 		defer cancel()
 
 		if err := srv.Shutdown(shutdownCtx); err != nil {
+			if errors.Is(err, context.Canceled) {
+				log.Printf("[INFO] server shutdown completed with context canceled")
+				return nil
+			}
 			return fmt.Errorf("[WARN] graceful shutdown failed: %w", err)
 		}
 		log.Printf("[INFO] server shutdown completed")
@@ -1324,12 +1335,12 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 
 	// determine response sort parameter based on original query parameter
 	responseSortBy := "name" // default
-	
+
 	// original query parameter takes precedence for the response
 	if strings.Contains(sortParam, "size") {
 		responseSortBy = "size"
 	} else if strings.Contains(sortParam, "mtime") {
-		responseSortBy = "date"  // mtime is represented as date in the UI
+		responseSortBy = "date" // mtime is represented as date in the UI
 	} else if strings.Contains(sortParam, "name") || sortParam == "" {
 		responseSortBy = "name"
 	}
