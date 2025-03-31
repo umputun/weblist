@@ -39,6 +39,7 @@
             
             <form action="/login" method="post">
                 <input type="hidden" name="username" value="weblist">
+                <input type="hidden" name="csrf_token" value="{{ .CSRFToken }}">
                 
                 <label for="password" style="width: 100%;">
                     <input type="password" id="password" name="password" placeholder="Enter your password" required autofocus style="width: 100%; box-sizing: border-box;">

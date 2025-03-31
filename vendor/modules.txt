@@ -38,8 +38,9 @@ github.com/go-pkgz/rest/realip
 # github.com/go-pkgz/routegroup v1.3.1
 ## explicit; go 1.22
 github.com/go-pkgz/routegroup
-# github.com/go-pkgz/testutils v0.2.1
-## explicit; go 1.22
+# github.com/google/uuid v1.6.0
+## explicit
+github.com/google/uuid
 # github.com/jessevdk/go-flags v1.6.1
 ## explicit; go 1.20
 github.com/jessevdk/go-flags
