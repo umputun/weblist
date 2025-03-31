@@ -199,7 +199,7 @@ GET /api/list?path=path/to/directory&sort=+name
 ### API Parameters
 
 - `path`: The directory path to list (default: root directory)
-- `sort`: The sort criteria with direction prefix:
+- `sort`: The sort criteria with direction prefix (optional, default: `+name`):
   - `+name` or `-name`: Sort by name (ascending or descending)
   - `+size` or `-size`: Sort by file size (ascending or descending)
   - `+mtime` or `-mtime`: Sort by modification time (ascending or descending)
