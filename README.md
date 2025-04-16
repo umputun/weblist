@@ -93,6 +93,10 @@ weblist [options]
 - `-e, --exclude`: Files and directories to exclude (can be repeated) - env: `EXCLUDE`
 - `-f, --hide-footer`: Hide footer - env: `HIDE_FOOTER`
 - `-a, --auth`: Enable authentication with the specified password - env: `AUTH`
+- `--auth-user`: Username for authentication (default: `weblist`) - env: `AUTH_USER`
+- `--session-secret`: Secret key for session tokens (auto-generated if not set) - env: `SESSION_SECRET`
+- `--session-ttl`: Session timeout duration (default: `24h`) - env: `SESSION_TTL`
+- `--insecure-cookies`: Allow cookies without secure flag - env: `INSECURE_COOKIES`
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
 - `--syntax-highlight`: Enable syntax highlighting for code files - env: `SYNTAX_HIGHLIGHT`
@@ -116,13 +120,27 @@ Weblist provides optional password protection for your file listings:
 ```bash
 # Enable authentication with a password
 weblist --auth your_password
+
+# Customize the username (default is "weblist")
+weblist --auth your_password --auth-user admin
+
+# Set a specific session secret key
+weblist --auth your_password --session-secret "your-secret-key"
+
+# Change session timeout (default is 24 hours)
+weblist --auth your_password --session-ttl 12h
+
+# Enable on non-HTTPS servers or development (not recommended for production)
+weblist --auth your_password --insecure-cookies
 ```
 
 When authentication is enabled:
 - Users will be prompted with a login screen
-- The username is always "weblist" (hardcoded)
+- The username is customizable via the `--auth-user` parameter (defaults to "weblist")
 - The password is whatever you specify with the `--auth` parameter
-- Sessions last for 24 hours by default
+- Sessions are secured with HMAC-SHA256 signed tokens
+- Session secrets are automatically generated if not explicitly provided
+- Sessions expire after the specified timeout (default: 24 hours)
 - A logout button appears in the top right corner when logged in
 
 Authentication is completely optional and only activated when the `--auth` parameter is provided.
@@ -309,6 +327,9 @@ services:
       - ROOT_DIR=/data
       - EXCLUDE=.git,.env
       - AUTH=your_password  # Optional: Enable password authentication
+      - AUTH_USER=admin  # Optional: Custom username for authentication (default: weblist)
+      - SESSION_SECRET=your_secure_key  # Optional: Secret for signing session tokens
+      - SESSION_TTL=24h  # Optional: Session timeout duration
       - BRAND_NAME=My Company  # Optional: Display company name in navbar
       - BRAND_COLOR=#3498db  # Optional: Custom color for navbar
       - CUSTOM_FOOTER="<a href='https://example.com'>Example</a> | © 2025"  # Optional: Custom footer text
