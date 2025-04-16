@@ -1259,7 +1259,7 @@ func (wb *Web) securityHeadersMiddleware(next http.Handler) http.Handler {
 			"default-src 'self'",
 			"img-src 'self' data:",
 			"style-src 'self' 'unsafe-inline'",
-			"script-src 'self' 'unsafe-inline'",
+			"script-src 'self' 'unsafe-inline' 'unsafe-eval'",
 			"font-src 'self'",
 		}
 		w.Header().Set("Content-Security-Policy", strings.Join(csp, "; "))
