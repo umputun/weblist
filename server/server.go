@@ -71,7 +71,7 @@ type Config struct {
 func (wb *Web) Run(ctx context.Context) error {
 	// normalize brand color if provided
 	wb.BrandColor = wb.normalizeBrandColor(wb.BrandColor)
-	
+
 	// initialize SessionSecret if not provided to avoid race conditions
 	if wb.SessionSecret == "" {
 		randomSecret := make([]byte, 32)
