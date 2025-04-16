@@ -134,6 +134,7 @@ func (wb *Web) router() (http.Handler, error) {
 	router.Use(rest.SizeLimit(1024 * 1024)) // 1M max request size
 	router.Use(logger.New(logger.Log(lgr.Default()), logger.Prefix("[DEBUG]")).Handler)
 	router.Use(rest.AppInfo("weblist", "umputun", wb.Version), rest.Ping)
+	router.Use(wb.securityHeadersMiddleware) // add security headers to all responses
 
 	// serve static assets from embedded filesystem
 	assetsFS, err := fs.Sub(content, "assets")
@@ -1252,6 +1253,39 @@ func (wb *Web) validateSessionToken(token string) bool {
 	// check if token has expired
 	tokenTime := time.Unix(timestampInt, 0)
 	return time.Since(tokenTime) <= maxAge
+}
+
+// securityHeadersMiddleware adds security-related HTTP headers to all responses
+func (wb *Web) securityHeadersMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// prevent MIME type sniffing (which can lead to XSS)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+
+		// prevent clickjacking attacks
+		w.Header().Set("X-Frame-Options", "DENY")
+
+		// enable browser XSS filtering
+		w.Header().Set("X-XSS-Protection", "1; mode=block")
+
+		// strict MIME type checking
+		csp := []string{
+			"default-src 'self'",
+			"img-src 'self' data:",
+			"style-src 'self' 'unsafe-inline'",
+			"script-src 'self' 'unsafe-inline'",
+			"font-src 'self'",
+		}
+		w.Header().Set("Content-Security-Policy", strings.Join(csp, "; "))
+
+		// prevent browsers from identifying this application as a web application
+		w.Header().Set("X-Permitted-Cross-Domain-Policies", "none")
+
+		// prevent search engines from indexing (optional, remove if public)
+		w.Header().Set("X-Robots-Tag", "noindex, nofollow")
+
+		// serve the request
+		next.ServeHTTP(w, r)
+	})
 }
 
 // isRequestSecure checks if the request is secure by examining TLS status and common proxy headers

@@ -3284,3 +3284,23 @@ func TestAPIList_ErrorCases(t *testing.T) {
 		assert.Equal(t, "not a directory", response["error"])
 	})
 }
+
+func TestSecurityHeadersMiddleware(t *testing.T) {
+	srv := Web{}
+	handler := srv.securityHeadersMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	req := httptest.NewRequest("GET", "/", nil)
+	rr := httptest.NewRecorder()
+
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
+	assert.Equal(t, "DENY", rr.Header().Get("X-Frame-Options"))
+	assert.Equal(t, "1; mode=block", rr.Header().Get("X-XSS-Protection"))
+	assert.Contains(t, rr.Header().Get("Content-Security-Policy"), "default-src 'self'")
+	assert.Equal(t, "none", rr.Header().Get("X-Permitted-Cross-Domain-Policies"))
+	assert.Equal(t, "noindex, nofollow", rr.Header().Get("X-Robots-Tag"))
+}
