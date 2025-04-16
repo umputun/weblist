@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -239,15 +241,15 @@ func TestGetSortParams(t *testing.T) {
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
 			// create request with query parameters
-			url := "/partials/dir-contents?path=."
+			requestURL := "/partials/dir-contents?path=."
 			if tc.reqQuerySort != "" {
-				url += "&sort=" + tc.reqQuerySort
+				requestURL += "&sort=" + tc.reqQuerySort
 			}
 			if tc.reqQueryDir != "" {
-				url += "&dir=" + tc.reqQueryDir
+				requestURL += "&dir=" + tc.reqQueryDir
 			}
 
-			req, err := http.NewRequest("GET", url, nil)
+			req, err := http.NewRequest("GET", requestURL, nil)
 			require.NoError(t, err)
 
 			// add cookies if specified
@@ -356,15 +358,15 @@ func TestHandleDirContents(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			url := "/partials/dir-contents?path=" + tc.path
+			requestURL := "/partials/dir-contents?path=" + tc.path
 			if tc.sort != "" {
-				url += "&sort=" + tc.sort
+				requestURL += "&sort=" + tc.sort
 			}
 			if tc.dir != "" {
-				url += "&dir=" + tc.dir
+				requestURL += "&dir=" + tc.dir
 			}
 
-			req, err := http.NewRequest("GET", url, nil)
+			req, err := http.NewRequest("GET", requestURL, nil)
 			require.NoError(t, err)
 
 			rr := httptest.NewRecorder()
@@ -497,15 +499,15 @@ func TestHandleDirContentsWithSorting(t *testing.T) {
 
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			url := "/partials/dir-contents?path=" + tc.path
+			requestURL := "/partials/dir-contents?path=" + tc.path
 			if tc.sort != "" {
-				url += "&sort=" + tc.sort
+				requestURL += "&sort=" + tc.sort
 			}
 			if tc.dir != "" {
-				url += "&dir=" + tc.dir
+				requestURL += "&dir=" + tc.dir
 			}
 
-			req, err := http.NewRequest("GET", url, nil)
+			req, err := http.NewRequest("GET", requestURL, nil)
 			require.NoError(t, err)
 
 			rr := httptest.NewRecorder()
@@ -1641,18 +1643,66 @@ func TestAuthentication(t *testing.T) {
 
 		assert.Equal(t, http.StatusOK, rr.Code)
 		assert.Equal(t, "success", rr.Body.String())
-		assert.Contains(t, rr.Header().Get("Set-Cookie"), "auth=testpassword")
+		// check that cookie is set with a session token, not raw password
+		cookie := rr.Header().Get("Set-Cookie")
+		assert.Contains(t, cookie, "auth=")
+		assert.NotContains(t, cookie, "auth=testpassword")
 	})
 
 	t.Run("access allowed with cookie", func(t *testing.T) {
-		req, err := http.NewRequest("GET", "/", nil)
+		// first we need to login to get a valid token
+		// get CSRF token first
+		loginPageReq, err := http.NewRequest("GET", "/login", nil)
 		require.NoError(t, err)
-		req.AddCookie(&http.Cookie{
-			Name:  "auth",
-			Value: "testpassword",
-		})
+		loginPageRR := httptest.NewRecorder()
+		loginHandler := http.HandlerFunc(srv.handleLoginPage)
+		loginHandler.ServeHTTP(loginPageRR, loginPageReq)
+
+		// extract CSRF token
+		cookies := loginPageRR.Result().Cookies()
+		var csrfCookie *http.Cookie
+		for _, cookie := range cookies {
+			if cookie.Name == "csrf_token" {
+				csrfCookie = cookie
+				break
+			}
+		}
+		require.NotNil(t, csrfCookie, "CSRF cookie should be set")
+
+		// submit login
+		formData := url.Values{}
+		formData.Set("username", "weblist")
+		formData.Set("password", "testpassword")
+		formData.Set("csrf_token", csrfCookie.Value)
+		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
+		require.NoError(t, err)
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.AddCookie(csrfCookie)
 
 		rr := httptest.NewRecorder()
+		loginSubmitHandler := http.HandlerFunc(srv.handleLoginSubmit)
+		loginSubmitHandler.ServeHTTP(rr, req)
+
+		// get auth cookie
+		cookies = rr.Result().Cookies()
+		var authCookie *http.Cookie
+		for _, cookie := range cookies {
+			if cookie.Name == "auth" {
+				authCookie = cookie
+				break
+			}
+		}
+		require.NotNil(t, authCookie, "Auth cookie should be set")
+
+		// verify the session token is valid
+		assert.True(t, srv.validateSessionToken(authCookie.Value), "Session token should be valid")
+
+		// test auth with the cookie		req, err = http.NewRequest("GET", "/", nil)
+		require.NoError(t, err)
+		req.AddCookie(authCookie)
+
+		// use a new response recorder
+		rr = httptest.NewRecorder()
 		handler := srv.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			w.WriteHeader(http.StatusOK)
 			w.Write([]byte("success"))
@@ -1734,6 +1784,77 @@ func TestAuthentication(t *testing.T) {
 		require.NotNil(t, authCookie, "Auth cookie should be present")
 		assert.Equal(t, "", authCookie.Value, "Auth cookie value should be empty")
 		assert.True(t, authCookie.MaxAge < 0, "Auth cookie MaxAge should be negative to delete it")
+	})
+}
+
+func TestSessionTokens(t *testing.T) {
+	srv := &Web{
+		Config: Config{
+			Auth: "test-secret-password",
+		},
+	}
+
+	t.Run("token generation and validation", func(t *testing.T) {
+		// generate a token
+		token := srv.generateSessionToken()
+
+		// token should have 3 parts separated by dots
+		parts := strings.Split(token, ".")
+		require.Len(t, parts, 3, "Session token should have 3 parts")
+
+		// first part should be a UUID
+		assert.Len(t, parts[0], 36, "First part should be a UUID")
+
+		// second part should be a timestamp (number)
+		_, err := strconv.ParseInt(parts[1], 10, 64)
+		assert.NoError(t, err, "Second part should be a valid numeric timestamp")
+
+		// third part should be a base64 encoded signature
+		_, err = base64.StdEncoding.DecodeString(parts[2])
+		assert.NoError(t, err, "Third part should be a valid base64 string")
+
+		// token should validate
+		assert.True(t, srv.validateSessionToken(token), "Token should validate successfully")
+	})
+
+	t.Run("token validation with wrong password", func(t *testing.T) {
+		// generate a token with the initial password
+		token := srv.generateSessionToken()
+
+		// change the password
+		wrongSrv := &Web{
+			Config: Config{
+				Auth: "wrong-password",
+			},
+		}
+
+		// token should not validate with wrong password
+		assert.False(t, wrongSrv.validateSessionToken(token), "Token should not validate with wrong password")
+	})
+
+	t.Run("invalid token format", func(t *testing.T) {
+		// test with malformed tokens
+		assert.False(t, srv.validateSessionToken("invalid"), "Invalid token should not validate")
+		assert.False(t, srv.validateSessionToken("a.b.c"), "Malformed token should not validate")
+		assert.False(t, srv.validateSessionToken(""), "Empty token should not validate")
+	})
+
+	t.Run("tampered token", func(t *testing.T) {
+		// generate a valid token
+		token := srv.generateSessionToken()
+		parts := strings.Split(token, ".")
+
+		// tamper with the token ID
+		tamperedToken := "tampered-id." + parts[1] + "." + parts[2]
+		assert.False(t, srv.validateSessionToken(tamperedToken), "Tampered token should not validate")
+
+		// tamper with the timestamp
+		tamperedToken = parts[0] + ".9999999999." + parts[2]
+		assert.False(t, srv.validateSessionToken(tamperedToken), "Tampered timestamp should not validate")
+
+		// tamper with the signature
+		tamperedToken = parts[0] + "." + parts[1] + ".AAAA"
+		assert.False(t, srv.validateSessionToken(tamperedToken), "Tampered signature should not validate")
 	})
 }
 
@@ -1899,7 +2020,8 @@ func TestHandleLoginSubmit(t *testing.T) {
 			}
 		}
 		require.NotNil(t, authCookie, "Auth cookie should be set")
-		assert.Equal(t, "testpassword", authCookie.Value)
+		// verify the session token is valid using our validation function
+		assert.True(t, srv.validateSessionToken(authCookie.Value), "Session token should be valid")
 	})
 
 	t.Run("failed login - wrong username", func(t *testing.T) {
@@ -3050,12 +3172,12 @@ func TestAPIList_Sort(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			url := "/api/list?path=."
+			requestURL := "/api/list?path=."
 			if tt.sortParam != "" {
-				url += "&sort=" + tt.sortParam
+				requestURL += "&sort=" + tt.sortParam
 			}
 
-			req, err := http.NewRequest("GET", url, nil)
+			req, err := http.NewRequest("GET", requestURL, nil)
 			require.NoError(t, err)
 
 			rec := httptest.NewRecorder()
@@ -3134,14 +3256,14 @@ func TestAPIList_ErrorCases(t *testing.T) {
 
 		rec := httptest.NewRecorder()
 		web.handleAPIList(rec, req)
-		
+
 		assert.Equal(t, http.StatusNotFound, rec.Code)
 		assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
-		
+
 		var response map[string]string
 		err = json.NewDecoder(rec.Body).Decode(&response)
 		require.NoError(t, err)
-		
+
 		assert.Contains(t, response["error"], "directory not found")
 	})
 
@@ -3151,14 +3273,14 @@ func TestAPIList_ErrorCases(t *testing.T) {
 
 		rec := httptest.NewRecorder()
 		web.handleAPIList(rec, req)
-		
+
 		assert.Equal(t, http.StatusBadRequest, rec.Code)
 		assert.Equal(t, "application/json", rec.Header().Get("Content-Type"))
-		
+
 		var response map[string]string
 		err = json.NewDecoder(rec.Body).Decode(&response)
 		require.NoError(t, err)
-		
+
 		assert.Equal(t, "not a directory", response["error"])
 	})
 }

@@ -2,9 +2,12 @@ package server
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"embed"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -15,6 +18,7 @@ import (
 	"net/http"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -48,6 +52,8 @@ type Config struct {
 	Version                  string        // version information to display in UI
 	Exclude                  []string      // patterns of files/directories to exclude
 	Auth                     string        // password for basic authentication
+	AuthUser                 string        // username for basic authentication (defaults to "weblist")
+	SessionSecret            string        // secret key for signing session tokens
 	Title                    string        // custom title for the site
 	SFTPUser                 string        // username for SFTP authentication
 	SFTPAddress              string        // address to listen for SFTP connections
@@ -228,10 +234,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	// prepare data with struct directly in this function
 	isAuthenticated := false
 	if wb.Auth != "" {
-		cookie, err := r.Cookie("auth")
-		if err == nil && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(wb.Auth)) == 1 {
-			isAuthenticated = true
-		}
+		isAuthenticated = wb.isAuthenticatedByCookie(r)
 	}
 
 	data := struct {
@@ -490,11 +493,15 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	password := r.FormValue("password")
 
 	// check credentials
-	usernameMatch := subtle.ConstantTimeCompare([]byte(username), []byte("weblist")) != 1
-	passwordMatch := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) != 1
+	authUser := wb.AuthUser
+	if authUser == "" {
+		authUser = "weblist" // default username if not specified
+	}
+	usernameCorrect := subtle.ConstantTimeCompare([]byte(username), []byte(authUser)) == 1
+	passwordCorrect := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) == 1
 
 	// authentication failed, show error
-	if usernameMatch || passwordMatch {
+	if !usernameCorrect || !passwordCorrect {
 		wb.renderLoginError(w, r, "Invalid username or password")
 		return
 	}
@@ -509,15 +516,18 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   -1, // delete the cookie
 	})
 
-	// authentication successful, set session cookie
+	// authentication successful, generate session token and set cookie
 	maxAge := int(wb.SessionTTL.Seconds())
 	if maxAge == 0 {
 		maxAge = 3600 * 24 // default to 24 hours if not specified
 	}
 
+	// generate secure session token
+	sessionToken := wb.generateSessionToken()
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth",
-		Value:    wb.Auth,
+		Value:    sessionToken,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   wb.isRequestSecure(r),
@@ -799,10 +809,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	// check if user is authenticated (for showing logout button)
 	isAuthenticated := false
 	if wb.Auth != "" {
-		cookie, err := r.Cookie("auth")
-		if err == nil && subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(wb.Auth)) == 1 {
-			isAuthenticated = true
-		}
+		isAuthenticated = wb.isAuthenticatedByCookie(r)
 	}
 
 	data := struct {
@@ -1040,7 +1047,7 @@ func (wb *Web) getPathParts(path, sortBy, sortDir string) []map[string]string {
 // 3. Falls back to HTTP Basic Auth with username "weblist" and password from config
 // 4. On successful Basic Auth, sets a cookie for future requests to avoid repeated authentication
 // 5. Redirects unauthenticated requests to the login page
-// This middleware should be added after all other middleware but before route handlers.
+// This middleware belongs after all other middleware but before route handlers.
 func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// skip authentication for login page and assets
@@ -1072,7 +1079,9 @@ func (wb *Web) isAuthenticatedByCookie(r *http.Request) bool {
 	if err != nil {
 		return false
 	}
-	return subtle.ConstantTimeCompare([]byte(cookie.Value), []byte(wb.Auth)) == 1
+
+	// validate the session token
+	return wb.validateSessionToken(cookie.Value)
 }
 
 // tryBasicAuth checks if the user is authenticated via basic auth
@@ -1085,11 +1094,15 @@ func (wb *Web) tryBasicAuth(w http.ResponseWriter, r *http.Request) bool {
 		return false
 	}
 
-	usernameMatch := subtle.ConstantTimeCompare([]byte(username), []byte("weblist")) == 1
-	passwordMatch := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) == 1
+	authUser := wb.AuthUser
+	if authUser == "" {
+		authUser = "weblist" // default username if not specified
+	}
+	usernameCorrect := subtle.ConstantTimeCompare([]byte(username), []byte(authUser)) == 1
+	passwordCorrect := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) == 1
 
 	// if credentials don't match
-	if !usernameMatch || !passwordMatch {
+	if !usernameCorrect || !passwordCorrect {
 		return false
 	}
 
@@ -1099,9 +1112,12 @@ func (wb *Web) tryBasicAuth(w http.ResponseWriter, r *http.Request) bool {
 		maxAge = 3600 * 24 // default to 24 hours if not specified
 	}
 
+	// generate secure session token
+	sessionToken := wb.generateSessionToken()
+
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth",
-		Value:    wb.Auth,
+		Value:    sessionToken,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   wb.isRequestSecure(r),
@@ -1137,6 +1153,105 @@ func (wb *Web) generateCSRFToken() string {
 		return uuid.NewString()
 	}
 	return fmt.Sprintf("%x", b)
+}
+
+// generateSessionToken creates a secure session token based on a random value
+// and the current timestamp, signed with a secret key
+func (wb *Web) generateSessionToken() string {
+	// create a unique random ID
+	tokenID := uuid.NewString()
+
+	// use SessionSecret as the signing key
+	if wb.SessionSecret == "" {
+		// generate a random session secret if not provided
+		randomSecret := make([]byte, 32)
+		if _, err := rand.Read(randomSecret); err != nil {
+			log.Printf("[WARN] failed to generate random session secret: %v", err)
+			// still use a unique value instead of the password
+			wb.SessionSecret = uuid.NewString()
+		} else {
+			wb.SessionSecret = base64.StdEncoding.EncodeToString(randomSecret)
+		}
+		log.Printf("[INFO] generated random session secret")
+	}
+	secret := []byte(wb.SessionSecret)
+
+	// create HMAC using the secret key
+	h := hmac.New(sha256.New, secret)
+
+	// add the token ID to the HMAC
+	h.Write([]byte(tokenID))
+
+	// add timestamp to prevent reuse if secret changes and for expiration validation
+	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
+	h.Write([]byte(timestamp))
+
+	// get the signature
+	signature := h.Sum(nil)
+
+	// combine the token ID, timestamp and signature
+	token := tokenID + "." + timestamp + "." + base64.StdEncoding.EncodeToString(signature)
+	return token
+}
+
+// validateSessionToken validates the session token
+func (wb *Web) validateSessionToken(token string) bool {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return false
+	}
+
+	tokenID := parts[0]
+	timestamp := parts[1]
+	signatureB64 := parts[2]
+
+	// recreate the HMAC signature using the session secret
+	// must use same secret as in generateSessionToken
+	if wb.SessionSecret == "" {
+		// this should not happen as generateSessionToken sets SessionSecret
+		// but handle it safely anyway by using the same rules
+		log.Printf("[WARN] validateSessionToken called without SessionSecret set")
+		randomSecret := make([]byte, 32)
+		if _, err := rand.Read(randomSecret); err != nil {
+			wb.SessionSecret = uuid.NewString()
+		} else {
+			wb.SessionSecret = base64.StdEncoding.EncodeToString(randomSecret)
+		}
+		log.Printf("[INFO] generated random session secret for validation")
+	}
+	secret := []byte(wb.SessionSecret)
+
+	h := hmac.New(sha256.New, secret)
+	h.Write([]byte(tokenID))
+	h.Write([]byte(timestamp))
+	expectedSignature := h.Sum(nil)
+
+	// decode the provided signature
+	signature, err := base64.StdEncoding.DecodeString(signatureB64)
+	if err != nil {
+		return false
+	}
+
+	// check if signatures match using constant-time comparison
+	if subtle.ConstantTimeCompare(signature, expectedSignature) != 1 {
+		return false
+	}
+
+	// validate token expiration based on timestamp
+	timestampInt, err := strconv.ParseInt(timestamp, 10, 64)
+	if err != nil {
+		return false
+	}
+
+	// get session TTL, default to 24 hours if not set
+	maxAge := wb.SessionTTL
+	if maxAge == 0 {
+		maxAge = 24 * time.Hour
+	}
+
+	// check if token has expired
+	tokenTime := time.Unix(timestampInt, 0)
+	return time.Since(tokenTime) <= maxAge
 }
 
 // isRequestSecure checks if the request is secure by examining TLS status and common proxy headers

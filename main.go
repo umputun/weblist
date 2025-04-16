@@ -19,12 +19,14 @@ import (
 )
 
 type options struct {
-	Listen  string   `short:"l" long:"listen" env:"LISTEN" default:":8080" description:"address to listen on"`
-	Theme   string   `short:"t" long:"theme" env:"THEME" default:"light" description:"theme to use (light or dark)"`
-	RootDir string   `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
-	Exclude []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
-	Auth    string   `short:"a" long:"auth" env:"AUTH" description:"password for basic auth (username is 'weblist')"`
-	Title   string   `long:"title" env:"TITLE" description:"custom title for the site (used in browser title and home)"`
+	Listen        string   `short:"l" long:"listen" env:"LISTEN" default:":8080" description:"address to listen on"`
+	Theme         string   `short:"t" long:"theme" env:"THEME" default:"light" description:"theme to use (light or dark)"`
+	RootDir       string   `short:"r" long:"root" env:"ROOT_DIR" default:"." description:"root directory to serve"`
+	Exclude       []string `short:"e" long:"exclude" env:"EXCLUDE" description:"files and directories to exclude (can be repeated)"`
+	Auth          string   `short:"a" long:"auth" env:"AUTH" description:"password for basic auth"`
+	AuthUser      string   `long:"auth-user" env:"AUTH_USER" default:"weblist" description:"username for basic auth"`
+	SessionSecret string   `long:"session-secret" env:"SESSION_SECRET" description:"secret key for session tokens (auto-generated if not set)"`
+	Title         string   `long:"title" env:"TITLE" description:"custom title for the site (used in browser title and home)"`
 
 	HideFooter               bool   `short:"f" long:"hide-footer" env:"HIDE_FOOTER"  description:"hide footer"`
 	CustomFooter             string `long:"custom-footer" env:"CUSTOM_FOOTER" description:"custom footer text (can contain HTML)"`
@@ -109,6 +111,8 @@ func runServer(ctx context.Context, opts *options) error {
 		Version:                  versionInfo(),
 		Exclude:                  opts.Exclude,
 		Auth:                     opts.Auth,
+		AuthUser:                 opts.AuthUser,
+		SessionSecret:            opts.SessionSecret,
 		Title:                    opts.Title,
 		CustomFooter:             opts.CustomFooter,
 		SFTPUser:                 opts.SFTP.User,
