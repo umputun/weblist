@@ -3300,7 +3300,7 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 
 	assert.Equal(t, http.StatusOK, rr.Code)
 	assert.Equal(t, "nosniff", rr.Header().Get("X-Content-Type-Options"))
-	assert.Equal(t, "DENY", rr.Header().Get("X-Frame-Options"))
+	assert.Equal(t, "SAMEORIGIN", rr.Header().Get("X-Frame-Options"))
 	assert.Equal(t, "1; mode=block", rr.Header().Get("X-XSS-Protection"))
 	assert.Contains(t, rr.Header().Get("Content-Security-Policy"), "default-src 'self'")
 	assert.Equal(t, "none", rr.Header().Get("X-Permitted-Cross-Domain-Policies"))

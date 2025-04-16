@@ -1248,8 +1248,8 @@ func (wb *Web) securityHeadersMiddleware(next http.Handler) http.Handler {
 		// prevent MIME type sniffing (which can lead to XSS)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 
-		// prevent clickjacking attacks
-		w.Header().Set("X-Frame-Options", "DENY")
+		// allow framing from same origin
+		w.Header().Set("X-Frame-Options", "SAMEORIGIN")
 
 		// enable browser XSS filtering
 		w.Header().Set("X-XSS-Protection", "1; mode=block")
