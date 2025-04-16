@@ -1790,7 +1790,8 @@ func TestAuthentication(t *testing.T) {
 func TestSessionTokens(t *testing.T) {
 	srv := &Web{
 		Config: Config{
-			Auth: "test-secret-password",
+			Auth:          "test-secret-password",
+			SessionSecret: "test-session-secret",
 		},
 	}
 
@@ -1817,19 +1818,20 @@ func TestSessionTokens(t *testing.T) {
 		assert.True(t, srv.validateSessionToken(token), "Token should validate successfully")
 	})
 
-	t.Run("token validation with wrong password", func(t *testing.T) {
-		// generate a token with the initial password
+	t.Run("token validation with wrong session secret", func(t *testing.T) {
+		// generate a token with the initial session secret
 		token := srv.generateSessionToken()
 
-		// change the password
+		// create a new server with a different session secret
 		wrongSrv := &Web{
 			Config: Config{
-				Auth: "wrong-password",
+				Auth:          "test-secret-password",
+				SessionSecret: "different-session-secret",
 			},
 		}
 
-		// token should not validate with wrong password
-		assert.False(t, wrongSrv.validateSessionToken(token), "Token should not validate with wrong password")
+		// token should not validate with wrong session secret
+		assert.False(t, wrongSrv.validateSessionToken(token), "Token should not validate with wrong session secret")
 	})
 
 	t.Run("invalid token format", func(t *testing.T) {

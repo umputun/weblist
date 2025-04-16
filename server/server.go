@@ -71,6 +71,18 @@ type Config struct {
 func (wb *Web) Run(ctx context.Context) error {
 	// normalize brand color if provided
 	wb.BrandColor = wb.normalizeBrandColor(wb.BrandColor)
+	
+	// initialize SessionSecret if not provided to avoid race conditions
+	if wb.SessionSecret == "" {
+		randomSecret := make([]byte, 32)
+		if _, err := rand.Read(randomSecret); err != nil {
+			log.Printf("[WARN] failed to generate random session secret: %v", err)
+			wb.SessionSecret = uuid.NewString()
+		} else {
+			wb.SessionSecret = base64.StdEncoding.EncodeToString(randomSecret)
+		}
+		log.Printf("[INFO] generated random session secret during startup")
+	}
 
 	router, err := wb.router()
 	if err != nil {
@@ -1163,18 +1175,6 @@ func (wb *Web) generateSessionToken() string {
 	tokenID := uuid.NewString()
 
 	// use SessionSecret as the signing key
-	if wb.SessionSecret == "" {
-		// generate a random session secret if not provided
-		randomSecret := make([]byte, 32)
-		if _, err := rand.Read(randomSecret); err != nil {
-			log.Printf("[WARN] failed to generate random session secret: %v", err)
-			// still use a unique value instead of the password
-			wb.SessionSecret = uuid.NewString()
-		} else {
-			wb.SessionSecret = base64.StdEncoding.EncodeToString(randomSecret)
-		}
-		log.Printf("[INFO] generated random session secret")
-	}
 	secret := []byte(wb.SessionSecret)
 
 	// create HMAC using the secret key
@@ -1206,20 +1206,7 @@ func (wb *Web) validateSessionToken(token string) bool {
 	timestamp := parts[1]
 	signatureB64 := parts[2]
 
-	// recreate the HMAC signature using the session secret
-	// must use same secret as in generateSessionToken
-	if wb.SessionSecret == "" {
-		// this should not happen as generateSessionToken sets SessionSecret
-		// but handle it safely anyway by using the same rules
-		log.Printf("[WARN] validateSessionToken called without SessionSecret set")
-		randomSecret := make([]byte, 32)
-		if _, err := rand.Read(randomSecret); err != nil {
-			wb.SessionSecret = uuid.NewString()
-		} else {
-			wb.SessionSecret = base64.StdEncoding.EncodeToString(randomSecret)
-		}
-		log.Printf("[INFO] generated random session secret for validation")
-	}
+	// recreate the HMAC signature using the session secret initialized at startup
 	secret := []byte(wb.SessionSecret)
 
 	h := hmac.New(sha256.New, secret)
