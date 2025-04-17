@@ -83,7 +83,7 @@ func main() {
 		}
 	}()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt, os.Kill)
+	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer cancel()
 	if err := runServer(ctx, &opts); err != nil {
 		log.Printf("[FATAL] run server error: %v", err)

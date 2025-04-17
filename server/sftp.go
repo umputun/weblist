@@ -905,7 +905,7 @@ func (s *SFTP) checkAuthRateLimit(remoteIP string) bool {
 	info.lastSeen = now
 	s.ipAttempts[remoteIP] = info
 
-	// allow max 5 attempts in a 10-minute window
+	// enforce max 5 attempts in a 10-minute window
 	return info.count <= 5
 }
 

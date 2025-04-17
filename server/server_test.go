@@ -47,6 +47,10 @@ func setupTestServer(t *testing.T) *Web {
 		FS: os.DirFS(testdataDir),
 	}
 
+	// initialize templates for testing
+	err = srv.initTemplates()
+	require.NoError(t, err, "failed to initialize templates")
+
 	return srv
 }
 
@@ -1302,6 +1306,70 @@ func TestDirectoryTraversalPrevention(t *testing.T) {
 	}
 }
 
+func TestLoginRateLimit(t *testing.T) {
+	// create a test server with authentication enabled
+	testdataDir, err := filepath.Abs("testdata")
+	require.NoError(t, err)
+
+	srv := &Web{
+		Config: Config{
+			ListenAddr: ":0",
+			Theme:      "light",
+			RootDir:    testdataDir,
+			Auth:       "testpassword",
+			Title:      "Test Server",
+		},
+		FS: os.DirFS(testdataDir),
+	}
+
+	// create the router to test the rate limiter middleware
+	router, err := srv.router()
+	require.NoError(t, err)
+
+	// simulate multiple login attempts from the same IP
+	for i := 0; i < 10; i++ {
+		// create login form data with incorrect credentials
+		formData := url.Values{}
+		formData.Set("username", "weblist")
+		formData.Set("password", "wrongpassword")
+		formData.Set("csrf_token", "dummy-token") // will fail on CSRF but that's fine for testing rate limit
+
+		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
+		require.NoError(t, err)
+
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		req.RemoteAddr = "192.168.1.1:1234" // use same IP for all requests
+
+		// add a cookie for CSRF token
+		req.AddCookie(&http.Cookie{
+			Name:  "csrf_token",
+			Value: "dummy-token",
+		})
+
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+
+		// first few attempts should return 200 (login form with error)
+		// after exceeding rate limit (5 attempts), should get 429 Too Many Requests
+		if i < 5 {
+			assert.NotEqual(t, http.StatusTooManyRequests, rr.Code, "Request %d should not be rate limited", i+1)
+		} else {
+			t.Logf("Request %d status: %d", i+1, rr.Code)
+			if rr.Code == http.StatusTooManyRequests {
+				// once we hit rate limit, test passed
+				assert.Contains(t, rr.Body.String(), "Too many login attempts", "Rate limit message should be shown")
+				return
+			}
+		}
+
+		// add a small delay between requests
+		time.Sleep(10 * time.Millisecond)
+	}
+
+	// if we made it here, we never got rate limited
+	t.Fatal("Rate limit was never triggered after 10 login attempts")
+}
+
 func TestDirectoryTraversalIntegration(t *testing.T) {
 	// get the absolute path to the testdata directory
 	testdataDir, err := filepath.Abs("testdata")
@@ -1617,6 +1685,10 @@ func TestAuthentication(t *testing.T) {
 		FS: os.DirFS("testdata"),
 	}
 
+	// initialize templates for testing
+	err := srv.initTemplates()
+	require.NoError(t, err, "failed to initialize templates")
+
 	t.Run("redirect to login page when not authenticated", func(t *testing.T) {
 		req, err := http.NewRequest("GET", "/", nil)
 		require.NoError(t, err)
@@ -1877,6 +1949,10 @@ func TestTitleFunctionality(t *testing.T) {
 		FS: os.DirFS(testdataDir),
 	}
 
+	// initialize templates for testing
+	err = customTitleSrv.initTemplates()
+	require.NoError(t, err, "failed to initialize templates")
+
 	// test that the title appears in the rendered HTML
 	req, err := http.NewRequest("GET", "/", nil)
 	require.NoError(t, err)
@@ -1923,6 +1999,10 @@ func TestCustomFooter(t *testing.T) {
 		},
 		FS: os.DirFS(testdataDir),
 	}
+
+	// initialize templates for testing
+	err = srv.initTemplates()
+	require.NoError(t, err, "failed to initialize templates")
 
 	// test custom footer appears in the index page
 	req, err := http.NewRequest("GET", "/", nil)
@@ -1972,6 +2052,10 @@ func TestHandleLoginSubmit(t *testing.T) {
 		},
 		FS: os.DirFS(testdataDir),
 	}
+
+	// initialize templates for testing
+	err = srv.initTemplates()
+	require.NoError(t, err, "failed to initialize templates")
 
 	t.Run("successful login", func(t *testing.T) {
 		// first get a CSRF token from the login page
@@ -2559,6 +2643,10 @@ func TestHTMLRendering(t *testing.T) {
 		},
 		FS: os.DirFS(tmpDir),
 	}
+
+	// initialize templates for testing
+	err = srv.initTemplates()
+	require.NoError(t, err, "failed to initialize templates")
 
 	t.Run("html file view renders correctly", func(t *testing.T) {
 		req, err := http.NewRequest("GET", "/view/test.html", nil)
