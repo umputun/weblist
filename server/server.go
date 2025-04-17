@@ -27,6 +27,7 @@ import (
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/didip/tollbooth/v8"
+	"github.com/didip/tollbooth/v8/limiter"
 	"github.com/go-pkgz/lgr"
 	"github.com/go-pkgz/rest"
 	"github.com/go-pkgz/rest/logger"
@@ -41,6 +42,14 @@ var content embed.FS
 type Web struct {
 	Config
 	FS fs.FS
+
+	// cached templates
+	templates struct {
+		initialized   bool
+		indexTemplate *template.Template
+		fileTemplate  *template.Template
+		loginTemplate *template.Template
+	}
 }
 
 // Config represents server configuration.
@@ -134,15 +143,63 @@ func (wb *Web) Run(ctx context.Context) error {
 	}
 }
 
+// initTemplates initializes and caches the HTML templates
+func (wb *Web) initTemplates() error {
+	if wb.templates.initialized {
+		return nil
+	}
+
+	// get template functions
+	funcMap := wb.getTemplateFuncs()
+
+	// parse index template
+	indexTemplate, err := template.New("index.html").Funcs(funcMap).ParseFS(content, "templates/index.html", "templates/file.html")
+	if err != nil {
+		return fmt.Errorf("failed to parse index template: %w", err)
+	}
+	wb.templates.indexTemplate = indexTemplate
+
+	// parse file template (reusing index.html which includes file.html)
+	fileTemplate, err := template.New("index.html").Funcs(funcMap).ParseFS(content, "templates/index.html", "templates/file.html")
+	if err != nil {
+		return fmt.Errorf("failed to parse file template: %w", err)
+	}
+	wb.templates.fileTemplate = fileTemplate
+
+	// parse login template
+	loginTemplate, err := template.New("login.html").Funcs(funcMap).ParseFS(content, "templates/login.html")
+	if err != nil {
+		return fmt.Errorf("failed to parse login template: %w", err)
+	}
+	wb.templates.loginTemplate = loginTemplate
+
+	wb.templates.initialized = true
+	return nil
+}
+
 // router creates a new router for the web server, configures middleware, and sets up routes.
 func (wb *Web) router() (http.Handler, error) {
+	// initialize templates
+	if err := wb.initTemplates(); err != nil {
+		return nil, fmt.Errorf("failed to initialize templates: %w", err)
+	}
 	// create router and set up routes
 	mux := http.NewServeMux()
 	router := routegroup.New(mux)
 
 	router.Use(rest.Trace, rest.RealIP, rest.Recoverer(lgr.Default()))
 	router.Use(rest.Throttle(1000))
+
+	// global rate limiter - 50 requests per second
 	router.Use(tollbooth.HTTPMiddleware(tollbooth.NewLimiter(50, nil)))
+
+	// create a more restrictive rate limiter for authentication endpoints
+	authLimiter := tollbooth.NewLimiter(5, nil)
+	authLimiter.SetIPLookup(limiter.IPLookup{Name: "RemoteAddr"})
+	authLimiter.SetBurst(5) // allow burst of 5 requests
+	authLimiter.SetMessage("Too many login attempts, please try again later")
+	authLimiter.SetTokenBucketExpirationTTL(10 * time.Minute) // reset after 10 minutes
+
 	router.Use(rest.SizeLimit(1024 * 1024)) // 1M max request size
 	router.Use(logger.New(logger.Log(lgr.Default()), logger.Prefix("[DEBUG]")).Handler)
 	router.Use(rest.AppInfo("weblist", "umputun", wb.Version), rest.Ping)
@@ -157,7 +214,13 @@ func (wb *Web) router() (http.Handler, error) {
 	// add authentication middleware if Auth is set
 	if wb.Auth != "" {
 		router.HandleFunc("GET /login", wb.handleLoginPage)
-		router.HandleFunc("POST /login", wb.handleLoginSubmit)
+
+		// apply the stricter rate limiter to login submission endpoint
+		loginHandler := tollbooth.LimitFuncHandler(authLimiter, wb.handleLoginSubmit)
+		router.HandleFunc("POST /login", func(w http.ResponseWriter, r *http.Request) {
+			loginHandler.ServeHTTP(w, r)
+		})
+
 		router.HandleFunc("GET /logout", wb.handleLogout)
 		router.Use(wb.authMiddleware)
 	}
@@ -224,12 +287,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// parse templates from embedded filesystem
-	tmpl, err := template.New("index.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/index.html", "templates/file.html")
-	if err != nil {
-		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// use cached template
 
 	// get the directory file list
 	fileList, err := wb.getFileList(path, sortBy, sortDir)
@@ -279,7 +337,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// execute just the page-content template
-	if err := tmpl.ExecuteTemplate(w, "page-content", data); err != nil {
+	if err := wb.templates.indexTemplate.ExecuteTemplate(w, "page-content", data); err != nil {
 		http.Error(w, "template rendering error: "+err.Error(), http.StatusInternalServerError)
 	}
 }
@@ -294,14 +352,14 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 
 	// check if the path should be excluded
 	if wb.shouldExclude(filePath) {
-		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(filePath)), http.StatusForbidden)
+		http.Error(w, "access denied to requested file", http.StatusForbidden)
 		return
 	}
 
 	// check if the file exists and is not a directory
 	fileInfo, err := fs.Stat(wb.FS, filePath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("file not found: %s - %v", filepath.Base(filePath), err), http.StatusNotFound)
+		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
 
@@ -350,12 +408,6 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// parse templates
-	tmpl, err := wb.parseFileTemplates()
-	if err != nil {
-		log.Printf("[ERROR] failed to parse view template: %v", err)
-		http.Error(w, "error rendering file view", http.StatusInternalServerError)
-		return
-	}
 
 	// prepare data for the template
 	data := struct {
@@ -382,7 +434,7 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// execute the file-view template
-	if err := tmpl.ExecuteTemplate(w, "file-view", data); err != nil {
+	if err := wb.templates.fileTemplate.ExecuteTemplate(w, "file-view", data); err != nil {
 		log.Printf("[ERROR] failed to execute file-view template: %v", err)
 		http.Error(w, "error rendering file view", http.StatusInternalServerError)
 	}
@@ -405,14 +457,14 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	// check if the file should be excluded
 	if wb.shouldExclude(filePath) {
-		http.Error(w, fmt.Sprintf("access denied: %s", filepath.Base(filePath)), http.StatusForbidden)
+		http.Error(w, "access denied to requested file", http.StatusForbidden)
 		return
 	}
 
 	// check if the file exists and is not a directory
 	fileInfo, err := fs.Stat(wb.FS, filePath)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("file not found: %s", filepath.Base(filePath)), http.StatusNotFound)
+		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
 
@@ -441,11 +493,6 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 // handleLoginPage renders the login page
 func (wb *Web) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.New("login.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/login.html")
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
-		return
-	}
 
 	// generate CSRF token
 	csrfToken := wb.generateCSRFToken()
@@ -481,7 +528,7 @@ func (wb *Web) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 		CSRFToken:    csrfToken,
 	}
 
-	if err := tmpl.Execute(w, data); err != nil {
+	if err := wb.templates.loginTemplate.Execute(w, data); err != nil {
 		http.Error(w, fmt.Sprintf("failed to execute template: %v", err), http.StatusInternalServerError)
 		return
 	}
@@ -554,11 +601,6 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 
 // renderLoginError renders the login page with an error message
 func (wb *Web) renderLoginError(w http.ResponseWriter, r *http.Request, errorMsg string) {
-	tmpl, err := template.New("login.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/login.html")
-	if err != nil {
-		http.Error(w, fmt.Sprintf("failed to parse template: %v", err), http.StatusInternalServerError)
-		return
-	}
 
 	// generate a new CSRF token
 	csrfToken := wb.generateCSRFToken()
@@ -594,7 +636,7 @@ func (wb *Web) renderLoginError(w http.ResponseWriter, r *http.Request, errorMsg
 		CSRFToken:    csrfToken,
 	}
 
-	if err := tmpl.Execute(w, data); err != nil {
+	if err := wb.templates.loginTemplate.Execute(w, data); err != nil {
 		http.Error(w, fmt.Sprintf("failed to execute template: %v", err), http.StatusInternalServerError)
 	}
 }
@@ -636,7 +678,7 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 	// check if the file exists and is not a directory
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("file not found: %s - %v", path, err), http.StatusNotFound)
+		http.Error(w, "file not found", http.StatusNotFound)
 		return
 	}
 
@@ -680,16 +722,10 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// parse templates
-	tmpl, err := wb.parseFileTemplates()
-	if err != nil {
-		log.Printf("[ERROR] failed to parse file-modal template: %v", err)
-		http.Error(w, "error rendering file modal", http.StatusInternalServerError)
-		return
-	}
 
 	// set content type and execute the file-modal template
 	w.Header().Set("Content-Type", "text/html")
-	if err := tmpl.ExecuteTemplate(w, "file-modal", data); err != nil {
+	if err := wb.templates.fileTemplate.ExecuteTemplate(w, "file-modal", data); err != nil {
 		log.Printf("[ERROR] failed to execute file-modal template: %v", err)
 		http.Error(w, "error rendering file modal", http.StatusInternalServerError)
 	}
@@ -703,11 +739,6 @@ func (wb *Web) getTemplateFuncs() template.FuncMap {
 		},
 		"contains": strings.Contains,
 	}
-}
-
-// parseFileTemplates parses templates needed for file viewing and modal display
-func (wb *Web) parseFileTemplates() (*template.Template, error) {
-	return template.New("index.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/index.html", "templates/file.html")
 }
 
 // getSortParams retrieves sort parameters from query or cookies and returns them
@@ -797,12 +828,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		return
 	}
 
-	// parse templates from embedded filesystem
-	tmpl, err := template.New("index.html").Funcs(wb.getTemplateFuncs()).ParseFS(content, "templates/index.html", "templates/file.html")
-	if err != nil {
-		http.Error(w, "template error: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
+	// use cached template
 
 	// get sort parameters from query or cookies
 	sortBy, sortDir := wb.getSortParams(w, r)
@@ -856,7 +882,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	}
 
 	// execute the entire template
-	if err := tmpl.Execute(w, data); err != nil {
+	if err := wb.templates.indexTemplate.Execute(w, data); err != nil {
 		http.Error(w, "template rendering error: "+err.Error(), http.StatusInternalServerError)
 	}
 }

@@ -39,8 +39,8 @@ func (f FileInfo) TimeString() string {
 	return f.LastModified.Format("02-Jan-2006 15:04:05")
 }
 
-// GetCommonTextExtensions returns a map of common text file extensions
-func GetCommonTextExtensions() map[string]bool {
+// commonTextExtensions contains a map of common text file extensions
+var commonTextExtensions = func() map[string]bool {
 	exts := []string{
 		"txt", "text", "log", "csv", "json", "xml", "css", "scss", "less",
 		"js", "jsx", "ts", "tsx", "go", "py", "java", "c", "cpp", "h", "hpp", "rb",
@@ -57,7 +57,7 @@ func GetCommonTextExtensions() map[string]bool {
 		res[strings.ToLower("."+ext)] = true
 	}
 	return res
-}
+}()
 
 // DetermineContentType analyzes a file to determine its content type and common format flags.
 // It uses a multi-step detection process:
@@ -76,7 +76,6 @@ func GetCommonTextExtensions() map[string]bool {
 func DetermineContentType(filePath string) (contentType string, isText, isHTML, isPDF, isImage bool) {
 	ext := filepath.Ext(filePath)
 	extLower := strings.ToLower(ext)
-	commonTextExtensions := GetCommonTextExtensions()
 
 	// determine content type based on extension
 	switch {
@@ -120,7 +119,7 @@ func (f FileInfo) IsViewable() bool {
 
 	// special handling for common text formats that might not have proper MIME types
 	extLower := strings.ToLower(ext)
-	if GetCommonTextExtensions()[extLower] {
+	if commonTextExtensions[extLower] {
 		return true
 	}
 

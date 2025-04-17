@@ -18,6 +18,50 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
+func TestSFTPAuthRateLimit(t *testing.T) {
+	// create a test SFTP server with rate limiting
+	sftpServer := &SFTP{
+		Config: Config{
+			SFTPUser:    "testuser",
+			Auth:        "password123",
+			RootDir:     "testdata",
+			SFTPKeyFile: filepath.Join(os.TempDir(), "test_sftp_key"),
+		},
+		FS:         os.DirFS("testdata"),
+		ipAttempts: make(map[string]ipAttemptsInfo),
+	}
+
+	// test the checkAuthRateLimit function directly
+	testIP := "192.168.1.1"
+
+	// first 5 attempts should succeed
+	for i := 0; i < 5; i++ {
+		allowed := sftpServer.checkAuthRateLimit(testIP)
+		assert.True(t, allowed, "Attempt %d should be allowed", i+1)
+	}
+
+	// 6th attempt should be blocked
+	allowed := sftpServer.checkAuthRateLimit(testIP)
+	assert.False(t, allowed, "6th attempt should be blocked by rate limit")
+
+	// check the recorded attempts
+	sftpServer.ipAttemptsMu.Lock()
+	info, exists := sftpServer.ipAttempts[testIP]
+	sftpServer.ipAttemptsMu.Unlock()
+
+	assert.True(t, exists, "IP should be tracked in rate limiter")
+	assert.Equal(t, 6, info.count, "Attempt count should be 6")
+
+	// test that resetAuthRateLimit clears the record
+	sftpServer.resetAuthRateLimit(testIP)
+
+	sftpServer.ipAttemptsMu.Lock()
+	_, exists = sftpServer.ipAttempts[testIP]
+	sftpServer.ipAttemptsMu.Unlock()
+
+	assert.False(t, exists, "IP record should be cleared after successful auth")
+}
+
 func TestLoadAuthorizedKeys(t *testing.T) {
 	// create a temporary file with an authorized_keys content
 	tmpFile, err := os.CreateTemp("", "auth_keys_test")
