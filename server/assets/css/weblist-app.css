@@ -7,9 +7,10 @@ table {
 }
 
 /* Column widths for consistency */
-table th:first-child, table td:first-child { width: 60%; }
-table th:nth-child(2), table td:nth-child(2) { width: 25%; }
-table th:nth-child(3), table td:nth-child(3) { width: 15%; }
+table th.select-col, table td.select-cell { width: 40px; text-align: center; }
+table th:nth-child(2), table td:nth-child(2) { width: 55%; }
+table th:nth-child(3), table td:nth-child(3) { width: 25%; }
+table th:nth-child(4), table td:nth-child(4) { width: 15%; }
 
 /* Ensure all column headers have the same styling */
 table th.date-col, table th.size-col {
@@ -540,4 +541,73 @@ pre {
 .logout-icon {
   vertical-align: middle;
   margin-right: 0.25rem;
+}
+
+/* Multi-file selection styles */
+.actions-container {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-md);
+}
+
+.selection-status {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+}
+
+.selected-count {
+  color: var(--color-white);
+  font-size: 0.9rem;
+  white-space: nowrap;
+}
+
+.download-selected-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: 0.3rem 0.6rem;
+  background-color: var(--color-white-overlay);
+  color: var(--color-white);
+  border: none;
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+.download-selected-btn:hover {
+  background-color: var(--color-white-overlay-hover);
+}
+
+.download-selected-btn svg {
+  fill: var(--color-white) !important;
+  width: 16px;
+  height: 16px;
+}
+
+/* Responsive adjustments for selection elements */
+@media (max-width: 768px) {
+  .breadcrumbs {
+    grid-template-columns: 1fr auto auto;
+    grid-template-areas:
+      "path selection logout";
+  }
+  
+  .path-parts {
+    max-width: calc(100% - 200px);
+  }
+  
+  .selection-status {
+    grid-area: selection;
+  }
+  
+  .download-selected-btn {
+    padding: 0.2rem 0.4rem;
+    font-size: 0.8rem;
+  }
+  
+  .selected-count {
+    font-size: 0.8rem;
+  }
 }

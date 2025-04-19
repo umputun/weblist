@@ -1,6 +1,8 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -3393,4 +3395,100 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	assert.Contains(t, rr.Header().Get("Content-Security-Policy"), "default-src 'self'")
 	assert.Equal(t, "none", rr.Header().Get("X-Permitted-Cross-Domain-Policies"))
 	assert.Equal(t, "noindex, nofollow", rr.Header().Get("X-Robots-Tag"))
+}
+
+func TestHandleSelectionStatus(t *testing.T) {
+	web := &Web{
+		Config: Config{
+			RootDir: "testdata",
+			Theme:   "light",
+		},
+		FS: os.DirFS("testdata"),
+	}
+
+	// initialize templates for testing
+	err := web.initTemplates()
+	require.NoError(t, err)
+
+	// test case 1: No files selected
+	formData1 := url.Values{}
+	req1 := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData1.Encode()))
+	req1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr1 := httptest.NewRecorder()
+
+	web.handleSelectionStatus(rr1, req1)
+	require.Equal(t, http.StatusOK, rr1.Code)
+	// empty selection should not have the download button
+	require.NotContains(t, rr1.Body.String(), "Download Selected")
+
+	// test case 2: Multiple files selected
+	formData2 := url.Values{}
+	formData2.Add("selected-files", "file1.txt")
+	formData2.Add("selected-files", "file2.txt")
+	req2 := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData2.Encode()))
+	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr2 := httptest.NewRecorder()
+
+	web.handleSelectionStatus(rr2, req2)
+	require.Equal(t, http.StatusOK, rr2.Code)
+	// should show download button and count
+	require.Contains(t, rr2.Body.String(), "Download Selected")
+	require.Contains(t, rr2.Body.String(), "2 files selected")
+}
+
+func TestHandleDownloadSelected(t *testing.T) {
+	// create test web server with testdata
+	web := &Web{
+		Config: Config{
+			RootDir: "testdata",
+		},
+		FS: os.DirFS("testdata"),
+	}
+
+	// test with multiple files selected
+	formData := url.Values{}
+	formData.Add("selected-files", "file1.txt")
+	formData.Add("selected-files", "file2.txt")
+	req := httptest.NewRequest("POST", "/download-selected", strings.NewReader(formData.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+
+	web.handleDownloadSelected(rr, req)
+
+	// verify response headers
+	assert.Equal(t, "application/zip", rr.Header().Get("Content-Type"))
+	assert.Contains(t, rr.Header().Get("Content-Disposition"), "attachment; filename=\"weblist-files-")
+
+	// verify ZIP file content
+	reader := bytes.NewReader(rr.Body.Bytes())
+	zipReader, err := zip.NewReader(reader, int64(len(rr.Body.Bytes())))
+	require.NoError(t, err)
+
+	// check that the ZIP contains the expected files
+	fileNames := make([]string, 0, len(zipReader.File))
+	for _, zipFile := range zipReader.File {
+		fileNames = append(fileNames, zipFile.Name)
+	}
+	assert.ElementsMatch(t, []string{"file1.txt", "file2.txt"}, fileNames)
+
+	// check file content
+	var file1Found bool
+	for _, zipFile := range zipReader.File {
+		if zipFile.Name != "file1.txt" {
+			continue
+		}
+		
+		file1Found = true
+		f, err := zipFile.Open()
+		require.NoError(t, err)
+		
+		content, err := io.ReadAll(f)
+		require.NoError(t, err)
+		// the test file might have different content in testdata
+		assert.NotEmpty(t, content)
+		f.Close() // close explicitly instead of using defer in a loop
+	}
+	
+	// ensure we found and checked file1.txt
+	assert.True(t, file1Found, "file1.txt should be in the ZIP archive")
 }

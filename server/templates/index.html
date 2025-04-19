@@ -64,7 +64,6 @@
         <!-- Home link with HTMX - no URL push -->
         <a href="#"
            hx-get="/partials/dir-contents"
-
            hx-vals='{"path": ".", "sort": "{{$.SortBy}}", "dir": "{{$.SortDir}}"}'
            hx-target="#page-content">
             <svg class="icon dir-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
@@ -83,22 +82,37 @@
         {{ end }}
         {{ end }}
     </div>
-    {{ if .IsAuthenticated }}
-    <div class="logout-button">
-        <a href="/logout">
-            <svg class="logout-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                <path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z"/>
-                <path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"/>
-            </svg>
-            Logout
-        </a>
+    
+    <div class="actions-container">
+        <!-- Selection status and download button container -->
+        <div id="selection-status" class="selection-status"></div>
+        
+        {{ if .IsAuthenticated }}
+        <div class="logout-button">
+            <a href="/logout">
+                <svg class="logout-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path fill-rule="evenodd" d="M10 12.5a.5.5 0 0 1-.5.5h-8a.5.5 0 0 1-.5-.5v-9a.5.5 0 0 1 .5-.5h8a.5.5 0 0 1 .5.5v2a.5.5 0 0 0 1 0v-2A1.5 1.5 0 0 0 9.5 2h-8A1.5 1.5 0 0 0 0 3.5v9A1.5 1.5 0 0 0 1.5 14h8a1.5 1.5 0 0 0 1.5-1.5v-2a.5.5 0 0 0-1 0v2z"/>
+                    <path fill-rule="evenodd" d="M15.854 8.354a.5.5 0 0 0 0-.708l-3-3a.5.5 0 0 0-.708.708L14.293 7.5H5.5a.5.5 0 0 0 0 1h8.793l-2.147 2.146a.5.5 0 0 0 .708.708l3-3z"/>
+                </svg>
+                Logout
+            </a>
+        </div>
+        {{ end }}
     </div>
-    {{ end }}
 </div>
 <article>
     <table role="grid">
         <thead>
         <tr>
+            <th class="select-col">
+                <input type="checkbox" id="select-all" title="Select all files" 
+                       hx-post="/partials/selection-status"
+                       hx-trigger="click"
+                       hx-target="#selection-status"
+                       hx-include=".file-checkbox"
+                       hx-vals='{"select-all": "true"}'
+                       hx-swap="innerHTML">
+            </th>
             <th hx-get="/partials/dir-contents"
                 hx-vals='{"path": "{{ .Path }}", "sort": "name", "dir": {{ if and (eq .SortBy "name") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
                 hx-target="#page-content"
@@ -130,6 +144,20 @@
             hx-get="/partials/dir-contents"
             hx-vals='{"path": "{{.Path}}", "sort": "{{$.SortBy}}", "dir": "{{$.SortDir}}"}'
             hx-target="#page-content">
+            <td class="select-cell">
+                {{ if eq .Name ".." }}
+                <!-- No checkbox for parent directory -->
+                {{ else }}
+                <!-- Checkbox for directory -->
+                <input type="checkbox" class="file-checkbox" name="selected-files" value="{{.Path}}" 
+                       hx-post="/partials/selection-status"
+                       hx-trigger="click"
+                       hx-target="#selection-status"
+                       hx-include=".file-checkbox"
+                       onclick="event.stopPropagation();"
+                       title="Select directory">
+                {{ end }}
+            </td>
             <td class="name-cell">
                 <!-- Directory entry with icon -->
                 <div class="dir-entry">
@@ -143,8 +171,16 @@
             <td>{{ .SizeToString }}</td>
         </tr>
         {{ else }}
-        <!-- File row: Keep current behavior -->
+        <!-- File row -->
         <tr>
+            <td class="select-cell">
+                <input type="checkbox" class="file-checkbox" name="selected-files" value="{{.Path}}" 
+                       hx-post="/partials/selection-status"
+                       hx-trigger="click"
+                       hx-target="#selection-status"
+                       hx-include=".file-checkbox"
+                       title="Select file">
+            </td>
             <td class="name-cell">
                 <div class="file-entry">
                     <!-- File: Link to download handler -->

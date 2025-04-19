@@ -1,6 +1,7 @@
 package server
 
 import (
+	"archive/zip"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -152,15 +153,22 @@ func (wb *Web) initTemplates() error {
 	// get template functions
 	funcMap := wb.getTemplateFuncs()
 
+	// define the template files
+	templateFiles := []string{
+		"templates/index.html",
+		"templates/file.html",
+		"templates/selection-status.html",
+	}
+
 	// parse index template
-	indexTemplate, err := template.New("index.html").Funcs(funcMap).ParseFS(content, "templates/index.html", "templates/file.html")
+	indexTemplate, err := template.New("index.html").Funcs(funcMap).ParseFS(content, templateFiles...)
 	if err != nil {
 		return fmt.Errorf("failed to parse index template: %w", err)
 	}
 	wb.templates.indexTemplate = indexTemplate
 
 	// parse file template (reusing index.html which includes file.html)
-	fileTemplate, err := template.New("index.html").Funcs(funcMap).ParseFS(content, "templates/index.html", "templates/file.html")
+	fileTemplate, err := template.New("index.html").Funcs(funcMap).ParseFS(content, templateFiles...)
 	if err != nil {
 		return fmt.Errorf("failed to parse file template: %w", err)
 	}
@@ -227,9 +235,11 @@ func (wb *Web) router() (http.Handler, error) {
 
 	router.HandleFunc("GET /", wb.handleRoot)
 	router.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
-	router.HandleFunc("GET /partials/file-modal", wb.handleFileModal) // handle modal content
-	router.HandleFunc("GET /view/{path...}", wb.handleViewFile)       // handle file viewing
-	router.HandleFunc("GET /api/list", wb.handleAPIList)              // handle JSON API for file listing
+	router.HandleFunc("GET /partials/file-modal", wb.handleFileModal)              // handle modal content
+	router.HandleFunc("POST /partials/selection-status", wb.handleSelectionStatus) // handle selection update
+	router.HandleFunc("POST /download-selected", wb.handleDownloadSelected)        // handle multi-file download
+	router.HandleFunc("GET /view/{path...}", wb.handleViewFile)                    // handle file viewing
+	router.HandleFunc("GET /api/list", wb.handleAPIList)                           // handle JSON API for file listing
 
 	// handler for all static assets
 	router.HandleFunc("GET /assets/{path...}", func(w http.ResponseWriter, r *http.Request) {
@@ -1381,6 +1391,189 @@ func (wb *Web) highlightCode(code, filename, theme string) (string, error) {
 	buf.WriteString("</div>")
 
 	return buf.String(), nil
+}
+
+// handleSelectionStatus processes selection status updates from checkboxes
+// and returns the partial HTML for the selection status component
+func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	// get all selected files from the form
+	selectedFiles := r.Form["selected-files"]
+	selectAll := r.FormValue("select-all")
+
+	// prepare template data
+	data := struct {
+		Count         int
+		SelectedFiles []string
+		SelectAll     bool
+		CheckState    bool
+	}{
+		Count:         len(selectedFiles),
+		SelectedFiles: selectedFiles,
+		SelectAll:     selectAll == "true",
+		CheckState:    len(selectedFiles) > 0,
+	}
+
+	// execute the selection-status template
+	w.Header().Set("Content-Type", "text/html")
+	if err := wb.templates.indexTemplate.ExecuteTemplate(w, "selection-status", data); err != nil {
+		http.Error(w, "template rendering error: "+err.Error(), http.StatusInternalServerError)
+	}
+}
+
+// handleDownloadSelected creates a zip file of selected files and sends it to the client
+func (wb *Web) handleDownloadSelected(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseForm(); err != nil {
+		http.Error(w, "Failed to parse form", http.StatusBadRequest)
+		return
+	}
+
+	// get selected files from form
+	selectedFiles := r.Form["selected-files"]
+	if len(selectedFiles) == 0 {
+		http.Error(w, "No files selected", http.StatusBadRequest)
+		return
+	}
+
+	// set up response headers for the ZIP file
+	timestamp := time.Now().Format("20060102-150405")
+	w.Header().Set("Content-Type", "application/zip")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="weblist-files-%s.zip"`, timestamp))
+
+	// create the ZIP file directly on the response writer
+	zipWriter := zip.NewWriter(w)
+	defer zipWriter.Close()
+
+	// process each selected file
+	for _, filePath := range selectedFiles {
+		// clean the path to avoid directory traversal
+		filePath = filepath.ToSlash(filepath.Clean(filePath))
+
+		// check if the path should be excluded
+		if wb.shouldExclude(filePath) {
+			log.Printf("[WARN] skipping excluded file in ZIP: %s", filePath)
+			continue
+		}
+
+		// check if the file exists
+		fileInfo, err := fs.Stat(wb.FS, filePath)
+		if err != nil {
+			log.Printf("[ERROR] file not found for ZIP: %s: %v", filePath, err)
+			continue
+		}
+
+		// if it's a directory, add all its contents recursively
+		if fileInfo.IsDir() {
+			err = wb.addDirectoryToZip(zipWriter, filePath, "")
+			if err != nil {
+				log.Printf("[ERROR] failed to add directory to ZIP: %s: %v", filePath, err)
+			}
+			continue
+		}
+
+		// add the file to the ZIP
+		err = wb.addFileToZip(zipWriter, filePath, "")
+		if err != nil {
+			log.Printf("[ERROR] failed to add file to ZIP: %s: %v", filePath, err)
+		}
+	}
+}
+
+// addFileToZip adds a single file to the ZIP archive
+func (wb *Web) addFileToZip(zipWriter *zip.Writer, filePath, zipPath string) error {
+	// open the file
+	file, err := wb.FS.Open(filePath)
+	if err != nil {
+		return fmt.Errorf("failed to open file: %w", err)
+	}
+	defer file.Close()
+
+	// get file info
+	info, err := file.Stat()
+	if err != nil {
+		return fmt.Errorf("failed to get file stats: %w", err)
+	}
+
+	// if zipPath is empty, use the original file name
+	if zipPath == "" {
+		zipPath = filepath.Base(filePath)
+	}
+
+	// create a new file header
+	header, err := zip.FileInfoHeader(info)
+	if err != nil {
+		return fmt.Errorf("failed to create ZIP header: %w", err)
+	}
+
+	// set the name in the ZIP
+	header.Name = zipPath
+	header.Method = zip.Deflate // use compression
+
+	// create the file in the ZIP
+	writer, err := zipWriter.CreateHeader(header)
+	if err != nil {
+		return fmt.Errorf("failed to create ZIP entry: %w", err)
+	}
+
+	// copy the file content to the ZIP
+	_, err = io.Copy(writer, file)
+	if err != nil {
+		return fmt.Errorf("failed to write file to ZIP: %w", err)
+	}
+
+	return nil
+}
+
+// addDirectoryToZip recursively adds a directory and its contents to the ZIP
+func (wb *Web) addDirectoryToZip(zipWriter *zip.Writer, dirPath, zipPath string) error {
+	// read the directory contents
+	entries, err := fs.ReadDir(wb.FS, dirPath)
+	if err != nil {
+		return fmt.Errorf("failed to read directory: %w", err)
+	}
+
+	// process each entry
+	for _, entry := range entries {
+		entryPath := filepath.Join(dirPath, entry.Name())
+
+		// skip excluded paths
+		if wb.shouldExclude(entryPath) {
+			continue
+		}
+
+		// create the path within the ZIP
+		entryZipPath := entry.Name()
+		if zipPath != "" {
+			entryZipPath = filepath.Join(zipPath, entry.Name())
+		}
+
+		// if it's a directory, recursively add its contents
+		if entry.IsDir() {
+			// create directory entry in ZIP
+			_, err := zipWriter.Create(entryZipPath + "/")
+			if err != nil {
+				log.Printf("[WARN] failed to create directory in ZIP: %s: %v", entryZipPath, err)
+			}
+
+			// add contents recursively
+			err = wb.addDirectoryToZip(zipWriter, entryPath, entryZipPath)
+			if err != nil {
+				log.Printf("[WARN] failed to add directory contents to ZIP: %s: %v", entryPath, err)
+			}
+		} else {
+			// add the file to the ZIP
+			err := wb.addFileToZip(zipWriter, entryPath, entryZipPath)
+			if err != nil {
+				log.Printf("[WARN] failed to add file to ZIP: %s: %v", entryPath, err)
+			}
+		}
+	}
+
+	return nil
 }
 
 // writeJSONError writes a JSON error response with the specified status code
