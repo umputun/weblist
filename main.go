@@ -31,6 +31,7 @@ type options struct {
 	HideFooter               bool   `short:"f" long:"hide-footer" env:"HIDE_FOOTER"  description:"hide footer"`
 	CustomFooter             string `long:"custom-footer" env:"CUSTOM_FOOTER" description:"custom footer text (can contain HTML)"`
 	EnableSyntaxHighlighting bool   `long:"syntax-highlight" env:"SYNTAX_HIGHLIGHT" description:"enable syntax highlighting"`
+	EnableMultiSelect        bool   `long:"multi" env:"MULTI_SELECT" description:"enable multi-file selection and download"`
 
 	InsecureCookies bool          `long:"insecure-cookies" env:"INSECURE_COOKIES" description:"allow cookies without secure flag"`
 	SessionTTL      time.Duration `long:"session-ttl" env:"SESSION_TTL" default:"24h" description:"session timeout"`
@@ -123,6 +124,7 @@ func runServer(ctx context.Context, opts *options) error {
 		BrandColor:               opts.Branding.Color,
 		InsecureCookies:          opts.InsecureCookies,
 		SessionTTL:               opts.SessionTTL,
+		EnableMultiSelect:        opts.EnableMultiSelect,
 	}
 
 	// create HTTP server
