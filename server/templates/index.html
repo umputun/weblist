@@ -117,7 +117,7 @@
                        hx-swap="innerHTML">
             </th>
             {{ end }}
-            <th hx-get="/partials/dir-contents"
+            <th class="name-cell" hx-get="/partials/dir-contents"
                 hx-vals='{"path": "{{ .Path }}", "sort": "name", "dir": {{ if and (eq .SortBy "name") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
                 hx-target="#page-content"
                 class="{{ if eq .SortBy "name" }}sorted {{ if eq .SortDir "asc" }}asc{{ else }}desc{{ end }}{{ end }}">
@@ -176,8 +176,8 @@
                     {{.Name}}
                 </div>
             </td>
-            <td>{{ .TimeString }}</td>
-            <td>{{ .SizeToString }}</td>
+            <td class="date-col">{{ .TimeString }}</td>
+            <td class="size-col">{{ .SizeToString }}</td>
         </tr>
         {{ else }}
         <!-- File row -->
@@ -225,8 +225,8 @@
                     {{ end }}
                 </div>
             </td>
-            <td>{{ .TimeString }}</td>
-            <td>{{ .SizeToString }}</td>
+            <td class="date-col">{{ .TimeString }}</td>
+            <td class="size-col">{{ .SizeToString }}</td>
         </tr>
         {{ end }}
         {{ end }}
