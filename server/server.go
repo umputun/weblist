@@ -1416,7 +1416,11 @@ func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
 		// if select-all is clicked, we need to toggle between selected and unselected
 		// get the total number of files from the form
 		totalFilesStr := r.FormValue("total-files")
-		totalFiles, _ := strconv.Atoi(totalFilesStr)
+		totalFiles, err := strconv.Atoi(totalFilesStr)
+		if err != nil {
+			http.Error(w, "Invalid total-files value", http.StatusBadRequest)
+			return
+		}
 
 		// if all files are selected, then unselect all
 		if len(selectedFiles) == totalFiles {
