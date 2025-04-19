@@ -17,6 +17,7 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 - **No Setup Required**: Single binary that just works - no configuration needed
 - **Dark Mode**: Easy on the eyes with both light and dark themes
 - **Optional Authentication**: Password-protect your file listings when needed
+- **Multi-file Selection**: Select and download multiple files as a ZIP archive (optional)
 - **SFTP Support**: Access the same files via SFTP for more advanced operations
 - **Syntax Highlighting**: Beautiful code highlighting for various programming languages (optional)
 - **JSON API**: Programmatic access to file listings via a simple JSON API
@@ -58,6 +59,9 @@ weblist --auth your_password
 
 # Enable syntax highlighting for code files
 weblist --syntax-highlight
+
+# Enable multi-file selection and download
+weblist --multi
 ```
 
 ## Installation
@@ -101,6 +105,7 @@ weblist [options]
 - `--dbg`: Debug mode - env: `DEBUG`
 - `--syntax-highlight`: Enable syntax highlighting for code files - env: `SYNTAX_HIGHLIGHT`
 - `--custom-footer`: Custom footer text (can contain HTML) - env: `CUSTOM_FOOTER`
+- `--multi`: Enable multi-file selection and download - env: `MULTI_SELECT`
 
 SFTP Options (with `--sftp` prefix):
 - `--sftp.enabled`: Enable SFTP server - env: `SFTP_ENABLED`
@@ -176,6 +181,27 @@ When SFTP is enabled:
   - You can specify a custom key file with `--sftp.key`
 
 SFTP support is optional and only enabled when both `--sftp.enabled` and `--sftp.user` parameters are provided. Either the `--auth` or `--sftp.authorized` parameter is required when enabling SFTP.
+
+## Multi-file Selection
+
+Weblist can optionally allow users to select and download multiple files at once:
+
+```bash
+# Enable multi-file selection and download
+weblist --multi
+```
+
+When multi-file selection is enabled:
+
+- Checkboxes appear next to each file and directory in the listing
+- A "Select All" checkbox appears in the header for batch selection
+- Selected files and directories are counted and displayed in the header
+- A "Download Selected" button appears when at least one item is selected
+- Clicking the button downloads all selected items as a single ZIP archive
+- Entire directories with their contents can be selected and downloaded
+- The feature works seamlessly in both light and dark themes
+
+Multi-file selection is disabled by default for a cleaner interface and can be enabled with the `--multi` flag.
 
 ## Custom Branding
 
@@ -339,4 +365,5 @@ services:
       - SFTP_KEY=/data/ssh_key  # Optional: Path to SSH host key
       - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth
       - SYNTAX_HIGHLIGHT=true  # Optional: Enable syntax highlighting for code files
+      - MULTI_SELECT=true  # Optional: Enable multi-file selection and download
 ```

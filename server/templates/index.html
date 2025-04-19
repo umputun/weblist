@@ -85,7 +85,9 @@
     
     <div class="actions-container">
         <!-- Selection status and download button container -->
+        {{ if .EnableMultiSelect }}
         <div id="selection-status" class="selection-status"></div>
+        {{ end }}
         
         {{ if .IsAuthenticated }}
         <div class="logout-button">
@@ -104,6 +106,7 @@
     <table role="grid">
         <thead>
         <tr>
+            {{ if .EnableMultiSelect }}
             <th class="select-col">
                 <input type="checkbox" id="select-all" title="Select all files" 
                        hx-post="/partials/selection-status"
@@ -113,6 +116,7 @@
                        hx-vals='{"select-all": "true", "total-files": "{{ len .Files }}"}'
                        hx-swap="innerHTML">
             </th>
+            {{ end }}
             <th hx-get="/partials/dir-contents"
                 hx-vals='{"path": "{{ .Path }}", "sort": "name", "dir": {{ if and (eq .SortBy "name") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
                 hx-target="#page-content"
@@ -138,7 +142,7 @@
         </thead>
         <tbody>
         {{ range .Files }}
-        {{ if ne .Name ".." }}
+        {{ if and (ne .Name "..") ($.EnableMultiSelect) }}
         <input type="hidden" class="path-value" name="path-values" value="{{.Path}}">
         {{ end }}
         {{ if .IsDir }}
@@ -147,6 +151,7 @@
             hx-get="/partials/dir-contents"
             hx-vals='{"path": "{{.Path}}", "sort": "{{$.SortBy}}", "dir": "{{$.SortDir}}"}'
             hx-target="#page-content">
+            {{ if $.EnableMultiSelect }}
             <td class="select-cell">
                 {{ if eq .Name ".." }}
                 <!-- No checkbox for parent directory -->
@@ -161,6 +166,7 @@
                        title="Select directory">
                 {{ end }}
             </td>
+            {{ end }}
             <td class="name-cell">
                 <!-- Directory entry with icon -->
                 <div class="dir-entry">
@@ -176,6 +182,7 @@
         {{ else }}
         <!-- File row -->
         <tr>
+            {{ if $.EnableMultiSelect }}
             <td class="select-cell">
                 <input type="checkbox" class="file-checkbox" name="selected-files" value="{{.Path}}" 
                        hx-post="/partials/selection-status"
@@ -184,6 +191,7 @@
                        hx-include=".file-checkbox, .path-value"
                        title="Select file">
             </td>
+            {{ end }}
             <td class="name-cell">
                 <div class="file-entry">
                     <!-- File: Link to download handler -->

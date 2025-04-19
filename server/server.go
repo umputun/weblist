@@ -75,6 +75,7 @@ type Config struct {
 	CustomFooter             string        // custom footer text (can contain HTML)
 	InsecureCookies          bool          // allow cookies without secure flag
 	SessionTTL               time.Duration // session timeout duration
+	EnableMultiSelect        bool          // enable multi-file selection and download
 }
 
 // Run starts the web server.
@@ -319,31 +320,33 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	data := struct {
-		Files           []FileInfo
-		Path            string
-		DisplayPath     string
-		SortBy          string
-		SortDir         string
-		PathParts       []map[string]string
-		Theme           string
-		Title           string
-		IsAuthenticated bool
-		BrandName       string
-		BrandColor      string
-		CustomFooter    string
+		Files             []FileInfo
+		Path              string
+		DisplayPath       string
+		SortBy            string
+		SortDir           string
+		PathParts         []map[string]string
+		Theme             string
+		Title             string
+		IsAuthenticated   bool
+		BrandName         string
+		BrandColor        string
+		CustomFooter      string
+		EnableMultiSelect bool
 	}{
-		Files:           fileList,
-		Path:            path,
-		DisplayPath:     displayPath,
-		SortBy:          sortBy,
-		SortDir:         sortDir,
-		PathParts:       wb.getPathParts(path, sortBy, sortDir),
-		Theme:           wb.Theme,
-		BrandName:       wb.BrandName,
-		BrandColor:      wb.BrandColor,
-		Title:           wb.Title,
-		IsAuthenticated: isAuthenticated,
-		CustomFooter:    wb.CustomFooter,
+		Files:             fileList,
+		Path:              path,
+		DisplayPath:       displayPath,
+		SortBy:            sortBy,
+		SortDir:           sortDir,
+		PathParts:         wb.getPathParts(path, sortBy, sortDir),
+		Theme:             wb.Theme,
+		BrandName:         wb.BrandName,
+		BrandColor:        wb.BrandColor,
+		Title:             wb.Title,
+		IsAuthenticated:   isAuthenticated,
+		CustomFooter:      wb.CustomFooter,
+		EnableMultiSelect: wb.EnableMultiSelect,
 	}
 
 	// execute just the page-content template
@@ -862,33 +865,35 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	}
 
 	data := struct {
-		Files           []FileInfo
-		Path            string
-		DisplayPath     string
-		SortBy          string
-		SortDir         string
-		PathParts       []map[string]string
-		Theme           string
-		HideFooter      bool
-		IsAuthenticated bool
-		Title           string
-		BrandName       string
-		BrandColor      string
-		CustomFooter    string
+		Files             []FileInfo
+		Path              string
+		DisplayPath       string
+		SortBy            string
+		SortDir           string
+		PathParts         []map[string]string
+		Theme             string
+		HideFooter        bool
+		IsAuthenticated   bool
+		Title             string
+		BrandName         string
+		BrandColor        string
+		CustomFooter      string
+		EnableMultiSelect bool
 	}{
-		Files:           fileList,
-		Path:            path,
-		DisplayPath:     displayPath,
-		SortBy:          sortBy,
-		SortDir:         sortDir,
-		PathParts:       wb.getPathParts(path, sortBy, sortDir),
-		Theme:           wb.Theme,
-		HideFooter:      wb.HideFooter,
-		IsAuthenticated: isAuthenticated,
-		Title:           wb.Title,
-		BrandName:       wb.BrandName,
-		BrandColor:      wb.BrandColor,
-		CustomFooter:    wb.CustomFooter,
+		Files:             fileList,
+		Path:              path,
+		DisplayPath:       displayPath,
+		SortBy:            sortBy,
+		SortDir:           sortDir,
+		PathParts:         wb.getPathParts(path, sortBy, sortDir),
+		Theme:             wb.Theme,
+		HideFooter:        wb.HideFooter,
+		IsAuthenticated:   isAuthenticated,
+		Title:             wb.Title,
+		BrandName:         wb.BrandName,
+		BrandColor:        wb.BrandColor,
+		CustomFooter:      wb.CustomFooter,
+		EnableMultiSelect: wb.EnableMultiSelect,
 	}
 
 	// execute the entire template
