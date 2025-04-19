@@ -4,7 +4,7 @@
     <span class="selected-count">
         {{ if eq .Count 1 }}1 file selected{{ else }}{{ .Count }} files selected{{ end }}
     </span>
-    <form action="/download-selected" method="post" target="_blank">
+    <form action="/download-selected" method="post">
         {{ range .SelectedFiles }}
         <input type="hidden" name="selected-files" value="{{ . }}">
         {{ end }}

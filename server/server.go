@@ -1405,6 +1405,29 @@ func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
 	selectedFiles := r.Form["selected-files"]
 	selectAll := r.FormValue("select-all")
 
+	// toggle logic for select-all
+	var checkState bool
+	if selectAll == "true" {
+		// if select-all is clicked, we need to toggle between selected and unselected
+		// get the total number of files from the form
+		totalFilesStr := r.FormValue("total-files")
+		totalFiles, _ := strconv.Atoi(totalFilesStr)
+
+		// if all files are selected, then unselect all
+		if len(selectedFiles) == totalFiles {
+			checkState = false
+			selectedFiles = []string{} // clear the selection
+		} else {
+			// otherwise, we want to select all files
+			// get all path-values from the form
+			selectedFiles = r.Form["path-values"]
+			checkState = true
+		}
+	} else {
+		// regular checkbox update - just use the current selection
+		checkState = len(selectedFiles) > 0
+	}
+
 	// prepare template data
 	data := struct {
 		Count         int
@@ -1415,7 +1438,7 @@ func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
 		Count:         len(selectedFiles),
 		SelectedFiles: selectedFiles,
 		SelectAll:     selectAll == "true",
-		CheckState:    len(selectedFiles) > 0,
+		CheckState:    checkState,
 	}
 
 	// execute the selection-status template

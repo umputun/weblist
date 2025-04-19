@@ -109,8 +109,8 @@
                        hx-post="/partials/selection-status"
                        hx-trigger="click"
                        hx-target="#selection-status"
-                       hx-include=".file-checkbox"
-                       hx-vals='{"select-all": "true"}'
+                       hx-include=".file-checkbox, .path-value"
+                       hx-vals='{"select-all": "true", "total-files": "{{ len .Files }}"}'
                        hx-swap="innerHTML">
             </th>
             <th hx-get="/partials/dir-contents"
@@ -138,6 +138,9 @@
         </thead>
         <tbody>
         {{ range .Files }}
+        {{ if ne .Name ".." }}
+        <input type="hidden" class="path-value" name="path-values" value="{{.Path}}">
+        {{ end }}
         {{ if .IsDir }}
         <!-- Directory row: Make the entire row clickable -->
         <tr class="dir-row" 
@@ -153,7 +156,7 @@
                        hx-post="/partials/selection-status"
                        hx-trigger="click"
                        hx-target="#selection-status"
-                       hx-include=".file-checkbox"
+                       hx-include=".file-checkbox, .path-value"
                        onclick="event.stopPropagation();"
                        title="Select directory">
                 {{ end }}
@@ -178,7 +181,7 @@
                        hx-post="/partials/selection-status"
                        hx-trigger="click"
                        hx-target="#selection-status"
-                       hx-include=".file-checkbox"
+                       hx-include=".file-checkbox, .path-value"
                        title="Select file">
             </td>
             <td class="name-cell">
