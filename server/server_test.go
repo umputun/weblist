@@ -3445,50 +3445,118 @@ func TestHandleDownloadSelected(t *testing.T) {
 		FS: os.DirFS("testdata"),
 	}
 
-	// test with multiple files selected
-	formData := url.Values{}
-	formData.Add("selected-files", "file1.txt")
-	formData.Add("selected-files", "file2.txt")
-	req := httptest.NewRequest("POST", "/download-selected", strings.NewReader(formData.Encode()))
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr := httptest.NewRecorder()
+	t.Run("Multiple files selection", func(t *testing.T) {
+		// test with multiple files selected
+		formData := url.Values{}
+		formData.Add("selected-files", "file1.txt")
+		formData.Add("selected-files", "file2.txt")
+		req := httptest.NewRequest("POST", "/download-selected", strings.NewReader(formData.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
 
-	web.handleDownloadSelected(rr, req)
+		web.handleDownloadSelected(rr, req)
 
-	// verify response headers
-	assert.Equal(t, "application/zip", rr.Header().Get("Content-Type"))
-	assert.Contains(t, rr.Header().Get("Content-Disposition"), "attachment; filename=\"weblist-files-")
+		// verify response headers
+		assert.Equal(t, "application/zip", rr.Header().Get("Content-Type"))
+		assert.Contains(t, rr.Header().Get("Content-Disposition"), "attachment; filename=\"weblist-files-")
 
-	// verify ZIP file content
-	reader := bytes.NewReader(rr.Body.Bytes())
-	zipReader, err := zip.NewReader(reader, int64(len(rr.Body.Bytes())))
-	require.NoError(t, err)
+		// verify ZIP file content
+		reader := bytes.NewReader(rr.Body.Bytes())
+		zipReader, err := zip.NewReader(reader, int64(len(rr.Body.Bytes())))
+		require.NoError(t, err)
 
-	// check that the ZIP contains the expected files
-	fileNames := make([]string, 0, len(zipReader.File))
-	for _, zipFile := range zipReader.File {
-		fileNames = append(fileNames, zipFile.Name)
-	}
-	assert.ElementsMatch(t, []string{"file1.txt", "file2.txt"}, fileNames)
-
-	// check file content
-	var file1Found bool
-	for _, zipFile := range zipReader.File {
-		if zipFile.Name != "file1.txt" {
-			continue
+		// check that the ZIP contains the expected files
+		fileNames := make([]string, 0, len(zipReader.File))
+		for _, zipFile := range zipReader.File {
+			fileNames = append(fileNames, zipFile.Name)
 		}
-		
-		file1Found = true
-		f, err := zipFile.Open()
+		assert.ElementsMatch(t, []string{"file1.txt", "file2.txt"}, fileNames)
+
+		// check file content
+		var file1Found bool
+		for _, zipFile := range zipReader.File {
+			if zipFile.Name != "file1.txt" {
+				continue
+			}
+
+			file1Found = true
+			f, err := zipFile.Open()
+			require.NoError(t, err)
+
+			content, err := io.ReadAll(f)
+			require.NoError(t, err)
+			// the test file might have different content in testdata
+			assert.NotEmpty(t, content)
+			f.Close() // close explicitly instead of using defer in a loop
+		}
+
+		// ensure we found and checked file1.txt
+		assert.True(t, file1Found, "file1.txt should be in the ZIP archive")
+	})
+
+	t.Run("Directory selection with recursive content", func(t *testing.T) {
+		formData := url.Values{}
+		formData.Add("selected-files", "dir1") // this directory contains file3.txt and subdir/file4.txt
+		req := httptest.NewRequest("POST", "/download-selected", strings.NewReader(formData.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+
+		web.handleDownloadSelected(rr, req)
+
+		// verify response headers
+		assert.Equal(t, "application/zip", rr.Header().Get("Content-Type"))
+		assert.Contains(t, rr.Header().Get("Content-Disposition"), "attachment; filename=\"weblist-files-")
+
+		// verify ZIP file content
+		reader := bytes.NewReader(rr.Body.Bytes())
+		zipReader, err := zip.NewReader(reader, int64(len(rr.Body.Bytes())))
 		require.NoError(t, err)
-		
-		content, err := io.ReadAll(f)
+
+		// extract all file paths from the ZIP
+		var zipPaths []string
+		for _, zipFile := range zipReader.File {
+			zipPaths = append(zipPaths, zipFile.Name)
+		}
+
+		// verify that we have the expected directory structure
+		assert.Contains(t, zipPaths, "file3.txt", "file3.txt should be in the ZIP")
+		assert.Contains(t, zipPaths, "subdir/file4.txt", "subdir/file4.txt should be in the ZIP")
+
+		// verify directory entry exists
+		var dirEntryFound bool
+		for _, zipPath := range zipPaths {
+			if zipPath == "subdir/" {
+				dirEntryFound = true
+				break
+			}
+		}
+		assert.True(t, dirEntryFound, "directory entry for subdir/ should exist in ZIP")
+	})
+
+	t.Run("Mixed selection of files and directories", func(t *testing.T) {
+		formData := url.Values{}
+		formData.Add("selected-files", "file1.txt")
+		formData.Add("selected-files", "dir1") // this directory contains file3.txt and subdir/file4.txt
+		req := httptest.NewRequest("POST", "/download-selected", strings.NewReader(formData.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+
+		web.handleDownloadSelected(rr, req)
+
+		// verify ZIP file content
+		reader := bytes.NewReader(rr.Body.Bytes())
+		zipReader, err := zip.NewReader(reader, int64(len(rr.Body.Bytes())))
 		require.NoError(t, err)
-		// the test file might have different content in testdata
-		assert.NotEmpty(t, content)
-		f.Close() // close explicitly instead of using defer in a loop
-	}
-	
-	// ensure we found and checked file1.txt
-	assert.True(t, file1Found, "file1.txt should be in the ZIP archive")
+
+		// extract all file paths from the ZIP
+		var zipPaths []string
+		for _, zipFile := range zipReader.File {
+			zipPaths = append(zipPaths, zipFile.Name)
+		}
+
+		// verify that we have the expected files
+		assert.Contains(t, zipPaths, "file1.txt", "file1.txt should be in the ZIP")
+		assert.Contains(t, zipPaths, "file3.txt", "file3.txt should be in the ZIP")
+		assert.Contains(t, zipPaths, "subdir/file4.txt", "subdir/file4.txt should be in the ZIP")
+	})
 }

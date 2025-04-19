@@ -1422,14 +1422,17 @@ func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
-		// if all files are selected, then unselect all
+		// check if we're toggling from "all selected" to "none selected" state
+		// if the number of selected files matches the total, we're in "all selected" state
 		if len(selectedFiles) == totalFiles {
+			// toggle to "none selected" state
 			checkState = false
 			selectedFiles = []string{} // clear the selection
 		} else {
-			// otherwise, we want to select all files
-			// get all path-values from the form
+			// otherwise, we're toggling from "none selected" or "partially selected" to "all selected"
+			// get path values for all files in the current directory
 			selectedFiles = r.Form["path-values"]
+			// set checkboxes to checked state
 			checkState = true
 		}
 	} else {
