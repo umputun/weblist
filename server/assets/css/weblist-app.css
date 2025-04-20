@@ -578,6 +578,7 @@ pre {
   display: flex;
   align-items: center;
   gap: var(--spacing-md);
+  height: 30px;
 }
 
 #selection-status form {
