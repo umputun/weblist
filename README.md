@@ -62,6 +62,9 @@ weblist --syntax-highlight
 
 # Enable multi-file selection and download
 weblist --multi
+
+# Set a custom title for your file server
+weblist --title "My Files"
 ```
 
 ## Installation
@@ -106,6 +109,7 @@ weblist [options]
 - `--syntax-highlight`: Enable syntax highlighting for code files - env: `SYNTAX_HIGHLIGHT`
 - `--custom-footer`: Custom footer text (can contain HTML) - env: `CUSTOM_FOOTER`
 - `--multi`: Enable multi-file selection and download - env: `MULTI_SELECT`
+- `--title`: Custom title for the site (used in browser title and home) - env: `TITLE`
 
 SFTP Options (with `--sftp` prefix):
 - `--sftp.enabled`: Enable SFTP server - env: `SFTP_ENABLED`
@@ -366,4 +370,5 @@ services:
       - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth
       - SYNTAX_HIGHLIGHT=true  # Optional: Enable syntax highlighting for code files
       - MULTI_SELECT=true  # Optional: Enable multi-file selection and download
+      - TITLE=My File Server  # Optional: Custom title for the site
 ```
