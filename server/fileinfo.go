@@ -39,6 +39,11 @@ func (f FileInfo) TimeString() string {
 	return f.LastModified.Format("02-Jan-2006 15:04:05")
 }
 
+// TimeStringShort formats the last modified time with 2-digit year for mobile
+func (f FileInfo) TimeStringShort() string {
+	return f.LastModified.Format("02-Jan-06")
+}
+
 // commonTextExtensions contains a map of common text file extensions
 var commonTextExtensions = func() map[string]bool {
 	exts := []string{
