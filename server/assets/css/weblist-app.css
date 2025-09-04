@@ -528,9 +528,7 @@ pre {
 @media (max-width: 480px) {
   /* Hide Size column on small mobile phones */
   table th.size-col,
-  table td.size-col,
-  table th:nth-child(3):not(.date-col),
-  table td:nth-child(3):not(.date-col) {
+  table td.size-col {
     display: none;
   }
   
@@ -692,7 +690,6 @@ pre {
     overflow-x: auto;
     overflow-y: hidden;
     scrollbar-width: none;
-    -ms-overflow-style: none;
   }
   
   .path-parts::-webkit-scrollbar {
