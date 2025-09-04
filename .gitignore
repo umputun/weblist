@@ -20,3 +20,4 @@ weblist
 profile.cov_tmp
 profile.cov
 weblist_rsa
+.playwright-mcp

@@ -176,7 +176,10 @@
                     {{.Name}}
                 </div>
             </td>
-            <td class="date-col">{{ .TimeString }}</td>
+            <td class="date-col">
+                <span class="date-full">{{ .TimeString }}</span>
+                <span class="date-short">{{ .TimeStringShort }}</span>
+            </td>
             <td class="size-col">{{ .SizeToString }}</td>
         </tr>
         {{ else }}
@@ -225,7 +228,10 @@
                     {{ end }}
                 </div>
             </td>
-            <td class="date-col">{{ .TimeString }}</td>
+            <td class="date-col">
+                <span class="date-full">{{ .TimeString }}</span>
+                <span class="date-short">{{ .TimeStringShort }}</span>
+            </td>
             <td class="size-col">{{ .SizeToString }}</td>
         </tr>
         {{ end }}

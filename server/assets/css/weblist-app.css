@@ -507,9 +507,9 @@ pre {
     padding-bottom: var(--spacing-xs);
   }
   
-  /* Adjust padding for main container to accommodate sticky header */
+  /* Remove unnecessary padding on mobile */
   body {
-    padding-top: 1rem;
+    padding-top: 0;
   }
 }
 
@@ -517,6 +517,42 @@ pre {
 [data-theme="dark"] table th {
   color: var(--color-text);
   background-color: var(--color-surface);
+}
+
+/* By default, show full date and hide short */
+.date-short {
+  display: none;
+}
+
+/* Media query for really small mobile screens */
+@media (max-width: 480px) {
+  /* Hide Size column on small mobile phones */
+  table th.size-col,
+  table td.size-col,
+  table th:nth-child(3):not(.date-col),
+  table td:nth-child(3):not(.date-col) {
+    display: none;
+  }
+  
+  /* Adjust column widths for mobile without Size column */
+  table th.name-cell, 
+  table td.name-cell { 
+    width: 65%; 
+  }
+  
+  table th.date-col, 
+  table td.date-col { 
+    width: 35%; 
+  }
+  
+  /* Show short date format, hide full date format on mobile */
+  .date-full {
+    display: none;
+  }
+  
+  .date-short {
+    display: inline;
+  }
 }
 
 [data-theme="dark"] table thead {
@@ -644,26 +680,34 @@ pre {
 /* Responsive adjustments for selection elements */
 @media (max-width: 768px) {
   .breadcrumbs {
-    flex-direction: column;
-    align-items: flex-start;
-    row-gap: var(--spacing-sm);
+    flex-direction: row;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.5rem 0.75rem;
   }
   
   .path-parts {
-    width: 100%;
-    overflow: auto;
-    margin-bottom: var(--spacing-xs);
+    flex: 1;
+    min-width: 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  .path-parts::-webkit-scrollbar {
+    display: none;
   }
   
   .actions-container {
-    width: 100%;
-    margin-top: var(--spacing-sm);
+    flex-shrink: 0;
+    margin-left: var(--spacing-md);
     display: flex;
-    justify-content: space-between;
+    align-items: center;
+    gap: var(--spacing-sm);
   }
   
   .selection-status {
-    width: 100%;
     justify-content: flex-start;
     margin-left: 0;
   }
