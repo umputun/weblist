@@ -80,6 +80,11 @@ type Config struct {
 
 // Run starts the web server.
 func (wb *Web) Run(ctx context.Context) error {
+	// validate listen address
+	if wb.ListenAddr == "" {
+		return fmt.Errorf("listen address cannot be empty")
+	}
+
 	// normalize brand color if provided
 	wb.BrandColor = wb.normalizeBrandColor(wb.BrandColor)
 
@@ -220,7 +225,7 @@ func (wb *Web) router() (http.Handler, error) {
 		return nil, fmt.Errorf("failed to load embedded assets: %w", err)
 	}
 
-	// add authentication middleware if Auth is set
+	// add authentication routes if Auth is set
 	if wb.Auth != "" {
 		router.HandleFunc("GET /login", wb.handleLoginPage)
 
@@ -231,16 +236,21 @@ func (wb *Web) router() (http.Handler, error) {
 		})
 
 		router.HandleFunc("GET /logout", wb.handleLogout)
-		router.Use(wb.authMiddleware)
 	}
 
-	router.HandleFunc("GET /", wb.handleRoot)
-	router.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
-	router.HandleFunc("GET /partials/file-modal", wb.handleFileModal)              // handle modal content
-	router.HandleFunc("POST /partials/selection-status", wb.handleSelectionStatus) // handle selection update
-	router.HandleFunc("POST /download-selected", wb.handleDownloadSelected)        // handle multi-file download
-	router.HandleFunc("GET /view/{path...}", wb.handleViewFile)                    // handle file viewing
-	router.HandleFunc("GET /api/list", wb.handleAPIList)                           // handle JSON API for file listing
+	router.Group().Route(func(auth *routegroup.Bundle) {
+		if wb.Auth != "" {
+			auth.Use(wb.authMiddleware)
+		}
+		auth.HandleFunc("GET /", wb.handleRoot)
+		auth.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
+		auth.HandleFunc("GET /partials/file-modal", wb.handleFileModal)              // handle modal content
+		auth.HandleFunc("POST /partials/selection-status", wb.handleSelectionStatus) // handle selection update
+		auth.HandleFunc("POST /download-selected", wb.handleDownloadSelected)        // handle multi-file download
+		auth.HandleFunc("GET /view/{path...}", wb.handleViewFile)                    // handle file viewing
+		auth.HandleFunc("GET /api/list", wb.handleAPIList)                           // handle JSON API for file listing
+		auth.HandleFunc("GET /{path...}", wb.handleDownload)                         // handle file downloads with just the path
+	})
 
 	// handler for all static assets
 	router.HandleFunc("GET /assets/{path...}", func(w http.ResponseWriter, r *http.Request) {
@@ -254,7 +264,6 @@ func (wb *Web) router() (http.Handler, error) {
 		}
 		http.ServeFileFS(w, r, assetsFS, path)
 	})
-	router.HandleFunc("GET /{path...}", wb.handleDownload) // handle file downloads with just the path
 
 	return router, nil
 }
