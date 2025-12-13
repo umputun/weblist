@@ -18,6 +18,7 @@ import (
 	"log"
 	"net/http"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -283,6 +284,12 @@ func (wb *Web) handleRoot(w http.ResponseWriter, r *http.Request) {
 
 // handleDirContents renders partial directory contents for HTMX requests
 func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
+	// redirect non-HTMX requests to main page for proper full-page rendering
+	if !wb.isHTMXRequest(r) {
+		http.Redirect(w, r, "/?"+r.URL.RawQuery, http.StatusFound)
+		return
+	}
+
 	// get directory path from query parameters
 	path := r.URL.Query().Get("path")
 	if path == "" {
@@ -986,6 +993,7 @@ func (wb *Web) shouldExclude(path string) bool {
 
 	// normalize path for matching
 	normalizedPath := filepath.ToSlash(path)
+	pathParts := strings.Split(normalizedPath, "/")
 
 	for _, pattern := range wb.Exclude {
 		// convert pattern to use forward slashes for consistency
@@ -998,11 +1006,8 @@ func (wb *Web) shouldExclude(path string) bool {
 
 		// check if the path contains the pattern as a directory component
 		// this handles cases like "some/git/path" when pattern is ".git"
-		parts := strings.Split(normalizedPath, "/")
-		for _, part := range parts {
-			if part == pattern {
-				return true
-			}
+		if slices.Contains(pathParts, pattern) {
+			return true
 		}
 
 		// check if the path ends with the pattern
@@ -1347,9 +1352,9 @@ func (wb *Web) isRequestSecure(r *http.Request) bool {
 		if fwd := r.Header.Get("Forwarded"); fwd != "" {
 			// RFC 7239 specifies that Forwarded header may contain multiple
 			// comma-separated entries, each with semicolon-separated parameters
-			for _, entry := range strings.Split(fwd, ",") {
+			for entry := range strings.SplitSeq(fwd, ",") {
 				entry = strings.TrimSpace(entry)
-				for _, part := range strings.Split(entry, ";") {
+				for part := range strings.SplitSeq(entry, ";") {
 					part = strings.TrimSpace(part)
 					if strings.HasPrefix(part, "proto=") && strings.ToLower(strings.TrimPrefix(part, "proto=")) == "https" {
 						return true
@@ -1360,6 +1365,11 @@ func (wb *Web) isRequestSecure(r *http.Request) bool {
 	}
 
 	return false
+}
+
+// isHTMXRequest checks if the request is from HTMX by examining the HX-Request header
+func (wb *Web) isHTMXRequest(r *http.Request) bool {
+	return r.Header.Get("HX-Request") == "true"
 }
 
 // highlightCode applies syntax highlighting to the given code content
@@ -1464,6 +1474,10 @@ func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
 
 	// execute the selection-status template
 	w.Header().Set("Content-Type", "text/html")
+	// trigger checkbox sync event when select-all is clicked
+	if selectAll == "true" {
+		w.Header().Set("HX-Trigger", "updateCheckboxes")
+	}
 	if err := wb.templates.indexTemplate.ExecuteTemplate(w, "selection-status", data); err != nil {
 		http.Error(w, "template rendering error: "+err.Error(), http.StatusInternalServerError)
 	}
@@ -1621,7 +1635,7 @@ func (wb *Web) addDirectoryToZip(zipWriter *zip.Writer, dirPath, zipPath string)
 }
 
 // writeJSONError writes a JSON error response with the specified status code
-func writeJSONError(w http.ResponseWriter, status int, errMsg string) {
+func (wb *Web) writeJSONError(w http.ResponseWriter, status int, errMsg string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
 	if err := json.NewEncoder(w).Encode(map[string]string{"error": errMsg}); err != nil {
@@ -1691,12 +1705,12 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	// check if the path exists and is a directory
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
-		writeJSONError(w, http.StatusNotFound, fmt.Sprintf("directory not found: %v", err))
+		wb.writeJSONError(w, http.StatusNotFound, fmt.Sprintf("directory not found: %v", err))
 		return
 	}
 
 	if !fileInfo.IsDir() {
-		writeJSONError(w, http.StatusBadRequest, "not a directory")
+		wb.writeJSONError(w, http.StatusBadRequest, "not a directory")
 		return
 	}
 
@@ -1707,7 +1721,7 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	// get the file list
 	fileList, err := wb.getFileList(path, sortBy, sortDir)
 	if err != nil {
-		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("error reading directory: %v", err))
+		wb.writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("error reading directory: %v", err))
 		return
 	}
 
@@ -1760,6 +1774,6 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	// set content type and encode to JSON
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(response); err != nil {
-		writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("error encoding JSON: %v", err))
+		wb.writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("error encoding JSON: %v", err))
 	}
 }

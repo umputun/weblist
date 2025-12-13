@@ -18,10 +18,4 @@
     </form>
     {{ end }}
 </div>
-{{ if .SelectAll }}
-<script>
-    document.querySelectorAll('.file-checkbox').forEach(cb => cb.checked = {{ .CheckState }});
-    document.getElementById('select-all').checked = {{ .CheckState }};
-</script>
-{{ end }}
 {{ end }}

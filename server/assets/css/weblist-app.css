@@ -388,6 +388,44 @@ pre {
   to { transform: rotate(360deg); }
 }
 
+/* htmx request states */
+.htmx-request #page-content {
+  opacity: 0.6;
+  pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+
+.htmx-request .nav-spinner {
+  display: inline-block;
+}
+
+.nav-spinner {
+  display: none;
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--color-border-muted);
+  border-radius: 50%;
+  border-top-color: var(--color-primary);
+  animation: spin 0.8s linear infinite;
+  margin-left: 8px;
+  vertical-align: middle;
+}
+
+/* htmx error feedback */
+.htmx-error-container {
+  background: var(--color-error-background);
+  border: 1px solid var(--color-error);
+  color: var(--color-error);
+  padding: 12px 16px;
+  border-radius: var(--border-radius-sm);
+  margin: var(--spacing-md) 0;
+  display: none;
+}
+
+.htmx-error-container.active {
+  display: block;
+}
+
 .modal-image {
   max-width: 100%;
   max-height: 100%;

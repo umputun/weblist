@@ -10,7 +10,17 @@
     <link rel="stylesheet" href="/assets/css/weblist-app.css">
     <script src="/assets/js/htmx.min.js"></script>
 </head>
-<body hx-on:keydown="if(event.key === 'Escape') document.getElementById('modal-container').innerHTML = ''">
+<body hx-on:keydown="if(event.key === 'Escape') document.getElementById('modal-container').innerHTML = ''"
+      hx-on:updateCheckboxes="document.querySelectorAll('.file-checkbox').forEach(function(cb) { cb.checked = document.getElementById('select-all').checked; })">
+<div id="htmx-error" class="htmx-error-container"></div>
+<script>
+document.body.addEventListener('htmx:responseError', function(evt) {
+    var errorDiv = document.getElementById('htmx-error');
+    errorDiv.textContent = 'Failed to load: ' + evt.detail.xhr.statusText;
+    errorDiv.classList.add('active');
+    setTimeout(function() { errorDiv.classList.remove('active'); }, 5000);
+});
+</script>
 <main class="container">
     <div id="page-content">
         {{ template "page-content" . }}
@@ -61,24 +71,26 @@
         <span class="brand-name">{{ .BrandName }}</span>
         <span class="brand-separator">|</span>
         {{ end }}
-        <!-- Home link with HTMX - no URL push -->
         <a href="#"
            hx-get="/partials/dir-contents"
            hx-vals='{"path": ".", "sort": "{{$.SortBy}}", "dir": "{{$.SortDir}}"}'
-           hx-target="#page-content">
+           hx-target="#page-content"
+           hx-push-url="/?sort={{$.SortBy}}&dir={{$.SortDir}}">
             <svg class="icon dir-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
                 <path d="M8.707 1.5a1 1 0 0 0-1.414 0L.646 8.146a.5.5 0 0 0 .708.708L8 2.207l6.646 6.647a.5.5 0 0 0 .708-.708L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.707 1.5Z"/>
                 <path d="m8 3.293 6 6V13.5a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 2 13.5V9.293l6-6Z"/>
             </svg>
             {{ if .Title }}{{ .Title }}{{ else }}Home{{ end }}
         </a>
+        <span class="nav-spinner"></span>
         {{ if .PathParts }}
         {{ range .PathParts }}
         <span>/</span>
         <a href="#"
            hx-get="/partials/dir-contents"
            hx-vals='{"path": "{{.Path}}", "sort": "{{$.SortBy}}", "dir": "{{$.SortDir}}"}'
-           hx-target="#page-content">{{.Name}}</a>
+           hx-target="#page-content"
+           hx-push-url="/?path={{.Path}}&sort={{$.SortBy}}&dir={{$.SortDir}}">{{.Name}}</a>
         {{ end }}
         {{ end }}
     </div>
@@ -120,6 +132,7 @@
             <th class="name-cell" hx-get="/partials/dir-contents"
                 hx-vals='{"path": "{{ .Path }}", "sort": "name", "dir": {{ if and (eq .SortBy "name") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
                 hx-target="#page-content"
+                hx-push-url="{{ if ne .Path "." }}/?path={{ .Path }}&{{ else }}/?{{ end }}sort=name&dir={{ if and (eq .SortBy "name") (eq .SortDir "asc") }}desc{{ else }}asc{{ end }}"
                 class="{{ if eq .SortBy "name" }}sorted {{ if eq .SortDir "asc" }}asc{{ else }}desc{{ end }}{{ end }}">
             Name
             {{ if eq .SortBy "name" }}{{ if eq .SortDir "asc" }}↑{{ else }}↓{{ end }}{{ end }}
@@ -127,6 +140,7 @@
             <th class="date-col" hx-get="/partials/dir-contents"
                 hx-vals='{"path": "{{ .Path }}", "sort": "date", "dir": {{ if and (eq .SortBy "date") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
                 hx-target="#page-content"
+                hx-push-url="{{ if ne .Path "." }}/?path={{ .Path }}&{{ else }}/?{{ end }}sort=date&dir={{ if and (eq .SortBy "date") (eq .SortDir "asc") }}desc{{ else }}asc{{ end }}"
                 class="{{ if eq .SortBy "date" }}sorted {{ if eq .SortDir "asc" }}asc{{ else }}desc{{ end }}{{ end }}">
             Last Modified
             {{ if eq .SortBy "date" }}{{ if eq .SortDir "asc" }}↑{{ else }}↓{{ end }}{{ end }}
@@ -134,6 +148,7 @@
             <th class="size-col" hx-get="/partials/dir-contents"
                 hx-vals='{"path": "{{ .Path }}", "sort": "size", "dir": {{ if and (eq .SortBy "size") (eq .SortDir "asc") }}"desc"{{ else }}"asc"{{ end }}}'
                 hx-target="#page-content"
+                hx-push-url="{{ if ne .Path "." }}/?path={{ .Path }}&{{ else }}/?{{ end }}sort=size&dir={{ if and (eq .SortBy "size") (eq .SortDir "asc") }}desc{{ else }}asc{{ end }}"
                 class="{{ if eq .SortBy "size" }}sorted {{ if eq .SortDir "asc" }}asc{{ else }}desc{{ end }}{{ end }}">
             Size
             {{ if eq .SortBy "size" }}{{ if eq .SortDir "asc" }}↑{{ else }}↓{{ end }}{{ end }}
@@ -146,11 +161,11 @@
         <input type="hidden" class="path-value" name="path-values" value="{{.Path}}">
         {{ end }}
         {{ if .IsDir }}
-        <!-- Directory row: Make the entire row clickable -->
-        <tr class="dir-row" 
+        <tr class="dir-row"
             hx-get="/partials/dir-contents"
             hx-vals='{"path": "{{.Path}}", "sort": "{{$.SortBy}}", "dir": "{{$.SortDir}}"}'
-            hx-target="#page-content">
+            hx-target="#page-content"
+            hx-push-url="/?path={{.Path}}&sort={{$.SortBy}}&dir={{$.SortDir}}">
             {{ if $.EnableMultiSelect }}
             <td class="select-cell">
                 {{ if eq .Name ".." }}

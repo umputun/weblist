@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -374,6 +375,7 @@ func TestHandleDirContents(t *testing.T) {
 
 			req, err := http.NewRequest("GET", requestURL, nil)
 			require.NoError(t, err)
+			req.Header.Set("HX-Request", "true") // simulate HTMX request
 
 			rr := httptest.NewRecorder()
 			handler := http.HandlerFunc(srv.handleDirContents)
@@ -392,6 +394,21 @@ func TestHandleDirContents(t *testing.T) {
 	}
 }
 
+func TestHandleDirContentsRedirectsNonHTMX(t *testing.T) {
+	srv := setupTestServer(t)
+
+	req, err := http.NewRequest("GET", "/partials/dir-contents?path=dir1&sort=name&dir=asc", nil)
+	require.NoError(t, err)
+	// no HX-Request header set - simulates direct browser access
+
+	rr := httptest.NewRecorder()
+	handler := http.HandlerFunc(srv.handleDirContents)
+	handler.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusFound, rr.Code)
+	assert.Equal(t, "/?path=dir1&sort=name&dir=asc", rr.Header().Get("Location"))
+}
+
 func TestHandleDirContentsWithSortCookies(t *testing.T) {
 	srv := setupTestServer(t)
 
@@ -399,6 +416,7 @@ func TestHandleDirContentsWithSortCookies(t *testing.T) {
 		// first request with query parameters
 		req, err := http.NewRequest("GET", "/partials/dir-contents?path=.&sort=size&dir=desc", nil)
 		require.NoError(t, err)
+		req.Header.Set("HX-Request", "true") // simulate HTMX request
 
 		rr := httptest.NewRecorder()
 		handler := http.HandlerFunc(srv.handleDirContents)
@@ -426,6 +444,7 @@ func TestHandleDirContentsWithSortCookies(t *testing.T) {
 		// create a request with cookies but no query parameters
 		req, err := http.NewRequest("GET", "/partials/dir-contents?path=.", nil)
 		require.NoError(t, err)
+		req.Header.Set("HX-Request", "true") // simulate HTMX request
 
 		// add cookies
 		req.AddCookie(&http.Cookie{
@@ -515,6 +534,7 @@ func TestHandleDirContentsWithSorting(t *testing.T) {
 
 			req, err := http.NewRequest("GET", requestURL, nil)
 			require.NoError(t, err)
+			req.Header.Set("HX-Request", "true") // simulate HTMX request
 
 			rr := httptest.NewRecorder()
 			handler := http.HandlerFunc(srv.handleDirContents)
@@ -602,27 +622,13 @@ func TestGetFileList(t *testing.T) {
 			// check files
 			assert.Equal(t, len(tc.expectedFiles), len(fileNames), "Wrong number of files")
 			for _, expectedFile := range tc.expectedFiles {
-				found := false
-				for _, actualFile := range fileNames {
-					if actualFile == expectedFile {
-						found = true
-						break
-					}
-				}
-				assert.True(t, found, "Expected file %s not found", expectedFile)
+				assert.True(t, slices.Contains(fileNames, expectedFile), "Expected file %s not found", expectedFile)
 			}
 
 			// check directories
 			assert.Equal(t, len(tc.expectedDirs), len(dirNames), "Wrong number of directories")
 			for _, expectedDir := range tc.expectedDirs {
-				found := false
-				for _, actualDir := range dirNames {
-					if actualDir == expectedDir {
-						found = true
-						break
-					}
-				}
-				assert.True(t, found, "Expected directory %s not found", expectedDir)
+				assert.True(t, slices.Contains(dirNames, expectedDir), "Expected directory %s not found", expectedDir)
 			}
 		})
 	}
@@ -1188,7 +1194,11 @@ func TestServerIntegration(t *testing.T) {
 	})
 
 	t.Run("sorting", func(t *testing.T) {
-		resp, err := client.Get(baseURL + "/partials/dir-contents?path=&sort=name&dir=desc")
+		req, err := http.NewRequest("GET", baseURL+"/partials/dir-contents?path=&sort=name&dir=desc", nil)
+		require.NoError(t, err)
+		req.Header.Set("HX-Request", "true") // simulate HTMX request
+
+		resp, err := client.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -1293,6 +1303,9 @@ func TestDirectoryTraversalPrevention(t *testing.T) {
 			case "handleDirContents":
 				handler = srv.handleDirContents
 				req, err = http.NewRequest("GET", "/partials/dir-contents?path="+tc.path, nil)
+				if err == nil {
+					req.Header.Set("HX-Request", "true") // simulate HTMX request
+				}
 			case "handleDownload":
 				handler = srv.handleDownload
 				req, err = http.NewRequest("GET", tc.path, nil)
@@ -1329,7 +1342,7 @@ func TestLoginRateLimit(t *testing.T) {
 	require.NoError(t, err)
 
 	// simulate multiple login attempts from the same IP
-	for i := 0; i < 10; i++ {
+	for i := range 10 {
 		// create login form data with incorrect credentials
 		formData := url.Values{}
 		formData.Set("username", "weblist")
@@ -2792,7 +2805,7 @@ func (m *mockFileInfo) IsDir() bool {
 	return m.file.isDir
 }
 
-func (m *mockFileInfo) Sys() interface{} {
+func (m *mockFileInfo) Sys() any {
 	return nil
 }
 
@@ -3410,30 +3423,80 @@ func TestHandleSelectionStatus(t *testing.T) {
 	err := web.initTemplates()
 	require.NoError(t, err)
 
-	// test case 1: No files selected
-	formData1 := url.Values{}
-	req1 := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData1.Encode()))
-	req1.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr1 := httptest.NewRecorder()
+	t.Run("no files selected", func(t *testing.T) {
+		formData := url.Values{}
+		req := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
 
-	web.handleSelectionStatus(rr1, req1)
-	require.Equal(t, http.StatusOK, rr1.Code)
-	// empty selection should not have the download button
-	require.NotContains(t, rr1.Body.String(), "Download Selected")
+		web.handleSelectionStatus(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+		require.NotContains(t, rr.Body.String(), "Download Selected")
+		assert.Empty(t, rr.Header().Get("HX-Trigger"))
+	})
 
-	// test case 2: Multiple files selected
-	formData2 := url.Values{}
-	formData2.Add("selected-files", "file1.txt")
-	formData2.Add("selected-files", "file2.txt")
-	req2 := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData2.Encode()))
-	req2.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-	rr2 := httptest.NewRecorder()
+	t.Run("multiple files selected", func(t *testing.T) {
+		formData := url.Values{}
+		formData.Add("selected-files", "file1.txt")
+		formData.Add("selected-files", "file2.txt")
+		req := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
 
-	web.handleSelectionStatus(rr2, req2)
-	require.Equal(t, http.StatusOK, rr2.Code)
-	// should show download button and count
-	require.Contains(t, rr2.Body.String(), "Download Selected")
-	require.Contains(t, rr2.Body.String(), "2 files selected")
+		web.handleSelectionStatus(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+		require.Contains(t, rr.Body.String(), "Download Selected")
+		require.Contains(t, rr.Body.String(), "2 files selected")
+		assert.Empty(t, rr.Header().Get("HX-Trigger"))
+	})
+
+	t.Run("select-all with invalid total-files", func(t *testing.T) {
+		formData := url.Values{}
+		formData.Set("select-all", "true")
+		formData.Set("total-files", "invalid")
+		req := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+
+		web.handleSelectionStatus(rr, req)
+		require.Equal(t, http.StatusBadRequest, rr.Code)
+		require.Contains(t, rr.Body.String(), "Invalid total-files value")
+	})
+
+	t.Run("select-all toggles from none to all", func(t *testing.T) {
+		formData := url.Values{}
+		formData.Set("select-all", "true")
+		formData.Set("total-files", "3")
+		formData.Add("path-values", "file1.txt")
+		formData.Add("path-values", "file2.txt")
+		formData.Add("path-values", "file3.txt")
+		req := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+
+		web.handleSelectionStatus(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "updateCheckboxes", rr.Header().Get("HX-Trigger"))
+		require.Contains(t, rr.Body.String(), "3 files selected")
+	})
+
+	t.Run("select-all toggles from all to none", func(t *testing.T) {
+		formData := url.Values{}
+		formData.Set("select-all", "true")
+		formData.Set("total-files", "2")
+		formData.Add("selected-files", "file1.txt")
+		formData.Add("selected-files", "file2.txt")
+		formData.Add("path-values", "file1.txt")
+		formData.Add("path-values", "file2.txt")
+		req := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+
+		web.handleSelectionStatus(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "updateCheckboxes", rr.Header().Get("HX-Trigger"))
+		require.NotContains(t, rr.Body.String(), "files selected")
+	})
 }
 
 func TestHandleDownloadSelected(t *testing.T) {
@@ -3523,14 +3586,7 @@ func TestHandleDownloadSelected(t *testing.T) {
 		assert.Contains(t, zipPaths, "subdir/file4.txt", "subdir/file4.txt should be in the ZIP")
 
 		// verify directory entry exists
-		var dirEntryFound bool
-		for _, zipPath := range zipPaths {
-			if zipPath == "subdir/" {
-				dirEntryFound = true
-				break
-			}
-		}
-		assert.True(t, dirEntryFound, "directory entry for subdir/ should exist in ZIP")
+		assert.True(t, slices.Contains(zipPaths, "subdir/"), "directory entry for subdir/ should exist in ZIP")
 	})
 
 	t.Run("Mixed selection of files and directories", func(t *testing.T) {

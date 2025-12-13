@@ -15,6 +15,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -517,7 +518,7 @@ func (v *virtualFileInfo) Size() int64        { return v.size }
 func (v *virtualFileInfo) Mode() os.FileMode  { return v.mode }
 func (v *virtualFileInfo) ModTime() time.Time { return v.modTime }
 func (v *virtualFileInfo) IsDir() bool        { return v.isDir }
-func (v *virtualFileInfo) Sys() interface{}   { return nil }
+func (v *virtualFileInfo) Sys() any           { return nil }
 
 // securePath is a security-critical function that validates and normalizes filesystem paths
 // from SFTP clients. It implements several security checks:
@@ -589,11 +590,8 @@ func (j *jailedFilesystem) shouldExclude(path string) bool {
 		}
 
 		// check if any path component matches the pattern
-		parts := strings.Split(normalizedPath, "/")
-		for _, part := range parts {
-			if part == pattern {
-				return true
-			}
+		if slices.Contains(strings.Split(normalizedPath, "/"), pattern) {
+			return true
 		}
 
 		// check if path ends with the pattern

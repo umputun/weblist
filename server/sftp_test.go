@@ -35,7 +35,7 @@ func TestSFTPAuthRateLimit(t *testing.T) {
 	testIP := "192.168.1.1"
 
 	// first 5 attempts should succeed
-	for i := 0; i < 5; i++ {
+	for i := range 5 {
 		allowed := sftpServer.checkAuthRateLimit(testIP)
 		assert.True(t, allowed, "Attempt %d should be allowed", i+1)
 	}
@@ -751,8 +751,7 @@ func TestSFTPPublicKeyAuth(t *testing.T) {
 	}
 
 	// start the server
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
+	ctx := t.Context()
 
 	// channel to detect when server is ready
 	readyCh := make(chan struct{})
@@ -764,7 +763,7 @@ func TestSFTPPublicKeyAuth(t *testing.T) {
 		// create another goroutine to check if the server is listening
 		go func() {
 			time.Sleep(100 * time.Millisecond)
-			for i := 0; i < 20; i++ {
+			for range 20 {
 				conn, err := net.DialTimeout("tcp", config.SFTPAddress, 100*time.Millisecond)
 				if err == nil {
 					conn.Close()
@@ -902,7 +901,7 @@ func TestSFTPKeyPersistence(t *testing.T) {
 	go func() {
 		// check server is listening
 		time.Sleep(100 * time.Millisecond)
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 100*time.Millisecond)
 			if err == nil {
 				conn.Close()
@@ -953,7 +952,7 @@ func TestSFTPKeyPersistence(t *testing.T) {
 	go func() {
 		// check server is listening
 		time.Sleep(100 * time.Millisecond)
-		for i := 0; i < 20; i++ {
+		for range 20 {
 			conn, err := net.DialTimeout("tcp", "127.0.0.1:"+port, 100*time.Millisecond)
 			if err == nil {
 				conn.Close()
@@ -1160,7 +1159,7 @@ func TestAuthRateLimit(t *testing.T) {
 	assert.Equal(t, 1, info.count)
 
 	// make more attempts up to the limit
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		allowed = s.checkAuthRateLimit(ip)
 		assert.True(t, allowed)
 	}
