@@ -142,6 +142,7 @@ jobs:
         id: tags
         run: |
           branch="${{ github.event.workflow_run.head_branch }}"
+          branch="${branch//\//_}"  # replace / with _ for valid docker tags
           echo "branch=${branch}" >> $GITHUB_OUTPUT
           if [[ "$branch" == v* ]]; then
             echo "is_tag=true" >> $GITHUB_OUTPUT
