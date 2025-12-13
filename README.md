@@ -109,6 +109,7 @@ weblist [options]
 - `--syntax-highlight`: Enable syntax highlighting for code files - env: `SYNTAX_HIGHLIGHT`
 - `--custom-footer`: Custom footer text (can contain HTML) - env: `CUSTOM_FOOTER`
 - `--multi`: Enable multi-file selection and download - env: `MULTI_SELECT`
+- `--recursive-mtime`: Calculate directory mtime from newest nested file - env: `RECURSIVE_MTIME`
 - `--title`: Custom title for the site (used in browser title and home) - env: `TITLE`
 
 SFTP Options (with `--sftp` prefix):
@@ -206,6 +207,19 @@ When multi-file selection is enabled:
 - The feature works seamlessly in both light and dark themes
 
 Multi-file selection is disabled by default for a cleaner interface and can be enabled with the `--multi` flag.
+
+## Recursive Directory Modification Time
+
+By default, when sorting by date, directories show their own modification time - which only updates when files are added, removed, or renamed directly within that directory. Modifying a file inside a subdirectory does not change the parent directory's timestamp.
+
+With `--recursive-mtime` enabled, weblist calculates directory modification time by scanning all nested files and using the newest file's timestamp. This is useful when you want directories sorted by when their content was last updated, regardless of nesting depth.
+
+```bash
+# Enable recursive modification time calculation
+weblist --recursive-mtime
+```
+
+**Tradeoff:** This feature walks the entire directory tree to find the newest file, which can be slow on large directory structures with many nested files. Use with caution on directories containing thousands of files.
 
 ## Custom Branding
 

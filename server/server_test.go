@@ -1690,6 +1690,97 @@ func TestGetFileListWithParentTimestamp(t *testing.T) {
 	require.Equal(t, parentInfo.ModTime(), fileList[0].LastModified, "Parent directory timestamp should match")
 }
 
+func TestGetRecursiveMtime(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// create nested directory structure
+	subDir := filepath.Join(tempDir, "subdir")
+	require.NoError(t, os.Mkdir(subDir, 0755))
+	nestedDir := filepath.Join(subDir, "nested")
+	require.NoError(t, os.Mkdir(nestedDir, 0755))
+
+	// create files with different modification times
+	oldFile := filepath.Join(subDir, "old.txt")
+	require.NoError(t, os.WriteFile(oldFile, []byte("old"), 0644))
+	oldTime := time.Now().Add(-24 * time.Hour)
+	require.NoError(t, os.Chtimes(oldFile, oldTime, oldTime))
+
+	newFile := filepath.Join(nestedDir, "new.txt")
+	require.NoError(t, os.WriteFile(newFile, []byte("new"), 0644))
+	newTime := time.Now().Add(-1 * time.Hour)
+	require.NoError(t, os.Chtimes(newFile, newTime, newTime))
+
+	wb := &Web{Config: Config{RootDir: tempDir}, FS: os.DirFS(tempDir)}
+
+	// test recursive mtime returns the newest file time
+	mtime := wb.getRecursiveMtime("subdir")
+	assert.False(t, mtime.IsZero(), "mtime should not be zero")
+	assert.WithinDuration(t, newTime, mtime, time.Second, "should return newest file time")
+}
+
+func TestGetFileListWithRecursiveMtime(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// create two directories with different nested file times
+	dir1 := filepath.Join(tempDir, "dir1")
+	require.NoError(t, os.Mkdir(dir1, 0755))
+	dir2 := filepath.Join(tempDir, "dir2")
+	require.NoError(t, os.Mkdir(dir2, 0755))
+
+	// dir1 has older nested file
+	file1 := filepath.Join(dir1, "file.txt")
+	require.NoError(t, os.WriteFile(file1, []byte("old"), 0644))
+	oldTime := time.Now().Add(-48 * time.Hour)
+	require.NoError(t, os.Chtimes(file1, oldTime, oldTime))
+
+	// dir2 has newer nested file
+	file2 := filepath.Join(dir2, "file.txt")
+	require.NoError(t, os.WriteFile(file2, []byte("new"), 0644))
+	newTime := time.Now().Add(-1 * time.Hour)
+	require.NoError(t, os.Chtimes(file2, newTime, newTime))
+
+	t.Run("without recursive mtime", func(t *testing.T) {
+		wb := &Web{Config: Config{RootDir: tempDir, RecursiveMtime: false}, FS: os.DirFS(tempDir)}
+		files, err := wb.getFileList(".", "date", "desc")
+		require.NoError(t, err)
+
+		// find dir1 and dir2
+		var dir1Info, dir2Info FileInfo
+		for _, f := range files {
+			if f.Name == "dir1" {
+				dir1Info = f
+			}
+			if f.Name == "dir2" {
+				dir2Info = f
+			}
+		}
+		// without recursive mtime, both directories should have similar mtime (when they were created)
+		assert.WithinDuration(t, dir1Info.LastModified, dir2Info.LastModified, 2*time.Second)
+	})
+
+	t.Run("with recursive mtime", func(t *testing.T) {
+		wb := &Web{Config: Config{RootDir: tempDir, RecursiveMtime: true}, FS: os.DirFS(tempDir)}
+		files, err := wb.getFileList(".", "date", "desc")
+		require.NoError(t, err)
+
+		// find dir1 and dir2
+		var dir1Info, dir2Info FileInfo
+		for _, f := range files {
+			if f.Name == "dir1" {
+				dir1Info = f
+			}
+			if f.Name == "dir2" {
+				dir2Info = f
+			}
+		}
+		// with recursive mtime, dir2 should have newer time than dir1
+		assert.True(t, dir2Info.LastModified.After(dir1Info.LastModified),
+			"dir2 should have newer mtime (from nested file)")
+		assert.WithinDuration(t, newTime, dir2Info.LastModified, time.Second)
+		assert.WithinDuration(t, oldTime, dir1Info.LastModified, time.Second)
+	})
+}
+
 func TestAuthentication(t *testing.T) {
 	// create a server with authentication
 	srv := &Web{

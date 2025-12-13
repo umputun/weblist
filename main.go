@@ -32,6 +32,7 @@ type options struct {
 	CustomFooter             string `long:"custom-footer" env:"CUSTOM_FOOTER" description:"custom footer text (can contain HTML)"`
 	EnableSyntaxHighlighting bool   `long:"syntax-highlight" env:"SYNTAX_HIGHLIGHT" description:"enable syntax highlighting"`
 	EnableMultiSelect        bool   `long:"multi" env:"MULTI_SELECT" description:"enable multi-file selection and download"`
+	RecursiveMtime           bool   `long:"recursive-mtime" env:"RECURSIVE_MTIME" description:"directory mtime from newest file"`
 
 	InsecureCookies bool          `long:"insecure-cookies" env:"INSECURE_COOKIES" description:"allow cookies without secure flag"`
 	SessionTTL      time.Duration `long:"session-ttl" env:"SESSION_TTL" default:"24h" description:"session timeout"`
@@ -125,6 +126,7 @@ func runServer(ctx context.Context, opts *options) error {
 		InsecureCookies:          opts.InsecureCookies,
 		SessionTTL:               opts.SessionTTL,
 		EnableMultiSelect:        opts.EnableMultiSelect,
+		RecursiveMtime:           opts.RecursiveMtime,
 	}
 
 	// create HTTP server
