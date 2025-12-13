@@ -23,7 +23,7 @@ jobs:
     - name: set up go 1.24
       uses: actions/setup-go@v5
       with:
-        go-version: "1.24"
+        go-version: "1.25"
       id: go
 
     - name: Check out code into the Go module directory
@@ -38,7 +38,7 @@ jobs:
     - name: golangci-lint
       uses: golangci/golangci-lint-action@v7
       with:
-        version: v2.0.2
+        version: v2.7.2
 
     - name: install goveralls
       run: go install github.com/mattn/goveralls@latest

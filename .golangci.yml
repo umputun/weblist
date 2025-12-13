@@ -27,6 +27,8 @@ linters:
     - gocyclo
     - lll
     - nestif
+    - modernize
+    - testifylint
   settings:
     goconst:
       min-len: 2
