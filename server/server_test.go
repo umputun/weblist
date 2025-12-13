@@ -1718,6 +1718,31 @@ func TestGetRecursiveMtime(t *testing.T) {
 	assert.WithinDuration(t, newTime, mtime, time.Second, "should return newest file time")
 }
 
+func TestGetRecursiveMtimeExcludesFiles(t *testing.T) {
+	tempDir := t.TempDir()
+
+	subDir := filepath.Join(tempDir, "subdir")
+	require.NoError(t, os.Mkdir(subDir, 0755))
+
+	// create an old visible file
+	visibleFile := filepath.Join(subDir, "visible.txt")
+	require.NoError(t, os.WriteFile(visibleFile, []byte("visible"), 0644))
+	oldTime := time.Now().Add(-24 * time.Hour)
+	require.NoError(t, os.Chtimes(visibleFile, oldTime, oldTime))
+
+	// create a newer excluded file that should be ignored
+	excludedFile := filepath.Join(subDir, ".hidden")
+	require.NoError(t, os.WriteFile(excludedFile, []byte("excluded"), 0644))
+	newTime := time.Now().Add(-1 * time.Hour)
+	require.NoError(t, os.Chtimes(excludedFile, newTime, newTime))
+
+	wb := &Web{Config: Config{RootDir: tempDir, Exclude: []string{".hidden"}}, FS: os.DirFS(tempDir)}
+
+	// excluded file should not affect mtime - should use visible file's time
+	mtime := wb.getRecursiveMtime("subdir")
+	assert.WithinDuration(t, oldTime, mtime, time.Second, "should ignore excluded file")
+}
+
 func TestGetFileListWithRecursiveMtime(t *testing.T) {
 	tempDir := t.TempDir()
 

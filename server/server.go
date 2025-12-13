@@ -992,11 +992,19 @@ func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 // getRecursiveMtime returns the most recent modification time of any file
 // within the directory tree. This is useful for sorting directories by
 // when their content was last modified, not just direct children.
+// Excluded files and directories are skipped to match the visible listing.
 func (wb *Web) getRecursiveMtime(path string) time.Time {
 	var newest time.Time
-	_ = fs.WalkDir(wb.FS, path, func(_ string, d fs.DirEntry, err error) error {
+	_ = fs.WalkDir(wb.FS, path, func(p string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return nil // skip errors, continue walking
+		}
+		// skip excluded paths - for directories, skip the entire subtree
+		if wb.shouldExclude(p) {
+			if d.IsDir() {
+				return fs.SkipDir
+			}
+			return nil
 		}
 		if d.IsDir() {
 			return nil // skip directories, only check files
