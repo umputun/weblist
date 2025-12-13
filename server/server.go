@@ -77,6 +77,7 @@ type Config struct {
 	InsecureCookies          bool          // allow cookies without secure flag
 	SessionTTL               time.Duration // session timeout duration
 	EnableMultiSelect        bool          // enable multi-file selection and download
+	RecursiveMtime           bool          // calculate directory mtime from newest nested file
 }
 
 // Run starts the web server.
@@ -965,10 +966,18 @@ func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 			continue
 		}
 
+		lastModified := info.ModTime()
+		// for directories, calculate recursive mtime if enabled
+		if entry.IsDir() && wb.RecursiveMtime {
+			if recursiveMtime := wb.getRecursiveMtime(entryPath); !recursiveMtime.IsZero() {
+				lastModified = recursiveMtime
+			}
+		}
+
 		files = append(files, FileInfo{
 			Name:         entry.Name(),
 			Size:         info.Size(),
-			LastModified: info.ModTime(),
+			LastModified: lastModified,
 			IsDir:        entry.IsDir(),
 			Path:         entryPath,
 		})
@@ -978,6 +987,30 @@ func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 	wb.sortFiles(files, sortBy, sortDir)
 
 	return files, nil
+}
+
+// getRecursiveMtime returns the most recent modification time of any file
+// within the directory tree. This is useful for sorting directories by
+// when their content was last modified, not just direct children.
+func (wb *Web) getRecursiveMtime(path string) time.Time {
+	var newest time.Time
+	_ = fs.WalkDir(wb.FS, path, func(_ string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil // skip errors, continue walking
+		}
+		if d.IsDir() {
+			return nil // skip directories, only check files
+		}
+		info, err := d.Info()
+		if err != nil {
+			return nil
+		}
+		if info.ModTime().After(newest) {
+			newest = info.ModTime()
+		}
+		return nil
+	})
+	return newest
 }
 
 // shouldExclude checks if a path should be excluded based on the Exclude patterns.
