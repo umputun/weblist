@@ -30,6 +30,7 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/didip/tollbooth/v8"
 	"github.com/didip/tollbooth/v8/limiter"
+	"github.com/go-pkgz/lcw/v2"
 	"github.com/go-pkgz/lgr"
 	"github.com/go-pkgz/rest"
 	"github.com/go-pkgz/rest/logger"
@@ -52,6 +53,8 @@ type Web struct {
 		fileTemplate  *template.Template
 		loginTemplate *template.Template
 	}
+
+	binaryCache lcw.LoadingCache[bool] // caches binary detection results by path+mtime
 }
 
 // Config represents server configuration.
@@ -100,6 +103,15 @@ func (wb *Web) Run(ctx context.Context) error {
 			wb.SessionSecret = base64.StdEncoding.EncodeToString(randomSecret)
 		}
 		log.Printf("[INFO] generated random session secret during startup")
+	}
+
+	// initialize binary detection cache
+	if wb.binaryCache == nil {
+		var cacheErr error
+		wb.binaryCache, cacheErr = lcw.NewLruCache(lcw.NewOpts[bool]().MaxKeys(10000))
+		if cacheErr != nil {
+			return fmt.Errorf("failed to create binary cache: %w", cacheErr)
+		}
 	}
 
 	router, err := wb.router()
@@ -919,6 +931,25 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	}
 }
 
+// detectBinary checks if a file contains binary content, using cache for efficiency.
+// cache key is path+mtime, so changed files get re-checked automatically.
+func (wb *Web) detectBinary(fi *FileInfo) {
+	if fi.IsDir {
+		return
+	}
+	// fallback to direct detection if cache not initialized (e.g., in tests)
+	if wb.binaryCache == nil {
+		fi.detectBinaryContent(wb.FS)
+		return
+	}
+	key := fmt.Sprintf("%s:%d", fi.Path, fi.LastModified.UnixNano())
+	// error ignored: loader function never returns errors
+	isBinary, _ := wb.binaryCache.Get(key, func() (bool, error) {
+		return fi.detectBinaryContent(wb.FS), nil
+	})
+	fi.isBinary = isBinary
+}
+
 // getFileList returns a list of files in the specified directory
 func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 	// get the list of files in the directory
@@ -981,7 +1012,7 @@ func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 			IsDir:        entry.IsDir(),
 			Path:         entryPath,
 		}
-		fi.detectBinaryContent(wb.FS)
+		wb.detectBinary(&fi)
 		files = append(files, fi)
 	}
 

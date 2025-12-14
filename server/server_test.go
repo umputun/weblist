@@ -19,8 +19,10 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
+	"github.com/go-pkgz/lcw/v2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -3782,5 +3784,79 @@ func TestHandleDownloadSelected(t *testing.T) {
 		assert.Contains(t, zipPaths, "file1.txt", "file1.txt should be in the ZIP")
 		assert.Contains(t, zipPaths, "file3.txt", "file3.txt should be in the ZIP")
 		assert.Contains(t, zipPaths, "subdir/file4.txt", "subdir/file4.txt should be in the ZIP")
+	})
+}
+
+func TestDetectBinary(t *testing.T) {
+	// create test filesystem with binary and text files
+	elfBinary := []byte{0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00}
+	elfBinary = append(elfBinary, make([]byte, 504)...)
+	textContent := []byte("package main\n\nfunc main() {}\n")
+
+	baseTime := time.Date(2024, 1, 1, 0, 0, 0, 0, time.UTC)
+
+	fsys := fstest.MapFS{
+		"binary.go": &fstest.MapFile{Data: elfBinary, ModTime: baseTime},
+		"text.go":   &fstest.MapFile{Data: textContent, ModTime: baseTime},
+	}
+
+	cache, err := lcw.NewLruCache(lcw.NewOpts[bool]().MaxKeys(100))
+	require.NoError(t, err)
+
+	web := &Web{FS: fsys, binaryCache: cache}
+
+	t.Run("detects binary content", func(t *testing.T) {
+		fi := FileInfo{Name: "binary.go", Path: "binary.go", LastModified: baseTime.Add(time.Hour)}
+		web.detectBinary(&fi)
+		assert.True(t, fi.isBinary, "should detect ELF binary")
+		assert.False(t, fi.IsViewable(), "binary file should not be viewable")
+	})
+
+	t.Run("detects text content", func(t *testing.T) {
+		fi := FileInfo{Name: "text.go", Path: "text.go", LastModified: baseTime.Add(2 * time.Hour)}
+		web.detectBinary(&fi)
+		assert.False(t, fi.isBinary, "should detect text content")
+		assert.True(t, fi.IsViewable(), "text file should be viewable")
+	})
+
+	t.Run("cache hit returns same result", func(t *testing.T) {
+		mtime := baseTime.Add(3 * time.Hour)
+		fi1 := FileInfo{Name: "binary.go", Path: "binary.go", LastModified: mtime}
+		fi2 := FileInfo{Name: "binary.go", Path: "binary.go", LastModified: mtime}
+
+		web.detectBinary(&fi1)
+		stat1 := cache.Stat()
+
+		web.detectBinary(&fi2)
+		stat2 := cache.Stat()
+
+		assert.Equal(t, fi1.isBinary, fi2.isBinary, "should return same result")
+		assert.Equal(t, stat1.Misses, stat2.Misses, "second call should be cache hit, no new misses")
+		assert.Equal(t, stat1.Hits+1, stat2.Hits, "should have one more hit")
+	})
+
+	t.Run("different mtime causes cache miss", func(t *testing.T) {
+		fi1 := FileInfo{Name: "text.go", Path: "text.go", LastModified: baseTime.Add(4 * time.Hour)}
+		web.detectBinary(&fi1)
+		stat1 := cache.Stat()
+
+		fi2 := FileInfo{Name: "text.go", Path: "text.go", LastModified: baseTime.Add(5 * time.Hour)}
+		web.detectBinary(&fi2)
+		stat2 := cache.Stat()
+
+		assert.Equal(t, stat1.Misses+1, stat2.Misses, "different mtime should cause cache miss")
+	})
+
+	t.Run("skips directories", func(t *testing.T) {
+		fi := FileInfo{Name: "somedir", Path: "somedir", IsDir: true}
+		web.detectBinary(&fi)
+		assert.False(t, fi.isBinary, "directories should not be marked as binary")
+	})
+
+	t.Run("fallback without cache", func(t *testing.T) {
+		webNoCache := &Web{FS: fsys, binaryCache: nil}
+		fi := FileInfo{Name: "binary.go", Path: "binary.go", LastModified: baseTime.Add(6 * time.Hour)}
+		webNoCache.detectBinary(&fi)
+		assert.True(t, fi.isBinary, "should work without cache")
 	})
 }
