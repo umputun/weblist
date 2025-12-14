@@ -77,10 +77,11 @@
 - Templates stored in templates/* and embedded at compile time
 
 ### File Type Detection
-- File viewability determined by extension only (`server/fileinfo.go`)
+- File viewability determined by extension + content detection (`server/fileinfo.go`)
 - `commonTextExtensions` map defines which extensions are viewable as text
-- `IsViewable()` checks extension against this map - no magic byte detection
-- Binaries with text extensions (e.g., `.jsx`, `.md`) will incorrectly show view icon
+- `detectBinaryContent()` method uses `http.DetectContentType` (reads 512 bytes) to detect binaries
+- Only files with viewable extensions are content-checked to minimize I/O overhead
+- Binary files with text extensions (e.g., ELF named `.jsx`) are correctly identified and excluded from view
 
 ## Dependency Management
 - All dependencies are vendored (vendor directory is committed)
