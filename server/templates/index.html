@@ -10,7 +10,7 @@
     <link rel="stylesheet" href="/assets/css/weblist-app.css">
     <script src="/assets/js/htmx.min.js"></script>
 </head>
-<body hx-on:keydown="if(event.key === 'Escape') document.getElementById('modal-container').innerHTML = ''"
+<body hx-on:keydown="if(event.key === 'Escape') { document.body.style.overflow = ''; document.getElementById('modal-container').innerHTML = ''; }"
       hx-on:updateCheckboxes="document.querySelectorAll('.file-checkbox').forEach(function(cb) { cb.checked = document.getElementById('select-all').checked; })">
 <div id="htmx-error" class="htmx-error-container"></div>
 <script>
@@ -20,13 +20,19 @@ document.body.addEventListener('htmx:responseError', function(evt) {
     errorDiv.classList.add('active');
     setTimeout(function() { errorDiv.classList.remove('active'); }, 5000);
 });
+// lock body scroll when modal opens
+document.body.addEventListener('htmx:afterSwap', function(evt) {
+    if (evt.detail.target.id === 'modal-container' && evt.detail.target.innerHTML !== '') {
+        document.body.style.overflow = 'hidden';
+    }
+});
 </script>
 <main class="container">
     <div id="page-content">
         {{ template "page-content" . }}
     </div>
 </main>
-<div id="modal-container" hx-on:click="if(event.target === this) this.innerHTML = ''"></div>
+<div id="modal-container" hx-on:click="if(event.target === this) { document.body.style.overflow = ''; this.innerHTML = ''; }"></div>
 {{ if not .HideFooter }}
 <footer>
     <div class="footer-content">
