@@ -1462,11 +1462,23 @@ func TestFileInfoViewable(t *testing.T) {
 			viewable: false,
 		},
 		{
-			name: "no extension",
-			fileInfo: FileInfo{
-				Name:  "README",
-				IsDir: false,
-			},
+			name:     "known text filename README",
+			fileInfo: FileInfo{Name: "README", IsDir: false},
+			viewable: true,
+		},
+		{
+			name:     "known text filename Makefile",
+			fileInfo: FileInfo{Name: "Makefile", IsDir: false},
+			viewable: true,
+		},
+		{
+			name:     "unknown extensionless detected as text",
+			fileInfo: FileInfo{Name: "unknown", IsDir: false, isBinary: false},
+			viewable: true,
+		},
+		{
+			name:     "unknown extensionless detected as binary",
+			fileInfo: FileInfo{Name: "unknown", IsDir: false, isBinary: true},
 			viewable: false,
 		},
 	}

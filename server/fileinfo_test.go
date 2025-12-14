@@ -248,11 +248,34 @@ func TestFileInfo_IsViewable(t *testing.T) {
 			want: true,
 		},
 		{
-			name: "no extension",
-			fileInfo: FileInfo{
-				Name: "test",
-			},
-			want: false,
+			name:     "unknown extensionless file detected as text",
+			fileInfo: FileInfo{Name: "somefile", isBinary: false},
+			want:     true,
+		},
+		{
+			name:     "unknown extensionless file detected as binary",
+			fileInfo: FileInfo{Name: "somefile", isBinary: true},
+			want:     false,
+		},
+		{
+			name:     "known text filename Makefile",
+			fileInfo: FileInfo{Name: "Makefile", isBinary: false},
+			want:     true,
+		},
+		{
+			name:     "known text filename Dockerfile",
+			fileInfo: FileInfo{Name: "Dockerfile", isBinary: false},
+			want:     true,
+		},
+		{
+			name:     "known text filename LICENSE",
+			fileInfo: FileInfo{Name: "LICENSE", isBinary: false},
+			want:     true,
+		},
+		{
+			name:     "known text filename marked as binary",
+			fileInfo: FileInfo{Name: "Makefile", isBinary: true},
+			want:     false,
 		},
 	}
 
@@ -297,9 +320,20 @@ func TestFileInfo_detectBinaryContent(t *testing.T) {
 			content: []byte("<!DOCTYPE html><html><body>Hello</body></html>"), wantBinary: false},
 		{name: "directory is not checked", fileInfo: FileInfo{Name: "somedir", Path: "somedir", IsDir: true}, content: nil, wantBinary: false},
 		{name: "binary extension not checked", fileInfo: FileInfo{Name: "app.exe", Path: "app.exe"}, content: elfBinary, wantBinary: false},
-		{name: "no extension not checked", fileInfo: FileInfo{Name: "README", Path: "README"}, content: elfBinary, wantBinary: false},
 		{name: "empty file", fileInfo: FileInfo{Name: "empty.txt", Path: "empty.txt"}, content: []byte{}, wantBinary: false},
 		{name: "file open error", fileInfo: FileInfo{Name: "missing.txt", Path: "nonexistent/missing.txt"}, content: nil, wantBinary: false},
+
+		// extensionless files - now checked for binary content
+		{name: "extensionless with binary content", fileInfo: FileInfo{Name: "binary_data", Path: "binary_data"},
+			content: elfBinary, wantBinary: true},
+		{name: "extensionless Makefile with text content", fileInfo: FileInfo{Name: "Makefile", Path: "Makefile"},
+			content: []byte(".PHONY: all\nall:\n\tgo build ./...\n"), wantBinary: false},
+		{name: "extensionless Dockerfile with text content", fileInfo: FileInfo{Name: "Dockerfile", Path: "Dockerfile"},
+			content: []byte("FROM golang:1.21\nWORKDIR /app\nCOPY . .\nRUN go build\n"), wantBinary: false},
+		{name: "extensionless LICENSE with text content", fileInfo: FileInfo{Name: "LICENSE", Path: "LICENSE"},
+			content: []byte("MIT License\n\nCopyright (c) 2024\n"), wantBinary: false},
+		{name: "extensionless unknown with text content", fileInfo: FileInfo{Name: "somefile", Path: "somefile"},
+			content: []byte("this is plain text content\nwith multiple lines\n"), wantBinary: false},
 	}
 
 	for _, tt := range tests {
@@ -317,6 +351,46 @@ func TestFileInfo_detectBinaryContent(t *testing.T) {
 			if tt.wantBinary {
 				assert.False(t, fi.IsViewable(), "binary file should not be viewable")
 			}
+		})
+	}
+}
+
+func TestExtensionlessFileIntegration(t *testing.T) {
+	// ELF binary magic bytes
+	elfBinary := []byte{0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00}
+	elfBinary = append(elfBinary, make([]byte, 504)...)
+
+	tests := []struct {
+		name         string
+		filename     string
+		content      []byte
+		wantViewable bool
+	}{
+		{name: "Makefile with text content", filename: "Makefile",
+			content: []byte(".PHONY: build\nbuild:\n\tgo build\n"), wantViewable: true},
+		{name: "Dockerfile with text content", filename: "Dockerfile",
+			content: []byte("FROM alpine\nRUN echo hello\n"), wantViewable: true},
+		{name: "LICENSE with text content", filename: "LICENSE",
+			content: []byte("MIT License\nCopyright 2024\n"), wantViewable: true},
+		{name: "unknown extensionless text file", filename: "myconfig",
+			content: []byte("key=value\nother=setting\n"), wantViewable: true},
+		{name: "unknown extensionless binary file", filename: "compiled",
+			content: elfBinary, wantViewable: false},
+		{name: "Makefile with binary content (corrupted)", filename: "Makefile",
+			content: elfBinary, wantViewable: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fsys := fstest.MapFS{
+				tt.filename: &fstest.MapFile{Data: tt.content},
+			}
+
+			fi := FileInfo{Name: tt.filename, Path: tt.filename}
+			fi.detectBinaryContent(fsys)
+
+			assert.Equal(t, tt.wantViewable, fi.IsViewable(),
+				"expected IsViewable=%v for %s (isBinary=%v)", tt.wantViewable, tt.filename, fi.isBinary)
 		})
 	}
 }

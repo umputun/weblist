@@ -123,14 +123,14 @@ td:nth-child(2), td:nth-child(3) {
   flex-grow: 1;
 }
 
-.view-icon, .link-icon {
+.view-icon {
   margin-left: 0.5rem;
   opacity: 0.5;
   transition: opacity 0.2s;
   color: var(--color-primary);
 }
 
-.view-icon:hover, .link-icon:hover {
+.view-icon:hover {
   opacity: 1;
 }
 
@@ -345,6 +345,29 @@ footer {
 }
 
 .close-modal:hover {
+  background-color: var(--color-border-muted);
+  color: var(--color-primary);
+}
+
+.modal-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+
+.open-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-text-muted);
+  text-decoration: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 50%;
+  transition: background-color 0.2s, color 0.2s;
+}
+
+.open-tab:hover {
   background-color: var(--color-border-muted);
   color: var(--color-primary);
 }
@@ -616,8 +639,7 @@ pre {
   fill: var(--color-text-muted) !important;
 }
 
-[data-theme="dark"] .view-icon svg,
-[data-theme="dark"] .link-icon svg {
+[data-theme="dark"] .view-icon svg {
   fill: var(--color-primary-text, var(--color-primary));
 }
 
