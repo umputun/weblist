@@ -1743,6 +1743,58 @@ func TestGetRecursiveMtimeExcludesFiles(t *testing.T) {
 	assert.WithinDuration(t, oldTime, mtime, time.Second, "should ignore excluded file")
 }
 
+func TestGetRecursiveMtimeEmptyDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// create empty directory structure
+	emptyDir := filepath.Join(tempDir, "empty")
+	require.NoError(t, os.Mkdir(emptyDir, 0755))
+	nestedEmpty := filepath.Join(emptyDir, "nested")
+	require.NoError(t, os.Mkdir(nestedEmpty, 0755))
+
+	wb := &Web{Config: Config{RootDir: tempDir}, FS: os.DirFS(tempDir)}
+
+	// empty directory should return zero time
+	mtime := wb.getRecursiveMtime("empty")
+	assert.True(t, mtime.IsZero(), "empty directory should return zero time")
+}
+
+func TestGetRecursiveMtimeExcludesDirectory(t *testing.T) {
+	tempDir := t.TempDir()
+
+	subDir := filepath.Join(tempDir, "subdir")
+	require.NoError(t, os.Mkdir(subDir, 0755))
+
+	// create an old visible file
+	visibleFile := filepath.Join(subDir, "visible.txt")
+	require.NoError(t, os.WriteFile(visibleFile, []byte("visible"), 0644))
+	oldTime := time.Now().Add(-24 * time.Hour)
+	require.NoError(t, os.Chtimes(visibleFile, oldTime, oldTime))
+
+	// create excluded directory with newer file inside
+	excludedDir := filepath.Join(subDir, ".hidden_dir")
+	require.NoError(t, os.Mkdir(excludedDir, 0755))
+	newerFile := filepath.Join(excludedDir, "newer.txt")
+	require.NoError(t, os.WriteFile(newerFile, []byte("newer"), 0644))
+	newTime := time.Now().Add(-1 * time.Hour)
+	require.NoError(t, os.Chtimes(newerFile, newTime, newTime))
+
+	wb := &Web{Config: Config{RootDir: tempDir, Exclude: []string{".hidden_dir"}}, FS: os.DirFS(tempDir)}
+
+	// excluded directory should be skipped entirely - use visible file's time
+	mtime := wb.getRecursiveMtime("subdir")
+	assert.WithinDuration(t, oldTime, mtime, time.Second, "should ignore excluded directory")
+}
+
+func TestGetRecursiveMtimeNonExistentPath(t *testing.T) {
+	tempDir := t.TempDir()
+	wb := &Web{Config: Config{RootDir: tempDir}, FS: os.DirFS(tempDir)}
+
+	// non-existent path should return zero time (WalkDir handles gracefully)
+	mtime := wb.getRecursiveMtime("does-not-exist")
+	assert.True(t, mtime.IsZero(), "non-existent path should return zero time")
+}
+
 func TestGetFileListWithRecursiveMtime(t *testing.T) {
 	tempDir := t.TempDir()
 

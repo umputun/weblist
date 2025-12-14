@@ -384,5 +384,6 @@ services:
       - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth
       - SYNTAX_HIGHLIGHT=true  # Optional: Enable syntax highlighting for code files
       - MULTI_SELECT=true  # Optional: Enable multi-file selection and download
+      - RECURSIVE_MTIME=true  # Optional: Calculate directory mtime from newest nested file
       - TITLE=My File Server  # Optional: Custom title for the site
 ```
