@@ -181,7 +181,7 @@
 {{ if .IsHTML }}
     <div class="html-content">{{ .Content | safe }}</div>
 {{ else }}
-    {{ if contains .Content "highlight-wrapper" }}
+    {{ if hasPrefix .Content "<div class=\"highlight-wrapper\">" }}
         {{ .Content | safe }}
     {{ else }}
         <pre>{{ .Content | html }}</pre>
