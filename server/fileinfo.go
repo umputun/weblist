@@ -1,6 +1,7 @@
 package server
 
 import (
+	"errors"
 	"io"
 	"io/fs"
 	"mime"
@@ -64,6 +65,22 @@ func isTextLikeMIME(mimeType string) bool {
 		strings.HasPrefix(mimeType, "application/xml") ||
 		strings.HasPrefix(mimeType, "application/javascript") ||
 		strings.Contains(mimeType, "html")
+}
+
+// knownTextFilenames contains filenames (without extension) that are known to be text files
+var knownTextFilenames = map[string]bool{
+	"Makefile": true, "makefile": true, "GNUmakefile": true,
+	"Dockerfile": true, "Containerfile": true,
+	"Vagrantfile": true, "Gemfile": true, "Rakefile": true, "Procfile": true,
+	"LICENSE": true, "LICENCE": true, "COPYING": true,
+	"README": true, "CHANGELOG": true, "CHANGES": true, "HISTORY": true,
+	"AUTHORS": true, "CONTRIBUTORS": true, "INSTALL": true, "TODO": true,
+	"NEWS": true, "NOTICE": true, "PATENTS": true, "VERSION": true,
+	"Brewfile": true, "Podfile": true, "Fastfile": true, "Appfile": true,
+	"Berksfile": true, "Capfile": true, "Guardfile": true, "Thorfile": true,
+	"Dangerfile": true, "Deliverfile": true, "Matchfile": true, "Snapfile": true,
+	"Caddyfile": true, "Justfile": true, "justfile": true,
+	"OWNERS": true, "CODEOWNERS": true,
 }
 
 // commonTextExtensions contains a map of common text file extensions
@@ -131,8 +148,12 @@ func (f FileInfo) IsViewable() bool {
 	}
 
 	ext := filepath.Ext(f.Name)
+
+	// handle files without extension
 	if ext == "" {
-		return false
+		// check known text filenames (Makefile, Dockerfile, etc.)
+		// for unknown extensionless files, rely on binary detection (already checked at line 145)
+		return knownTextFilenames[f.Name] || !f.isBinary
 	}
 
 	// special handling for common text formats that might not have proper MIME types
@@ -152,8 +173,8 @@ func (f FileInfo) IsViewable() bool {
 		mimeType == "application/pdf"
 }
 
-// detectBinaryContent checks file content to determine if it's binary despite having a viewable extension.
-// only checks files with viewable extensions to avoid unnecessary I/O.
+// detectBinaryContent checks file content to determine if it's binary.
+// checks files with viewable extensions and extensionless files (for known text filenames).
 // uses http.DetectContentType which reads up to 512 bytes.
 // sets and returns the isBinary field.
 func (f *FileInfo) detectBinaryContent(fsys fs.FS) bool {
@@ -161,12 +182,15 @@ func (f *FileInfo) detectBinaryContent(fsys fs.FS) bool {
 		return false
 	}
 
-	// only check files that would be considered viewable by extension
 	ext := filepath.Ext(f.Name)
+
+	// for extensionless files, always check content (enables Makefile, Dockerfile, etc.)
 	if ext == "" {
-		return false
+		// check content to determine if binary
+		return f.checkBinaryContent(fsys)
 	}
 
+	// for files with extensions, only check if extension suggests viewable content
 	extLower := strings.ToLower(ext)
 	isViewableByExt := commonTextExtensions[extLower]
 	if !isViewableByExt {
@@ -177,6 +201,12 @@ func (f *FileInfo) detectBinaryContent(fsys fs.FS) bool {
 		return false // no need to check content for non-viewable extensions
 	}
 
+	return f.checkBinaryContent(fsys)
+}
+
+// checkBinaryContent reads file content and determines if it's binary.
+// sets and returns the isBinary field.
+func (f *FileInfo) checkBinaryContent(fsys fs.FS) bool {
 	file, err := fsys.Open(f.Path)
 	if err != nil {
 		return false
@@ -185,7 +215,7 @@ func (f *FileInfo) detectBinaryContent(fsys fs.FS) bool {
 
 	buf := make([]byte, 512)
 	n, err := io.ReadFull(file, buf)
-	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return false
 	}
 	if n == 0 {
