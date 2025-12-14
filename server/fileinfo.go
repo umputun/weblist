@@ -22,6 +22,15 @@ type FileInfo struct {
 	isBinary     bool // true if content detection indicates binary file despite text-like extension
 }
 
+// ContentTypeInfo holds content type information for a file
+type ContentTypeInfo struct {
+	MIMEType string // MIME type string for the file
+	IsText   bool   // true for text-based content (plain text, code, HTML, JSON, XML)
+	IsHTML   bool   // true specifically for HTML content
+	IsPDF    bool   // true for PDF documents
+	IsImage  bool   // true for all image formats
+}
+
 // SizeToString converts file size to human-readable format
 func (f FileInfo) SizeToString() string {
 	if f.IsDir {
@@ -46,6 +55,15 @@ func (f FileInfo) TimeString() string {
 // TimeStringShort formats the last modified time with 2-digit year for mobile
 func (f FileInfo) TimeStringShort() string {
 	return f.LastModified.Format("02-Jan-06")
+}
+
+// isTextLikeMIME returns true if the MIME type represents text-like content that can be displayed.
+func isTextLikeMIME(mimeType string) bool {
+	return strings.HasPrefix(mimeType, "text/") ||
+		strings.HasPrefix(mimeType, "application/json") ||
+		strings.HasPrefix(mimeType, "application/xml") ||
+		strings.HasPrefix(mimeType, "application/javascript") ||
+		strings.Contains(mimeType, "html")
 }
 
 // commonTextExtensions contains a map of common text file extensions
@@ -74,45 +92,35 @@ var commonTextExtensions = func() map[string]bool {
 // 2. Falls back to standard MIME type detection based on file extension
 // 3. Defaults to text/plain if no type could be determined
 //
-// Returns:
-// - contentType: The MIME type string for the file
-// - isText: True for any text-based content (plain text, code, HTML, JSON, XML)
-// - isHTML: True specifically for HTML content
-// - isPDF: True for PDF documents
-// - isImage: True for all image formats
-//
 // This is used for deciding how to present files in the UI (view vs. download).
-func DetermineContentType(filePath string) (contentType string, isText, isHTML, isPDF, isImage bool) {
+func DetermineContentType(filePath string) ContentTypeInfo {
 	ext := filepath.Ext(filePath)
 	extLower := strings.ToLower(ext)
 
+	var mimeType string
 	// determine content type based on extension
 	switch {
 	// special handling for React/JSX files
 	case extLower == ".jsx" || extLower == ".tsx":
-		contentType = "application/javascript"
+		mimeType = "application/javascript"
 	// handle other known text extensions
 	case commonTextExtensions[extLower]:
-		contentType = "text/plain"
+		mimeType = "text/plain"
 	// for unknown extensions, try standard MIME type detection
 	default:
-		contentType = mime.TypeByExtension(ext)
-		if contentType == "" {
-			contentType = "text/plain"
+		mimeType = mime.TypeByExtension(ext)
+		if mimeType == "" {
+			mimeType = "text/plain"
 		}
 	}
 
-	isText = strings.HasPrefix(contentType, "text/") ||
-		strings.HasPrefix(contentType, "application/json") ||
-		strings.HasPrefix(contentType, "application/xml") ||
-		strings.HasPrefix(contentType, "application/javascript") ||
-		strings.Contains(contentType, "html") ||
-		commonTextExtensions[extLower]
-	isHTML = strings.Contains(contentType, "html")
-	isPDF = contentType == "application/pdf"
-	isImage = strings.HasPrefix(contentType, "image/")
-
-	return contentType, isText, isHTML, isPDF, isImage
+	return ContentTypeInfo{
+		MIMEType: mimeType,
+		IsText:   isTextLikeMIME(mimeType) || commonTextExtensions[extLower],
+		IsHTML:   strings.Contains(mimeType, "html"),
+		IsPDF:    mimeType == "application/pdf",
+		IsImage:  strings.HasPrefix(mimeType, "image/"),
+	}
 }
 
 // IsViewable checks if the file can be viewed in a browser.
@@ -139,13 +147,9 @@ func (f FileInfo) IsViewable() bool {
 	}
 
 	// check if it's a text file, image, HTML, PDF, JavaScript, or JSON/XML
-	return strings.HasPrefix(mimeType, "text/") ||
+	return isTextLikeMIME(mimeType) ||
 		strings.HasPrefix(mimeType, "image/") ||
-		mimeType == "application/pdf" ||
-		strings.HasPrefix(mimeType, "application/json") ||
-		strings.HasPrefix(mimeType, "application/xml") ||
-		strings.HasPrefix(mimeType, "application/javascript") ||
-		strings.Contains(mimeType, "html")
+		mimeType == "application/pdf"
 }
 
 // detectBinaryContent checks file content to determine if it's binary despite having a viewable extension.
@@ -166,12 +170,7 @@ func (f *FileInfo) detectBinaryContent(fsys fs.FS) bool {
 	extLower := strings.ToLower(ext)
 	isViewableByExt := commonTextExtensions[extLower]
 	if !isViewableByExt {
-		mimeType := mime.TypeByExtension(ext)
-		isViewableByExt = strings.HasPrefix(mimeType, "text/") ||
-			strings.HasPrefix(mimeType, "application/json") ||
-			strings.HasPrefix(mimeType, "application/xml") ||
-			strings.HasPrefix(mimeType, "application/javascript") ||
-			strings.Contains(mimeType, "html")
+		isViewableByExt = isTextLikeMIME(mime.TypeByExtension(ext))
 	}
 
 	if !isViewableByExt {
@@ -195,10 +194,6 @@ func (f *FileInfo) detectBinaryContent(fsys fs.FS) bool {
 
 	contentType := http.DetectContentType(buf[:n])
 	// mark as binary if content is NOT text-like (catches images, archives, executables, etc.)
-	f.isBinary = !strings.HasPrefix(contentType, "text/") &&
-		!strings.HasPrefix(contentType, "application/json") &&
-		!strings.HasPrefix(contentType, "application/xml") &&
-		!strings.HasPrefix(contentType, "application/javascript") &&
-		!strings.Contains(contentType, "html")
+	f.isBinary = !isTextLikeMIME(contentType)
 	return f.isBinary
 }
