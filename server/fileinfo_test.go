@@ -8,6 +8,35 @@ import (
 	"github.com/stretchr/testify/assert"
 )
 
+func TestIsTextLikeMIME(t *testing.T) {
+	tests := []struct {
+		mimeType string
+		want     bool
+	}{
+		{"text/plain", true},
+		{"text/html", true},
+		{"text/css", true},
+		{"application/json", true},
+		{"application/json; charset=utf-8", true},
+		{"application/xml", true},
+		{"application/javascript", true},
+		{"text/html; charset=utf-8", true},
+		{"application/octet-stream", false},
+		{"image/png", false},
+		{"image/jpeg", false},
+		{"application/pdf", false},
+		{"application/zip", false},
+		{"", false},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.mimeType, func(t *testing.T) {
+			got := isTextLikeMIME(tc.mimeType)
+			assert.Equal(t, tc.want, got)
+		})
+	}
+}
+
 func TestSizeToString(t *testing.T) {
 	tests := []struct {
 		name     string
@@ -152,26 +181,26 @@ func TestDetermineContentType(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			gotType, gotIsText, gotIsHTML, gotIsPDF, gotIsImage := DetermineContentType(tt.filePath)
+			ctInfo := DetermineContentType(tt.filePath)
 
 			// some MIME types might have charset added, so check if it starts with the expected type
 			switch {
 			case tt.wantIsHTML:
-				assert.Contains(t, gotType, "text/html")
+				assert.Contains(t, ctInfo.MIMEType, "text/html")
 			case tt.name == "pdf file":
-				assert.Equal(t, tt.wantType, gotType)
+				assert.Equal(t, tt.wantType, ctInfo.MIMEType)
 			case tt.name == "image file":
-				assert.Equal(t, tt.wantType, gotType)
+				assert.Equal(t, tt.wantType, ctInfo.MIMEType)
 			case tt.name == "jsx file" || tt.name == "tsx file":
-				assert.Equal(t, tt.wantType, gotType)
+				assert.Equal(t, tt.wantType, ctInfo.MIMEType)
 			default:
-				assert.Contains(t, gotType, tt.wantType)
+				assert.Contains(t, ctInfo.MIMEType, tt.wantType)
 			}
 
-			assert.Equal(t, tt.wantIsText, gotIsText)
-			assert.Equal(t, tt.wantIsHTML, gotIsHTML)
-			assert.Equal(t, tt.wantIsPDF, gotIsPDF)
-			assert.Equal(t, tt.wantIsImage, gotIsImage)
+			assert.Equal(t, tt.wantIsText, ctInfo.IsText)
+			assert.Equal(t, tt.wantIsHTML, ctInfo.IsHTML)
+			assert.Equal(t, tt.wantIsPDF, ctInfo.IsPDF)
+			assert.Equal(t, tt.wantIsImage, ctInfo.IsImage)
 		})
 	}
 }
