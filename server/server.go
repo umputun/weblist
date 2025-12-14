@@ -974,13 +974,15 @@ func (wb *Web) getFileList(path, sortBy, sortDir string) ([]FileInfo, error) {
 			}
 		}
 
-		files = append(files, FileInfo{
+		fi := FileInfo{
 			Name:         entry.Name(),
 			Size:         info.Size(),
 			LastModified: lastModified,
 			IsDir:        entry.IsDir(),
 			Path:         entryPath,
-		})
+		}
+		fi.detectBinaryContent(wb.FS)
+		files = append(files, fi)
 	}
 
 	// sort the file list

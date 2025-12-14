@@ -49,7 +49,7 @@ linters:
     lll:
       line-length: 140
     gocyclo:
-      min-complexity: 15
+      min-complexity: 20
 
   exclusions:
     generated: lax

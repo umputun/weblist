@@ -2,6 +2,7 @@ package server
 
 import (
 	"testing"
+	"testing/fstest"
 
 	"github.com/dustin/go-humanize"
 	"github.com/stretchr/testify/assert"
@@ -230,6 +231,63 @@ func TestFileInfo_IsViewable(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.fileInfo.IsViewable()
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestFileInfo_detectBinaryContent(t *testing.T) {
+	// ELF binary magic bytes
+	elfBinary := []byte{0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00}
+	elfBinary = append(elfBinary, make([]byte, 504)...) // pad to 512 bytes
+
+	// PNG magic bytes
+	pngBinary := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}
+	pngBinary = append(pngBinary, make([]byte, 504)...)
+
+	// ZIP magic bytes
+	zipBinary := []byte{'P', 'K', 0x03, 0x04}
+	zipBinary = append(zipBinary, make([]byte, 508)...)
+
+	tests := []struct {
+		name       string
+		fileInfo   FileInfo
+		content    []byte
+		wantBinary bool
+	}{
+		{name: "elf binary with jsx extension", fileInfo: FileInfo{Name: "app.jsx", Path: "app.jsx"}, content: elfBinary, wantBinary: true},
+		{name: "elf binary with go extension", fileInfo: FileInfo{Name: "main.go", Path: "main.go"}, content: elfBinary, wantBinary: true},
+		{name: "png with text extension", fileInfo: FileInfo{Name: "image.txt", Path: "image.txt"}, content: pngBinary, wantBinary: true},
+		{name: "zip with text extension", fileInfo: FileInfo{Name: "archive.md", Path: "archive.md"}, content: zipBinary, wantBinary: true},
+		{name: "text content with jsx extension", fileInfo: FileInfo{Name: "app.jsx", Path: "app.jsx"},
+			content: []byte("import React from 'react';\nexport default function App() { return <div>Hello</div>; }"), wantBinary: false},
+		{name: "text content with go extension", fileInfo: FileInfo{Name: "main.go", Path: "main.go"},
+			content: []byte("package main\n\nfunc main() {}\n"), wantBinary: false},
+		{name: "html file via mime fallback", fileInfo: FileInfo{Name: "page.html", Path: "page.html"},
+			content: []byte("<!DOCTYPE html><html><body>Hello</body></html>"), wantBinary: false},
+		{name: "html content with text extension", fileInfo: FileInfo{Name: "page.txt", Path: "page.txt"},
+			content: []byte("<!DOCTYPE html><html><body>Hello</body></html>"), wantBinary: false},
+		{name: "directory is not checked", fileInfo: FileInfo{Name: "somedir", Path: "somedir", IsDir: true}, content: nil, wantBinary: false},
+		{name: "binary extension not checked", fileInfo: FileInfo{Name: "app.exe", Path: "app.exe"}, content: elfBinary, wantBinary: false},
+		{name: "no extension not checked", fileInfo: FileInfo{Name: "README", Path: "README"}, content: elfBinary, wantBinary: false},
+		{name: "empty file", fileInfo: FileInfo{Name: "empty.txt", Path: "empty.txt"}, content: []byte{}, wantBinary: false},
+		{name: "file open error", fileInfo: FileInfo{Name: "missing.txt", Path: "nonexistent/missing.txt"}, content: nil, wantBinary: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			fsys := fstest.MapFS{}
+			if tt.content != nil {
+				fsys[tt.fileInfo.Path] = &fstest.MapFile{Data: tt.content}
+			}
+
+			fi := tt.fileInfo
+			got := fi.detectBinaryContent(fsys)
+			assert.Equal(t, tt.wantBinary, got, "detectBinaryContent return mismatch")
+			assert.Equal(t, tt.wantBinary, fi.isBinary, "isBinary field mismatch")
+
+			if tt.wantBinary {
+				assert.False(t, fi.IsViewable(), "binary file should not be viewable")
+			}
 		})
 	}
 }

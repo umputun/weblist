@@ -1,7 +1,10 @@
 package server
 
 import (
+	"io"
+	"io/fs"
 	"mime"
+	"net/http"
 	"path/filepath"
 	"strings"
 	"time"
@@ -16,6 +19,7 @@ type FileInfo struct {
 	Size         int64
 	LastModified time.Time
 	Path         string
+	isBinary     bool // true if content detection indicates binary file despite text-like extension
 }
 
 // SizeToString converts file size to human-readable format
@@ -111,9 +115,10 @@ func DetermineContentType(filePath string) (contentType string, isText, isHTML, 
 	return contentType, isText, isHTML, isPDF, isImage
 }
 
-// IsViewable checks if the file can be viewed in a browser
+// IsViewable checks if the file can be viewed in a browser.
+// Returns false if content detection found binary data despite text-like extension.
 func (f FileInfo) IsViewable() bool {
-	if f.IsDir {
+	if f.IsDir || f.isBinary {
 		return false
 	}
 
@@ -141,4 +146,59 @@ func (f FileInfo) IsViewable() bool {
 		strings.HasPrefix(mimeType, "application/xml") ||
 		strings.HasPrefix(mimeType, "application/javascript") ||
 		strings.Contains(mimeType, "html")
+}
+
+// detectBinaryContent checks file content to determine if it's binary despite having a viewable extension.
+// only checks files with viewable extensions to avoid unnecessary I/O.
+// uses http.DetectContentType which reads up to 512 bytes.
+// sets and returns the isBinary field.
+func (f *FileInfo) detectBinaryContent(fsys fs.FS) bool {
+	if f.IsDir {
+		return false
+	}
+
+	// only check files that would be considered viewable by extension
+	ext := filepath.Ext(f.Name)
+	if ext == "" {
+		return false
+	}
+
+	extLower := strings.ToLower(ext)
+	isViewableByExt := commonTextExtensions[extLower]
+	if !isViewableByExt {
+		mimeType := mime.TypeByExtension(ext)
+		isViewableByExt = strings.HasPrefix(mimeType, "text/") ||
+			strings.HasPrefix(mimeType, "application/json") ||
+			strings.HasPrefix(mimeType, "application/xml") ||
+			strings.HasPrefix(mimeType, "application/javascript") ||
+			strings.Contains(mimeType, "html")
+	}
+
+	if !isViewableByExt {
+		return false // no need to check content for non-viewable extensions
+	}
+
+	file, err := fsys.Open(f.Path)
+	if err != nil {
+		return false
+	}
+	defer file.Close()
+
+	buf := make([]byte, 512)
+	n, err := io.ReadFull(file, buf)
+	if err != nil && err != io.EOF && err != io.ErrUnexpectedEOF {
+		return false
+	}
+	if n == 0 {
+		return false
+	}
+
+	contentType := http.DetectContentType(buf[:n])
+	// mark as binary if content is NOT text-like (catches images, archives, executables, etc.)
+	f.isBinary = !strings.HasPrefix(contentType, "text/") &&
+		!strings.HasPrefix(contentType, "application/json") &&
+		!strings.HasPrefix(contentType, "application/xml") &&
+		!strings.HasPrefix(contentType, "application/javascript") &&
+		!strings.Contains(contentType, "html")
+	return f.isBinary
 }
