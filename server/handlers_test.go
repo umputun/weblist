@@ -472,6 +472,42 @@ func TestSomething() {
 		assert.NotContains(t, body, "{{ .Content | safe }}")
 	})
 
+	t.Run("direct URL uses server default theme", func(t *testing.T) {
+		// server configured with dark theme
+		darkSrv := &Web{Config: Config{Theme: "dark"}, FS: os.DirFS("testdata")}
+		require.NoError(t, darkSrv.initTemplates())
+
+		// request without ?theme= query param should use server's default (dark)
+		req, err := http.NewRequest("GET", "/view/file1.txt", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(darkSrv.handleViewFile)
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+		body := rr.Body.String()
+		assert.Contains(t, body, `data-theme="dark"`)
+	})
+
+	t.Run("query param overrides server default theme", func(t *testing.T) {
+		// server configured with dark theme
+		darkSrv := &Web{Config: Config{Theme: "dark"}, FS: os.DirFS("testdata")}
+		require.NoError(t, darkSrv.initTemplates())
+
+		// explicit ?theme=light should override server's dark theme
+		req, err := http.NewRequest("GET", "/view/file1.txt?theme=light", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(darkSrv.handleViewFile)
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+		body := rr.Body.String()
+		assert.Contains(t, body, `data-theme="light"`)
+	})
+
 	// test handleFileModal
 	t.Run("modal for text file", func(t *testing.T) {
 		req, err := http.NewRequest("GET", "/partials/file-modal?path=file1.txt", nil)

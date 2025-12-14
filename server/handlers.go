@@ -174,11 +174,10 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 	// use template for viewing
 	w.Header().Set("Content-Type", "text/html")
 
-	// determine theme based on query param
-	isDarkMode := r.URL.Query().Get("theme") == "dark"
-	theme := "light"
-	if isDarkMode {
-		theme = "dark"
+	// determine theme from query param, fall back to server default
+	theme := r.URL.Query().Get("theme")
+	if theme == "" {
+		theme = wb.Theme
 	}
 
 	// parse templates
