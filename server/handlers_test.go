@@ -431,6 +431,47 @@ func TestFileViewAndModal(t *testing.T) {
 		assert.Contains(t, rr.Body.String(), "error reading file")
 	})
 
+	t.Run("text content with highlight-wrapper string is escaped", func(t *testing.T) {
+		// file contains "highlight-wrapper" as plain text - should be HTML-escaped, not rendered as HTML
+		content := `package test
+// test file that contains highlight-wrapper string in comments
+func TestSomething() {
+    expected := "<div class=\"highlight-wrapper\">content</div>"
+}`
+		mockFS := &mockFSWithFiles{
+			files: map[string]mockFile{
+				"test.go": {
+					name:    "test.go",
+					isDir:   false,
+					content: []byte(content),
+					size:    int64(len(content)),
+					modTime: time.Now(),
+				},
+			},
+		}
+
+		mockSrv := &Web{
+			Config: Config{EnableSyntaxHighlighting: false},
+			FS:     mockFS,
+		}
+		require.NoError(t, mockSrv.initTemplates())
+
+		req, err := http.NewRequest("GET", "/view/test.go", nil)
+		require.NoError(t, err)
+
+		rr := httptest.NewRecorder()
+		handler := http.HandlerFunc(mockSrv.handleViewFile)
+		handler.ServeHTTP(rr, req)
+
+		assert.Equal(t, http.StatusOK, rr.Code)
+		body := rr.Body.String()
+		// content should be HTML-escaped and wrapped in <pre> tag, not rendered as HTML
+		assert.Contains(t, body, "<pre>")
+		assert.Contains(t, body, "&lt;div class=")           // HTML-escaped angle brackets
+		assert.Contains(t, body, "\\&#34;highlight-wrapper") // HTML-escaped backslash-quote sequence
+		assert.NotContains(t, body, "{{ .Content | safe }}")
+	})
+
 	// test handleFileModal
 	t.Run("modal for text file", func(t *testing.T) {
 		req, err := http.NewRequest("GET", "/partials/file-modal?path=file1.txt", nil)

@@ -24,7 +24,8 @@ func (wb *Web) getTemplateFuncs() template.FuncMap {
 		"safe": func(s string) template.HTML {
 			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 		},
-		"contains": strings.Contains,
+		"contains":  strings.Contains,
+		"hasPrefix": strings.HasPrefix,
 	}
 }
 
