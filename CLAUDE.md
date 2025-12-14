@@ -76,6 +76,12 @@
 - Static assets served from embedded filesystem (assets/*)
 - Templates stored in templates/* and embedded at compile time
 
+### File Type Detection
+- File viewability determined by extension only (`server/fileinfo.go`)
+- `commonTextExtensions` map defines which extensions are viewable as text
+- `IsViewable()` checks extension against this map - no magic byte detection
+- Binaries with text extensions (e.g., `.jsx`, `.md`) will incorrectly show view icon
+
 ## Dependency Management
 - All dependencies are vendored (vendor directory is committed)
 - When updating routegroup, check for breaking changes in middleware registration order
