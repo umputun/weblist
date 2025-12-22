@@ -3,6 +3,7 @@
 package e2e
 
 import (
+	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -61,7 +62,7 @@ func waitForAuthServer(url string, timeout time.Duration) error {
 		}
 		time.Sleep(100 * time.Millisecond)
 	}
-	return nil
+	return fmt.Errorf("auth server not ready after %v", timeout)
 }
 
 // --- authentication tests ---
