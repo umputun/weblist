@@ -10,6 +10,9 @@ github.com/cespare/xxhash/v2
 # github.com/davecgh/go-spew v1.1.1
 ## explicit
 github.com/davecgh/go-spew/spew
+# github.com/deckarep/golang-set/v2 v2.7.0
+## explicit; go 1.18
+github.com/deckarep/golang-set/v2
 # github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f
 ## explicit
 github.com/dgryski/go-rendezvous
@@ -30,6 +33,9 @@ github.com/dustin/go-humanize
 # github.com/fatih/color v1.18.0
 ## explicit; go 1.17
 github.com/fatih/color
+# github.com/go-jose/go-jose/v3 v3.0.4
+## explicit; go 1.12
+github.com/go-jose/go-jose/v3/json
 # github.com/go-pkgz/expirable-cache/v3 v3.1.0
 ## explicit; go 1.20
 github.com/go-pkgz/expirable-cache/v3
@@ -48,6 +54,9 @@ github.com/go-pkgz/rest/realip
 # github.com/go-pkgz/routegroup v1.6.0
 ## explicit; go 1.23
 github.com/go-pkgz/routegroup
+# github.com/go-stack/stack v1.8.1
+## explicit; go 1.17
+github.com/go-stack/stack
 # github.com/google/uuid v1.6.0
 ## explicit
 github.com/google/uuid
@@ -69,6 +78,8 @@ github.com/jessevdk/go-flags
 # github.com/kr/fs v0.1.0
 ## explicit
 github.com/kr/fs
+# github.com/kr/text v0.2.0
+## explicit
 # github.com/mattn/go-colorable v0.1.14
 ## explicit; go 1.18
 github.com/mattn/go-colorable
@@ -80,6 +91,10 @@ github.com/mattn/go-isatty
 github.com/pkg/sftp
 github.com/pkg/sftp/internal/encoding/ssh/filexfer
 github.com/pkg/sftp/internal/encoding/ssh/filexfer/openssh
+# github.com/playwright-community/playwright-go v0.5200.1
+## explicit; go 1.22
+github.com/playwright-community/playwright-go
+github.com/playwright-community/playwright-go/internal/safe
 # github.com/pmezard/go-difflib v1.0.0
 ## explicit
 github.com/pmezard/go-difflib/difflib
