@@ -3,7 +3,6 @@
 package e2e
 
 import (
-	"fmt"
 	"net/http"
 	"os"
 	"os/exec"
@@ -11,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,30 +37,19 @@ func startAuthServer(t *testing.T) func() {
 	)
 	cmd.Stdout = nil
 	cmd.Stderr = nil
-	require.NoError(t, cmd.Start())
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("failed to start auth server: %v", err)
+	}
 
-	// wait for server to be ready
-	err = waitForAuthServer(authBaseURL+"/ping", 10*time.Second)
-	require.NoError(t, err, "auth server not ready")
+	// wait for server to be ready (reuse waitForServer from e2e_test.go)
+	if err := waitForServer(authBaseURL+"/ping", 10*time.Second); err != nil {
+		_ = cmd.Process.Kill()
+		t.Fatalf("auth server not ready: %v", err)
+	}
 
 	return func() {
 		_ = cmd.Process.Kill()
 	}
-}
-
-func waitForAuthServer(url string, timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	for time.Now().Before(deadline) {
-		resp, err := http.Get(url) //nolint:gosec // test url
-		if err == nil {
-			_ = resp.Body.Close()
-			if resp.StatusCode == http.StatusOK {
-				return nil
-			}
-		}
-		time.Sleep(100 * time.Millisecond)
-	}
-	return fmt.Errorf("auth server not ready after %v", timeout)
 }
 
 // --- authentication tests ---
@@ -102,10 +89,7 @@ func TestAuth_LoginValid(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for login form - only password field is visible
-	require.NoError(t, page.Locator("input[name='password']").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("input[name='password']"))
 
 	// fill in password (username is pre-filled as hidden field)
 	require.NoError(t, page.Locator("input[name='password']").Fill(testPassword))
@@ -117,10 +101,7 @@ func TestAuth_LoginValid(t *testing.T) {
 	require.NoError(t, page.WaitForURL(authBaseURL+"/"))
 
 	// verify file listing is visible (indicating successful auth)
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// verify logout link is visible
 	visible, err := page.Locator("a[href='/logout']").IsVisible()
@@ -137,10 +118,7 @@ func TestAuth_LoginInvalid(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for login form
-	require.NoError(t, page.Locator("input[name='password']").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("input[name='password']"))
 
 	// fill in wrong password
 	require.NoError(t, page.Locator("input[name='password']").Fill("wrongpassword"))
@@ -148,12 +126,11 @@ func TestAuth_LoginInvalid(t *testing.T) {
 	// submit form
 	require.NoError(t, page.Locator("button[type='submit']").Click())
 
-	// wait for page to respond
-	time.Sleep(500 * time.Millisecond)
-
-	// should still be on login page (not redirected to home)
-	url := page.URL()
-	assert.Contains(t, url, "/login", "should remain on login page after invalid credentials")
+	// wait for form to be processed and password field to remain visible (indicating login failure)
+	assert.Eventually(t, func() bool {
+		url := page.URL()
+		return url != "" && (url == authBaseURL+"/login" || url == authBaseURL+"/login?error=1")
+	}, 5*time.Second, 100*time.Millisecond, "should remain on login page after invalid credentials")
 
 	// login form should still be visible
 	visible, err := page.Locator("input[name='password']").IsVisible()
@@ -171,10 +148,7 @@ func TestAuth_Logout(t *testing.T) {
 	_, err := page.Goto(authBaseURL + "/login")
 	require.NoError(t, err)
 
-	require.NoError(t, page.Locator("input[name='password']").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("input[name='password']"))
 
 	require.NoError(t, page.Locator("input[name='password']").Fill(testPassword))
 	require.NoError(t, page.Locator("button[type='submit']").Click())
@@ -183,10 +157,7 @@ func TestAuth_Logout(t *testing.T) {
 	require.NoError(t, page.WaitForURL(authBaseURL+"/"))
 
 	// verify we're logged in
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click logout
 	require.NoError(t, page.Locator("a[href='/logout']").Click())

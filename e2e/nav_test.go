@@ -5,7 +5,6 @@ package e2e
 import (
 	"testing"
 
-	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -18,10 +17,7 @@ func TestNav_ClickDirectory(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for initial table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on subdir directory row
 	require.NoError(t, page.Locator("tr.dir-row:has-text('subdir')").Click())
@@ -30,10 +26,7 @@ func TestNav_ClickDirectory(t *testing.T) {
 	require.NoError(t, page.WaitForURL("**/*path=subdir*"))
 
 	// check that nested.txt is now visible
-	require.NoError(t, page.Locator("text=nested.txt").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("text=nested.txt"))
 }
 
 func TestNav_BreadcrumbToHome(t *testing.T) {
@@ -43,10 +36,7 @@ func TestNav_BreadcrumbToHome(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// verify we're in subdir (nested.txt should be visible)
 	visible, err := page.Locator("text=nested.txt").IsVisible()
@@ -57,10 +47,7 @@ func TestNav_BreadcrumbToHome(t *testing.T) {
 	require.NoError(t, page.Locator(".breadcrumbs a:has-text('Home')").Click())
 
 	// wait for navigation to complete
-	require.NoError(t, page.Locator("text=sample.txt").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("text=sample.txt"))
 }
 
 func TestNav_ParentDirectory(t *testing.T) {
@@ -70,19 +57,13 @@ func TestNav_ParentDirectory(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on parent directory (..)
 	require.NoError(t, page.Locator("tr.dir-row:has-text('..')").Click())
 
 	// wait for navigation to complete - sample.txt should be visible again
-	require.NoError(t, page.Locator("text=sample.txt").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("text=sample.txt"))
 }
 
 // --- breadcrumb tests ---
@@ -93,10 +74,7 @@ func TestBreadcrumb_ShowsCurrentPath(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for page to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// breadcrumbs should contain "subdir"
 	breadcrumbText, err := page.Locator(".breadcrumbs").InnerText()
@@ -111,10 +89,7 @@ func TestBreadcrumb_PreservesSortParams(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for page to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// home link should include sort params
 	homeHref, err := page.Locator(".breadcrumbs a:has-text('Home')").GetAttribute("hx-vals")

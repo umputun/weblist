@@ -6,7 +6,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,10 +18,7 @@ func TestSort_ByName(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on Name header to toggle sort
 	require.NoError(t, page.Locator("th.name-cell").Click())
@@ -31,10 +27,7 @@ func TestSort_ByName(t *testing.T) {
 	require.NoError(t, page.WaitForURL("**/*sort=name*"))
 
 	// table should still be visible after sort
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 }
 
 func TestSort_ByDate(t *testing.T) {
@@ -43,10 +36,7 @@ func TestSort_ByDate(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on Last Modified header
 	require.NoError(t, page.Locator("th.date-col").Click())
@@ -67,10 +57,7 @@ func TestSort_BySize(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on Size header
 	require.NoError(t, page.Locator("th.size-col").Click())
@@ -91,10 +78,7 @@ func TestSort_DirectionToggle(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on Name header first time - should sort ascending
 	require.NoError(t, page.Locator("th.name-cell").Click())
@@ -121,10 +105,7 @@ func TestSort_PreservesPathOnSort(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on Name header to sort
 	require.NoError(t, page.Locator("th.name-cell").Click())

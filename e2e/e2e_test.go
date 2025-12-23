@@ -31,6 +31,7 @@ const (
 
 var (
 	pw        *playwright.Playwright
+	browser   playwright.Browser // single browser instance, reused across tests
 	serverCmd *exec.Cmd
 )
 
@@ -93,10 +94,28 @@ func TestMain(m *testing.M) {
 		os.Exit(1)
 	}
 
+	// launch browser once (reused across all tests via contexts)
+	headless := os.Getenv("E2E_HEADLESS") != "false"
+	var slowMo float64
+	if !headless {
+		slowMo = 50 // slow down visible browser for easier observation
+	}
+	browser, err = pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
+		Headless: playwright.Bool(headless),
+		SlowMo:   playwright.Float(slowMo),
+	})
+	if err != nil {
+		fmt.Printf("failed to launch browser: %v\n", err)
+		_ = pw.Stop()
+		_ = serverCmd.Process.Kill()
+		os.Exit(1)
+	}
+
 	// run tests
 	code := m.Run()
 
 	// cleanup
+	_ = browser.Close()
 	_ = pw.Stop()
 	_ = serverCmd.Process.Kill()
 	_ = os.Remove("/tmp/weblist-e2e")
@@ -121,21 +140,29 @@ func waitForServer(url string, timeout time.Duration) error {
 
 func newPage(t *testing.T) playwright.Page {
 	t.Helper()
-	headless := os.Getenv("E2E_HEADLESS") != "false"
-	slowMo := 0.0
-	if !headless {
-		slowMo = 50 // 50ms slowdown for UI debugging
-	}
-	browser, err := pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(headless),
-		SlowMo:   playwright.Float(slowMo),
-	})
+	ctx, err := browser.NewContext() // new context per test (isolated cookies/storage)
 	require.NoError(t, err)
-	t.Cleanup(func() { _ = browser.Close() })
+	t.Cleanup(func() { _ = ctx.Close() })
 
-	page, err := browser.NewPage()
+	page, err := ctx.NewPage()
 	require.NoError(t, err)
 	return page
+}
+
+// waitVisible waits for locator to become visible
+func waitVisible(t *testing.T, loc playwright.Locator) {
+	t.Helper()
+	require.NoError(t, loc.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateVisible,
+	}))
+}
+
+// waitHidden waits for locator to become hidden
+func waitHidden(t *testing.T, loc playwright.Locator) {
+	t.Helper()
+	require.NoError(t, loc.WaitFor(playwright.LocatorWaitForOptions{
+		State: playwright.WaitForSelectorStateHidden,
+	}))
 }
 
 // --- basic tests ---
@@ -156,10 +183,7 @@ func TestHome_ShowsFiles(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// check that sample.txt is visible
 	visible, err := page.Locator("text=sample.txt").IsVisible()
@@ -173,10 +197,7 @@ func TestHome_ShowsDirectories(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// check that subdir is visible
 	visible, err := page.Locator("text=subdir").IsVisible()

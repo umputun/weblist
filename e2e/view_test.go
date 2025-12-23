@@ -19,19 +19,13 @@ func TestView_FileModal(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on view icon for sample.txt
 	require.NoError(t, page.Locator("tr:has-text('sample.txt') .view-icon").Click())
 
 	// wait for modal to appear
-	require.NoError(t, page.Locator("#modal-container").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("#modal-container"))
 
 	// check that modal contains file name
 	modalContent, err := page.Locator("#modal-container").InnerText()
@@ -45,19 +39,13 @@ func TestView_ModalCloseOnEscape(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on view icon for sample.txt
 	require.NoError(t, page.Locator("tr:has-text('sample.txt') .view-icon").Click())
 
 	// wait for modal to appear
-	require.NoError(t, page.Locator("#modal-container").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("#modal-container"))
 
 	// press Escape to close modal
 	require.NoError(t, page.Keyboard().Press("Escape"))
@@ -75,19 +63,13 @@ func TestView_ModalCloseOnClickOutside(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on view icon for sample.txt
 	require.NoError(t, page.Locator("tr:has-text('sample.txt') .view-icon").Click())
 
 	// wait for modal to appear
-	require.NoError(t, page.Locator("#modal-container .file-modal").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("#modal-container .file-modal"))
 
 	// click on the modal backdrop (outside the modal content)
 	// the modal container covers the whole screen, clicking at position 10,10 hits the backdrop
@@ -108,19 +90,13 @@ func TestView_ModalCloseButton(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on view icon for sample.txt
 	require.NoError(t, page.Locator("tr:has-text('sample.txt') .view-icon").Click())
 
 	// wait for modal to appear
-	require.NoError(t, page.Locator("#modal-container .file-modal").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("#modal-container .file-modal"))
 
 	// click on close button (X)
 	require.NoError(t, page.Locator(".close-modal").Click())
@@ -138,19 +114,13 @@ func TestView_ModalOpenInNewTab(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on view icon for sample.txt
 	require.NoError(t, page.Locator("tr:has-text('sample.txt') .view-icon").Click())
 
 	// wait for modal to appear
-	require.NoError(t, page.Locator("#modal-container .file-modal").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("#modal-container .file-modal"))
 
 	// verify open-tab link exists and has correct href
 	href, err := page.Locator(".open-tab").GetAttribute("href")
@@ -169,19 +139,13 @@ func TestView_ImageInModal(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on view icon for test.png
 	require.NoError(t, page.Locator("tr:has-text('test.png') .view-icon").Click())
 
 	// wait for modal to appear
-	require.NoError(t, page.Locator("#modal-container .file-modal").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("#modal-container .file-modal"))
 
 	// verify image element exists in modal
 	visible, err := page.Locator("#modal-container img.modal-image").IsVisible()
@@ -195,19 +159,13 @@ func TestView_HTMLInModal(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// click on view icon for test.html
 	require.NoError(t, page.Locator("tr:has-text('test.html') .view-icon").Click())
 
 	// wait for modal to appear
-	require.NoError(t, page.Locator("#modal-container .file-modal").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("#modal-container .file-modal"))
 
 	// verify iframe exists in modal for HTML content
 	visible, err := page.Locator("#modal-container iframe").IsVisible()
@@ -232,10 +190,7 @@ func TestView_ViewIconOnlyForViewableFiles(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// sample.txt should have view icon (text file is viewable)
 	viewIconCount, err := page.Locator("tr:has-text('sample.txt') .view-icon").Count()

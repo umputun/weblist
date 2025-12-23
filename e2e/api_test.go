@@ -6,7 +6,6 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/playwright-community/playwright-go"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -19,10 +18,7 @@ func TestDownload_FileLink(t *testing.T) {
 	require.NoError(t, err)
 
 	// wait for table to load
-	require.NoError(t, page.Locator("table").WaitFor(playwright.LocatorWaitForOptions{
-		State:   playwright.WaitForSelectorStateVisible,
-		Timeout: playwright.Float(5000),
-	}))
+	waitVisible(t, page.Locator("table"))
 
 	// check that file link exists and has correct href
 	href, err := page.Locator("tr:has-text('sample.txt') .file-link").GetAttribute("href")
