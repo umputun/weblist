@@ -856,7 +856,7 @@ func TestIntegrationWithAuth(t *testing.T) {
 		assert.Equal(t, "asc", apiResponse.Dir)
 
 		// verify files are present
-		fileNames := make([]string, 0)
+		fileNames := make([]string, 0, len(apiResponse.Files))
 		for _, file := range apiResponse.Files {
 			fileNames = append(fileNames, file.Name)
 		}

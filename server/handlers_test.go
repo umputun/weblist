@@ -1128,7 +1128,7 @@ func TestHandleDownloadSelected(t *testing.T) {
 		require.NoError(t, err)
 
 		// extract all file paths from the ZIP
-		var zipPaths []string
+		zipPaths := make([]string, 0, len(zipReader.File))
 		for _, zipFile := range zipReader.File {
 			zipPaths = append(zipPaths, zipFile.Name)
 		}
@@ -1157,7 +1157,7 @@ func TestHandleDownloadSelected(t *testing.T) {
 		require.NoError(t, err)
 
 		// extract all file paths from the ZIP
-		var zipPaths []string
+		zipPaths := make([]string, 0, len(zipReader.File))
 		for _, zipFile := range zipReader.File {
 			zipPaths = append(zipPaths, zipFile.Name)
 		}

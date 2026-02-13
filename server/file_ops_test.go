@@ -1604,7 +1604,8 @@ func TestHighlightCode(t *testing.T) {
 
 func TestDetectBinary(t *testing.T) {
 	// create test filesystem with binary and text files
-	elfBinary := []byte{0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00}
+	elfBinary := make([]byte, 0, 512)
+	elfBinary = append(elfBinary, 0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00)
 	elfBinary = append(elfBinary, make([]byte, 504)...)
 	textContent := []byte("package main\n\nfunc main() {}\n")
 

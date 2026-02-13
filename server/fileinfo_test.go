@@ -289,15 +289,18 @@ func TestFileInfo_IsViewable(t *testing.T) {
 
 func TestFileInfo_detectBinaryContent(t *testing.T) {
 	// ELF binary magic bytes
-	elfBinary := []byte{0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00}
+	elfBinary := make([]byte, 0, 512)
+	elfBinary = append(elfBinary, 0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00)
 	elfBinary = append(elfBinary, make([]byte, 504)...) // pad to 512 bytes
 
 	// PNG magic bytes
-	pngBinary := []byte{0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a}
+	pngBinary := make([]byte, 0, 512)
+	pngBinary = append(pngBinary, 0x89, 'P', 'N', 'G', 0x0d, 0x0a, 0x1a, 0x0a)
 	pngBinary = append(pngBinary, make([]byte, 504)...)
 
 	// ZIP magic bytes
-	zipBinary := []byte{'P', 'K', 0x03, 0x04}
+	zipBinary := make([]byte, 0, 512)
+	zipBinary = append(zipBinary, 'P', 'K', 0x03, 0x04)
 	zipBinary = append(zipBinary, make([]byte, 508)...)
 
 	tests := []struct {
@@ -357,7 +360,8 @@ func TestFileInfo_detectBinaryContent(t *testing.T) {
 
 func TestExtensionlessFileIntegration(t *testing.T) {
 	// ELF binary magic bytes
-	elfBinary := []byte{0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00}
+	elfBinary := make([]byte, 0, 512)
+	elfBinary = append(elfBinary, 0x7f, 'E', 'L', 'F', 0x02, 0x01, 0x01, 0x00)
 	elfBinary = append(elfBinary, make([]byte, 504)...)
 
 	tests := []struct {
