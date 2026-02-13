@@ -1,0 +1,55 @@
+[
+  {
+    "label": "server: default",
+    "command": "go run . --dbg --root=. --listen=:8080",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "server: with auth",
+    "command": "go run . --dbg --root=. --listen=:8080 --auth=test --insecure-cookies",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "server: all features",
+    "command": "go run . --dbg --root=. --listen=:8080 --theme=dark --syntax-highlight --multi --recursive-mtime",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": true,
+    "allow_concurrent_runs": false
+  },
+  {
+    "label": "test",
+    "command": "make test",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "lint",
+    "command": "make lint",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "build",
+    "command": "make build",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  },
+  {
+    "label": "e2e: headless",
+    "command": "make e2e",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": true
+  },
+  {
+    "label": "e2e: with browser",
+    "command": "make e2e-ui",
+    "cwd": "$ZED_WORKTREE_ROOT",
+    "use_new_terminal": true
+  },
+  {
+    "label": "docker: build",
+    "command": "make docker",
+    "cwd": "$ZED_WORKTREE_ROOT"
+  }
+]
