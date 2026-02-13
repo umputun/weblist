@@ -41,6 +41,12 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	defer func() {
+		if r.MultipartForm != nil {
+			_ = r.MultipartForm.RemoveAll()
+		}
+	}()
+
 	// get and validate target directory path
 	targetPath := r.FormValue("path")
 	if targetPath == "" {
@@ -85,11 +91,12 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 		// write the file to disk
 		if err := wb.writeUploadedFile(destPath, src, wb.UploadOverwrite); err != nil {
 			_ = src.Close()
-			if errors.Is(err, errFileExists) {
-				wb.writeJSONError(w, http.StatusConflict, fmt.Sprintf("file %q already exists", fh.Filename))
-				return
+			var ue *uploadError
+			if errors.As(err, &ue) {
+				wb.writeJSONError(w, ue.status, ue.Error())
+			} else {
+				wb.writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save file: %v", err))
 			}
-			wb.writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save file: %v", err))
 			return
 		}
 		_ = src.Close()
@@ -111,9 +118,6 @@ type uploadError struct {
 }
 
 func (e *uploadError) Error() string { return e.msg }
-
-// errFileExists is returned when a file already exists and overwrite is disabled
-var errFileExists = errors.New("file already exists")
 
 // validateUploadPath cleans and validates the target directory path for upload.
 // it returns the cleaned path relative to RootDir, or an uploadError with an appropriate HTTP status code.
@@ -189,7 +193,7 @@ func (wb *Web) writeUploadedFile(destPath string, src io.Reader, overwrite bool)
 	// reject symlinks in overwrite mode to prevent writing outside RootDir
 	if overwrite {
 		if fi, err := os.Lstat(destPath); err == nil && fi.Mode()&os.ModeSymlink != 0 {
-			return fmt.Errorf("refusing to overwrite symlink: %s", filepath.Base(destPath))
+			return &uploadError{http.StatusBadRequest, fmt.Sprintf("refusing to overwrite symlink: %s", filepath.Base(destPath))}
 		}
 	}
 
@@ -201,7 +205,7 @@ func (wb *Web) writeUploadedFile(destPath string, src io.Reader, overwrite bool)
 	dst, err := os.OpenFile(destPath, flags, 0o644) //nolint:gosec // path is validated by validateUploadPath
 	if err != nil {
 		if errors.Is(err, os.ErrExist) {
-			return errFileExists
+			return &uploadError{http.StatusConflict, fmt.Sprintf("file %q already exists", filepath.Base(destPath))}
 		}
 		return fmt.Errorf("failed to create file: %w", err)
 	}

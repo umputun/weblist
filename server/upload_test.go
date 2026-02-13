@@ -164,8 +164,8 @@ func TestHandleUpload_OverwriteRejectsSymlink(t *testing.T) {
 	srv.handleUpload(rr, req)
 
 	// should reject the upload
-	assert.Equal(t, http.StatusInternalServerError, rr.Code)
-	assert.Contains(t, rr.Body.String(), "error")
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "symlink")
 
 	// verify the outside file was NOT overwritten
 	content, err := os.ReadFile(outsideFile)
