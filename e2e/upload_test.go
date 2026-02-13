@@ -121,6 +121,65 @@ func TestUpload_ButtonHiddenWhenDisabled(t *testing.T) {
 	assert.Equal(t, 0, count, "upload button should not exist when upload is disabled")
 }
 
+// --- toast notification tests ---
+
+func TestUpload_ToastOnSuccessfulUpload(t *testing.T) {
+	_, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	// set up file chooser handler before clicking upload
+	fc, err := page.ExpectFileChooser(func() error {
+		return page.Locator("#upload-btn").Click()
+	})
+	require.NoError(t, err)
+
+	// create a temp file to upload
+	tmpFile := filepath.Join(t.TempDir(), "toast-success.txt")
+	require.NoError(t, os.WriteFile(tmpFile, []byte("toast test"), 0o644))
+	require.NoError(t, fc.SetFiles(tmpFile))
+
+	// toast should appear with success message
+	toast := page.Locator("#upload-toast")
+	waitVisible(t, toast)
+	text, err := toast.TextContent()
+	require.NoError(t, err)
+	assert.Contains(t, text, "Uploaded:")
+	assert.Contains(t, text, "toast-success.txt")
+}
+
+func TestUpload_ToastOnDuplicateFile(t *testing.T) {
+	_, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	// upload sample.txt which already exists in testdata (no overwrite)
+	fc, err := page.ExpectFileChooser(func() error {
+		return page.Locator("#upload-btn").Click()
+	})
+	require.NoError(t, err)
+
+	// create a file named sample.txt (same name as existing testdata file)
+	tmpFile := filepath.Join(t.TempDir(), "sample.txt")
+	require.NoError(t, os.WriteFile(tmpFile, []byte("duplicate"), 0o644))
+	require.NoError(t, fc.SetFiles(tmpFile))
+
+	// toast should appear with error message
+	toast := page.Locator("#upload-toast")
+	waitVisible(t, toast)
+	text, err := toast.TextContent()
+	require.NoError(t, err)
+	assert.Contains(t, text, "already exists")
+}
+
 // --- file upload via API tests ---
 
 func TestUpload_SingleFile(t *testing.T) {

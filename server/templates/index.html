@@ -32,6 +32,9 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
         {{ template "page-content" . }}
     </div>
 </main>
+{{ if .EnableUpload }}
+<div id="upload-toast" class="upload-toast"></div>
+{{ end }}
 <div id="modal-container" hx-on:click="if(event.target === this) { document.body.style.overflow = ''; this.innerHTML = ''; }"></div>
 {{ if not .HideFooter }}
 <footer>
@@ -133,9 +136,6 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
         {{ end }}
     </div>
 </div>
-{{ if .EnableUpload }}
-<div id="upload-toast" class="upload-toast"></div>
-{{ end }}
 <article id="file-listing">
     <table role="grid">
         <thead>
