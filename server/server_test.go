@@ -469,8 +469,14 @@ func TestRouter(t *testing.T) {
 		ts := httptest.NewServer(router)
 		defer ts.Close()
 
+		client := &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
+
 		// test login route is available
-		resp, err := http.Get(ts.URL + "/login")
+		resp, err := client.Get(ts.URL + "/login")
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -479,6 +485,12 @@ func TestRouter(t *testing.T) {
 		require.NoError(t, err)
 		assert.Contains(t, string(body), "Login")
 		assert.Contains(t, string(body), "<form")
+
+		// test favicon.ico is accessible without auth (not redirected to login)
+		faviconResp, err := client.Get(ts.URL + "/favicon.ico")
+		require.NoError(t, err)
+		defer faviconResp.Body.Close()
+		assert.Equal(t, http.StatusOK, faviconResp.StatusCode, "favicon.ico should be accessible without auth")
 	})
 
 	t.Run("upload route enabled", func(t *testing.T) {

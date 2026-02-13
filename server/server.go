@@ -290,6 +290,11 @@ func (wb *Web) router() (http.Handler, error) {
 		http.ServeFileFS(w, r, assetsFS, path)
 	})
 
+	// serve favicon.ico at root level without auth, browsers request this path conventionally
+	router.HandleFunc("GET /favicon.ico", func(w http.ResponseWriter, r *http.Request) {
+		http.ServeFileFS(w, r, assetsFS, "favicon.png")
+	})
+
 	return router, nil
 }
 
