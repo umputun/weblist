@@ -45,6 +45,12 @@ type options struct {
 		Authorized string `long:"authorized" env:"AUTHORIZED" description:"public key authentication file path"`
 	} `group:"SFTP options" namespace:"sftp" env-namespace:"SFTP"`
 
+	Upload struct {
+		Enabled   bool  `long:"enabled" env:"ENABLED" description:"enable file upload"`
+		MaxSize   int64 `long:"max-size" env:"MAX_SIZE" default:"64" description:"max upload size in MB"`
+		Overwrite bool  `long:"overwrite" env:"OVERWRITE" description:"allow overwriting existing files"`
+	} `group:"Upload options" namespace:"upload" env-namespace:"UPLOAD"`
+
 	Branding struct {
 		Name  string `long:"name" env:"NAME" description:"company or organization name to display in navbar"`
 		Color string `long:"color" env:"COLOR" description:"color for navbar (e.g. #3498db or 3498db)"`
@@ -127,6 +133,9 @@ func runServer(ctx context.Context, opts *options) error {
 		SessionTTL:               opts.SessionTTL,
 		EnableMultiSelect:        opts.EnableMultiSelect,
 		RecursiveMtime:           opts.RecursiveMtime,
+		EnableUpload:             opts.Upload.Enabled,
+		UploadMaxSize:            opts.Upload.MaxSize * 1024 * 1024, // convert MB to bytes
+		UploadOverwrite:          opts.Upload.Overwrite,
 	}
 
 	// create HTTP server

@@ -67,6 +67,9 @@ type Config struct {
 	SessionTTL               time.Duration // session timeout duration
 	EnableMultiSelect        bool          // enable multi-file selection and download
 	RecursiveMtime           bool          // calculate directory mtime from newest nested file
+	EnableUpload             bool          // enable file upload support
+	UploadMaxSize            int64         // max upload size in bytes
+	UploadOverwrite          bool          // allow overwriting existing files on upload
 }
 
 // Run starts the web server.
@@ -105,12 +108,19 @@ func (wb *Web) Run(ctx context.Context) error {
 		return fmt.Errorf("failed to create router: %w", err)
 	}
 
+	readTimeout := 10 * time.Second
+	writeTimeout := 30 * time.Second
+	if wb.EnableUpload {
+		readTimeout = 5 * time.Minute
+		writeTimeout = 5 * time.Minute
+	}
+
 	srv := &http.Server{
 		Addr:              wb.ListenAddr,
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       10 * time.Second,
-		WriteTimeout:      30 * time.Second,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
 	}
 
 	// channel to capture server errors
@@ -214,7 +224,6 @@ func (wb *Web) router() (http.Handler, error) {
 	authLimiter.SetMessage("Too many login attempts, please try again later")
 	authLimiter.SetTokenBucketExpirationTTL(10 * time.Minute) // reset after 10 minutes
 
-	router.Use(rest.SizeLimit(1024 * 1024)) // 1M max request size
 	router.Use(logger.New(logger.Log(lgr.Default()), logger.Prefix("[DEBUG]")).Handler)
 	router.Use(rest.AppInfo("weblist", "umputun", wb.Version), rest.Ping)
 	router.Use(wb.securityHeadersMiddleware) // add security headers to all responses
@@ -225,31 +234,47 @@ func (wb *Web) router() (http.Handler, error) {
 		return nil, fmt.Errorf("failed to load embedded assets: %w", err)
 	}
 
-	// add authentication routes if Auth is set
-	if wb.Auth != "" {
-		router.HandleFunc("GET /login", wb.handleLoginPage)
-
-		// apply the stricter rate limiter to login submission endpoint
-		loginHandler := tollbooth.LimitFuncHandler(authLimiter, wb.handleLoginSubmit)
-		router.HandleFunc("POST /login", func(w http.ResponseWriter, r *http.Request) {
-			loginHandler.ServeHTTP(w, r)
+	// register upload route in its own group without SizeLimit, so large uploads are allowed.
+	// the upload handler applies its own MaxBytesReader with UploadMaxSize.
+	if wb.EnableUpload {
+		router.Group().Route(func(uploadGroup *routegroup.Bundle) {
+			if wb.Auth != "" {
+				uploadGroup.Use(wb.authMiddleware)
+			}
+			uploadGroup.HandleFunc("POST /upload", wb.handleUpload)
 		})
-
-		router.HandleFunc("GET /logout", wb.handleLogout)
 	}
 
-	router.Group().Route(func(auth *routegroup.Bundle) {
+	// main route group with SizeLimit for all existing routes (including login)
+	router.Group().Route(func(main *routegroup.Bundle) {
+		main.Use(rest.SizeLimit(1024 * 1024)) // 1M max request size
+
+		// add authentication routes if Auth is set
 		if wb.Auth != "" {
-			auth.Use(wb.authMiddleware)
+			main.HandleFunc("GET /login", wb.handleLoginPage)
+
+			// apply the stricter rate limiter to login submission endpoint
+			loginHandler := tollbooth.LimitFuncHandler(authLimiter, wb.handleLoginSubmit)
+			main.HandleFunc("POST /login", func(w http.ResponseWriter, r *http.Request) {
+				loginHandler.ServeHTTP(w, r)
+			})
+
+			main.HandleFunc("GET /logout", wb.handleLogout)
 		}
-		auth.HandleFunc("GET /", wb.handleRoot)
-		auth.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
-		auth.HandleFunc("GET /partials/file-modal", wb.handleFileModal)              // handle modal content
-		auth.HandleFunc("POST /partials/selection-status", wb.handleSelectionStatus) // handle selection update
-		auth.HandleFunc("POST /download-selected", wb.handleDownloadSelected)        // handle multi-file download
-		auth.HandleFunc("GET /view/{path...}", wb.handleViewFile)                    // handle file viewing
-		auth.HandleFunc("GET /api/list", wb.handleAPIList)                           // handle JSON API for file listing
-		auth.HandleFunc("GET /{path...}", wb.handleDownload)                         // handle file downloads with just the path
+
+		main.Group().Route(func(auth *routegroup.Bundle) {
+			if wb.Auth != "" {
+				auth.Use(wb.authMiddleware)
+			}
+			auth.HandleFunc("GET /", wb.handleRoot)
+			auth.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)
+			auth.HandleFunc("GET /partials/file-modal", wb.handleFileModal)              // handle modal content
+			auth.HandleFunc("POST /partials/selection-status", wb.handleSelectionStatus) // handle selection update
+			auth.HandleFunc("POST /download-selected", wb.handleDownloadSelected)        // handle multi-file download
+			auth.HandleFunc("GET /view/{path...}", wb.handleViewFile)                    // handle file viewing
+			auth.HandleFunc("GET /api/list", wb.handleAPIList)                           // handle JSON API for file listing
+			auth.HandleFunc("GET /{path...}", wb.handleDownload)                         // handle file downloads with just the path
+		})
 	})
 
 	// handler for all static assets
