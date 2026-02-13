@@ -718,6 +718,86 @@ pre {
   flex-shrink: 0;
 }
 
+/* Upload button in toolbar */
+.upload-button button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-xs);
+  padding: 0.3rem 0.6rem;
+  background-color: var(--color-white-overlay);
+  color: var(--color-white);
+  border: 1px solid var(--color-white-overlay);
+  border-radius: var(--border-radius-sm);
+  cursor: pointer;
+  font-size: 0.9rem;
+  font-weight: 500;
+  transition: background-color 0.2s;
+  white-space: nowrap;
+  text-align: center;
+}
+
+.upload-button button:hover {
+  background-color: var(--color-white-overlay-hover);
+}
+
+.upload-button button svg {
+  fill: var(--color-white) !important;
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+}
+
+/* Drag-over highlight for file listing area */
+#file-listing.drag-over {
+  outline: 2px dashed var(--color-primary);
+  outline-offset: -2px;
+  background-color: var(--color-hover);
+}
+
+[data-theme="dark"] #file-listing.drag-over {
+  outline-color: var(--color-primary-text, var(--color-primary));
+}
+
+/* Upload toast notification */
+.upload-toast {
+  position: fixed;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 10px 20px;
+  border-radius: var(--border-radius-sm);
+  font-size: 0.9rem;
+  z-index: 200;
+  opacity: 0;
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  max-width: 90%;
+  text-align: center;
+}
+
+.upload-toast.active {
+  opacity: 1;
+}
+
+.upload-toast.success {
+  background-color: #d4edda;
+  color: #155724;
+  border: 1px solid #c3e6cb;
+}
+
+.upload-toast.error {
+  background-color: var(--color-error-background);
+  color: var(--color-error);
+  border: 1px solid var(--color-error);
+}
+
+[data-theme="dark"] .upload-toast.success {
+  background-color: #1a3a2a;
+  color: #75d99a;
+  border-color: #2a5a3a;
+}
+
 /* Breadcrumbs layout */
 .breadcrumbs {
   display: flex;
@@ -774,8 +854,13 @@ pre {
     font-size: 0.8rem;
     white-space: nowrap;
   }
-  
+
   .selected-count {
+    font-size: 0.8rem;
+  }
+
+  .upload-button button {
+    padding: 0.2rem 0.4rem;
     font-size: 0.8rem;
   }
 }

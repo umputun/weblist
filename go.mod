@@ -1,6 +1,6 @@
 module github.com/umputun/weblist
 
-go 1.25
+go 1.26
 
 require (
 	github.com/alecthomas/chroma/v2 v2.23.1

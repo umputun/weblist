@@ -75,6 +75,10 @@
 - Authentication is optional - controlled by --auth flag
 - Static assets served from embedded filesystem (assets/*)
 - Templates stored in templates/* and embedded at compile time
+- Upload is optional - controlled by --upload.enabled flag
+  - Upload route group has no SizeLimit middleware (uses its own MaxBytesReader)
+  - Main route group retains SizeLimit(1MB) for all other routes
+  - Upload handler uses `os.Create` directly since `fs.FS` is read-only
 
 ### File Type Detection
 - File viewability determined by extension + content detection (`server/fileinfo.go`)
@@ -97,7 +101,7 @@
 
 ## E2E Testing
 - Uses `playwright-go` with build tag `//go:build e2e` for isolation
-- Tests in `e2e/` directory, organized by feature: `e2e_test.go` (setup + basic), `auth_test.go`, `nav_test.go`, `sort_test.go`, `view_test.go`, `api_test.go`
+- Tests in `e2e/` directory, organized by feature: `e2e_test.go` (setup + basic), `auth_test.go`, `nav_test.go`, `sort_test.go`, `view_test.go`, `api_test.go`, `upload_test.go`
 - Main server on port 18080 (no auth), auth tests on port 18081 (with auth) to avoid rate limiter conflicts
 - Run with `make e2e` (headless) or `make e2e-ui` (visible browser for debugging)
 - Setup browsers once with `make e2e-setup`

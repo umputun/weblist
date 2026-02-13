@@ -18,6 +18,7 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 - **Dark Mode**: Easy on the eyes with both light and dark themes
 - **Optional Authentication**: Password-protect your file listings when needed
 - **Multi-file Selection**: Select and download multiple files as a ZIP archive (optional)
+- **File Upload**: Upload files via click-to-browse, drag-and-drop, or clipboard paste (optional)
 - **SFTP Support**: Access the same files via SFTP for more advanced operations
 - **Syntax Highlighting**: Beautiful code highlighting for various programming languages (optional)
 - **JSON API**: Programmatic access to file listings via a simple JSON API
@@ -62,6 +63,9 @@ weblist --syntax-highlight
 
 # Enable multi-file selection and download
 weblist --multi
+
+# Enable file upload
+weblist --upload.enabled
 
 # Set a custom title for your file server
 weblist --title "My Files"
@@ -111,6 +115,11 @@ weblist [options]
 - `--multi`: Enable multi-file selection and download - env: `MULTI_SELECT`
 - `--recursive-mtime`: Calculate directory mtime from newest nested file - env: `RECURSIVE_MTIME`
 - `--title`: Custom title for the site (used in browser title and home) - env: `TITLE`
+
+Upload Options (with `--upload` prefix):
+- `--upload.enabled`: Enable file upload - env: `UPLOAD_ENABLED`
+- `--upload.max-size`: Max upload size in MB (default: `64`) - env: `UPLOAD_MAX_SIZE`
+- `--upload.overwrite`: Allow overwriting existing files - env: `UPLOAD_OVERWRITE`
 
 SFTP Options (with `--sftp` prefix):
 - `--sftp.enabled`: Enable SFTP server - env: `SFTP_ENABLED`
@@ -207,6 +216,35 @@ When multi-file selection is enabled:
 - The feature works seamlessly in both light and dark themes
 
 Multi-file selection is disabled by default for a cleaner interface and can be enabled with the `--multi` flag.
+
+## File Upload
+
+Weblist can optionally allow users to upload files to the currently viewed directory:
+
+```bash
+# Enable file upload
+weblist --upload.enabled
+
+# Set max upload size (default: 64MB)
+weblist --upload.enabled --upload.max-size 128
+
+# Allow overwriting existing files (default: reject duplicates)
+weblist --upload.enabled --upload.overwrite
+```
+
+When file upload is enabled:
+- An upload button appears in the toolbar for uploading files via file picker
+- Files can be dragged and dropped onto the file listing area
+- Files can be pasted from the clipboard (e.g., screenshots)
+- Multiple files can be uploaded at once
+- File size is validated both client-side and server-side
+- Duplicate filenames are rejected by default (configurable with `--upload.overwrite`)
+- Path traversal attacks are blocked — files can only be uploaded to valid directories within the root
+- Upload is protected by authentication when auth is enabled
+
+The upload endpoint accepts `POST /upload` with `multipart/form-data` containing a `path` field (target directory) and one or more `file` fields.
+
+File upload is disabled by default and can be enabled with the `--upload.enabled` flag.
 
 ## Recursive Directory Modification Time
 
@@ -364,7 +402,7 @@ services:
       - "8080:8080"
       - "2022:2022"  # SFTP port
     volumes:
-      - /path/to/files:/data:ro
+      - /path/to/files:/data:ro  # use /path/to/files:/data (without :ro) if upload is enabled
     environment:
       - LISTEN=:8080
       - THEME=light
@@ -384,6 +422,9 @@ services:
       - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth
       - SYNTAX_HIGHLIGHT=true  # Optional: Enable syntax highlighting for code files
       - MULTI_SELECT=true  # Optional: Enable multi-file selection and download
+      - UPLOAD_ENABLED=true  # Optional: Enable file upload
+      - UPLOAD_MAX_SIZE=64  # Optional: Max upload size in MB (default: 64)
+      - UPLOAD_OVERWRITE=false  # Optional: Allow overwriting existing files
       - RECURSIVE_MTIME=true  # Optional: Calculate directory mtime from newest nested file
       - TITLE=My File Server  # Optional: Custom title for the site
 ```

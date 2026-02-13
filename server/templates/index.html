@@ -32,6 +32,9 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
         {{ template "page-content" . }}
     </div>
 </main>
+{{ if .EnableUpload }}
+<div id="upload-toast" class="upload-toast"></div>
+{{ end }}
 <div id="modal-container" hx-on:click="if(event.target === this) { document.body.style.overflow = ''; this.innerHTML = ''; }"></div>
 {{ if not .HideFooter }}
 <footer>
@@ -106,7 +109,20 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
         {{ if .EnableMultiSelect }}
         <div id="selection-status" class="selection-status"></div>
         {{ end }}
-        
+
+        {{ if .EnableUpload }}
+        <div class="upload-button">
+            <button type="button" id="upload-btn" title="Upload files">
+                <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
+                    <path d="M.5 9.9a.5.5 0 0 1 .5.5v2.5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-2.5a.5.5 0 0 1 1 0v2.5a2 2 0 0 1-2 2H2a2 2 0 0 1-2-2v-2.5a.5.5 0 0 1 .5-.5z"/>
+                    <path d="M7.646 1.146a.5.5 0 0 1 .708 0l3 3a.5.5 0 0 1-.708.708L8.5 2.707V11.5a.5.5 0 0 1-1 0V2.707L5.354 4.854a.5.5 0 1 1-.708-.708l3-3z"/>
+                </svg>
+                Upload
+            </button>
+            <input type="file" id="upload-file-input" multiple style="display:none">
+        </div>
+        {{ end }}
+
         {{ if .IsAuthenticated }}
         <div class="logout-button">
             <a href="/logout">
@@ -120,7 +136,7 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
         {{ end }}
     </div>
 </div>
-<article>
+<article id="file-listing">
     <table role="grid">
         <thead>
         <tr>
@@ -253,4 +269,114 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
         </tbody>
     </table>
 </article>
+{{ if .EnableUpload }}
+<script>
+(function() {
+    var maxSize = {{ .UploadMaxSize }};
+    var currentPath = "{{ .Path }}";
+    var listing = document.getElementById('file-listing');
+    var uploadBtn = document.getElementById('upload-btn');
+    var fileInput = document.getElementById('upload-file-input');
+
+    // click handler: open file picker
+    if (uploadBtn && fileInput) {
+        uploadBtn.addEventListener('click', function(e) {
+            e.preventDefault();
+            fileInput.click();
+        });
+        fileInput.addEventListener('change', function() {
+            if (fileInput.files.length > 0) {
+                uploadFiles(fileInput.files);
+                fileInput.value = '';
+            }
+        });
+    }
+
+    // drag-and-drop on file listing area
+    if (listing) {
+        listing.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            listing.classList.add('drag-over');
+        });
+        listing.addEventListener('dragleave', function(e) {
+            e.preventDefault();
+            listing.classList.remove('drag-over');
+        });
+        listing.addEventListener('drop', function(e) {
+            e.preventDefault();
+            listing.classList.remove('drag-over');
+            if (e.dataTransfer && e.dataTransfer.files.length > 0) {
+                uploadFiles(e.dataTransfer.files);
+            }
+        });
+    }
+
+    // clipboard paste handler; remove previous listener to avoid accumulation on HTMX swaps
+    if (window._weblistPasteHandler) {
+        document.removeEventListener('paste', window._weblistPasteHandler);
+    }
+    window._weblistPasteHandler = function(e) {
+        if (!e.clipboardData || !e.clipboardData.files || e.clipboardData.files.length === 0) return;
+        e.preventDefault();
+        // rename clipboard files with timestamp to avoid collisions (browsers use generic names like "image.png")
+        var renamed = [];
+        var now = new Date();
+        var ts = now.getFullYear().toString() +
+            ('0' + (now.getMonth() + 1)).slice(-2) +
+            ('0' + now.getDate()).slice(-2) + '-' +
+            ('0' + now.getHours()).slice(-2) +
+            ('0' + now.getMinutes()).slice(-2) +
+            ('0' + now.getSeconds()).slice(-2);
+        for (var i = 0; i < e.clipboardData.files.length; i++) {
+            var f = e.clipboardData.files[i];
+            var ext = f.name.indexOf('.') !== -1 ? f.name.substring(f.name.lastIndexOf('.')) : '';
+            var newName = 'paste-' + ts + (e.clipboardData.files.length > 1 ? '-' + (i + 1) : '') + ext;
+            renamed.push(new File([f], newName, { type: f.type }));
+        }
+        uploadFiles(renamed);
+    };
+    document.addEventListener('paste', window._weblistPasteHandler);
+
+    function showToast(msg, isError) {
+        var toast = document.getElementById('upload-toast');
+        if (!toast) return;
+        toast.textContent = msg;
+        toast.className = 'upload-toast active' + (isError ? ' error' : ' success');
+        setTimeout(function() { toast.classList.remove('active'); }, 4000);
+    }
+
+    function uploadFiles(files) {
+        // validate file sizes before upload
+        for (var i = 0; i < files.length; i++) {
+            if (files[i].size > maxSize) {
+                showToast('File "' + files[i].name + '" exceeds maximum size limit', true);
+                return;
+            }
+        }
+
+        var formData = new FormData();
+        formData.append('path', currentPath);
+        for (var i = 0; i < files.length; i++) {
+            formData.append('file', files[i]);
+        }
+
+        fetch('/upload', { method: 'POST', body: formData })
+            .then(function(resp) { return resp.json().then(function(data) { return { ok: resp.ok, data: data }; }); })
+            .then(function(result) {
+                if (!result.ok) {
+                    showToast(result.data.error || 'Upload failed', true);
+                    return;
+                }
+                var names = result.data.uploaded || [];
+                showToast('Uploaded: ' + names.join(', '), false);
+                // refresh file listing via htmx
+                htmx.ajax('GET', '/partials/dir-contents?path=' + encodeURIComponent(currentPath), {target: '#page-content', swap: 'innerHTML'});
+            })
+            .catch(function(err) {
+                showToast('Upload failed: ' + err.message, true);
+            });
+    }
+})();
+</script>
+{{ end }}
 {{ end }}

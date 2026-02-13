@@ -80,6 +80,28 @@ func TestLoginRateLimit(t *testing.T) {
 	t.Fatal("Rate limit was never triggered after 10 login attempts")
 }
 
+func TestLoginOversizedRequest(t *testing.T) {
+	testdataDir, err := filepath.Abs("testdata")
+	require.NoError(t, err)
+
+	srv := &Web{
+		Config: Config{ListenAddr: ":0", Theme: "light", RootDir: testdataDir, Auth: "testpassword"},
+		FS:     os.DirFS(testdataDir),
+	}
+
+	router, err := srv.router()
+	require.NoError(t, err)
+
+	// send a POST /login request larger than 1MB SizeLimit
+	body := strings.Repeat("x", 2*1024*1024)
+	req := httptest.NewRequest("POST", "/login", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code, "oversized login POST should be rejected with 413")
+}
+
 func TestAuthentication(t *testing.T) {
 	// create a server with authentication
 	srv := &Web{

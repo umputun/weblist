@@ -94,6 +94,8 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		BrandColor        string
 		CustomFooter      string
 		EnableMultiSelect bool
+		EnableUpload      bool
+		UploadMaxSize     int64
 	}{
 		Files:             fileList,
 		Path:              path,
@@ -108,6 +110,8 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		IsAuthenticated:   isAuthenticated,
 		CustomFooter:      wb.CustomFooter,
 		EnableMultiSelect: wb.EnableMultiSelect,
+		EnableUpload:      wb.EnableUpload,
+		UploadMaxSize:     wb.UploadMaxSize,
 	}
 
 	// execute just the page-content template

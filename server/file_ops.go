@@ -154,6 +154,8 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		BrandColor        string
 		CustomFooter      string
 		EnableMultiSelect bool
+		EnableUpload      bool
+		UploadMaxSize     int64
 	}{
 		Files:             fileList,
 		Path:              path,
@@ -169,6 +171,8 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		BrandColor:        wb.BrandColor,
 		CustomFooter:      wb.CustomFooter,
 		EnableMultiSelect: wb.EnableMultiSelect,
+		EnableUpload:      wb.EnableUpload,
+		UploadMaxSize:     wb.UploadMaxSize,
 	}
 
 	// execute the entire template

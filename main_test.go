@@ -169,6 +169,15 @@ func TestParseCommandLineArgs(t *testing.T) {
 				Dbg:     true,
 			},
 		},
+		{
+			name: "upload options",
+			args: []string{"weblist", "--upload.enabled", "--upload.max-size", "128", "--upload.overwrite"},
+			expected: options{
+				Listen:  ":8080",
+				Theme:   "light",
+				RootDir: ".",
+			},
+		},
 	}
 
 	for _, tc := range tests {
@@ -185,10 +194,15 @@ func TestParseCommandLineArgs(t *testing.T) {
 			require.NoError(t, err, "Flag parsing should not produce an error")
 
 			// check if options match expected values
-			assert.Equal(t, tc.expected.Listen, opts.Listen, "Listen address should match")
-			assert.Equal(t, tc.expected.Theme, opts.Theme, "Theme should match")
-			assert.Equal(t, tc.expected.RootDir, opts.RootDir, "Root directory should match")
-			assert.Equal(t, tc.expected.Dbg, opts.Dbg, "Debug mode should match")
+			assert.Equal(t, tc.expected.Listen, opts.Listen, "listen address should match")
+			assert.Equal(t, tc.expected.Theme, opts.Theme, "theme should match")
+			assert.Equal(t, tc.expected.RootDir, opts.RootDir, "root directory should match")
+			assert.Equal(t, tc.expected.Dbg, opts.Dbg, "debug mode should match")
+			if tc.name == "upload options" {
+				assert.True(t, opts.Upload.Enabled, "upload should be enabled")
+				assert.Equal(t, int64(128), opts.Upload.MaxSize, "upload max size should match")
+				assert.True(t, opts.Upload.Overwrite, "upload overwrite should be enabled")
+			}
 		})
 	}
 }
@@ -321,6 +335,43 @@ func TestRunServer(t *testing.T) {
 		assert.NoError(t, err)
 	case <-time.After(2 * time.Second):
 		t.Fatal("Server did not shut down within expected time")
+	}
+}
+
+func TestRunServerUploadConfig(t *testing.T) {
+	tempDir := t.TempDir()
+
+	// find an available port
+	listener, err := net.Listen("tcp", ":0")
+	require.NoError(t, err)
+	port := listener.Addr().(*net.TCPAddr).Port
+	require.NoError(t, listener.Close())
+
+	serverOpts := &options{
+		Listen:  fmt.Sprintf(":%d", port),
+		Theme:   "light",
+		RootDir: tempDir,
+	}
+	serverOpts.Upload.Enabled = true
+	serverOpts.Upload.MaxSize = 32
+	serverOpts.Upload.Overwrite = true
+
+	ctx, cancel := context.WithCancel(context.Background())
+
+	errCh := make(chan error, 1)
+	go func() {
+		errCh <- runServer(ctx, serverOpts)
+	}()
+
+	// wait for the server to start
+	time.Sleep(100 * time.Millisecond)
+	cancel()
+
+	select {
+	case err := <-errCh:
+		assert.NoError(t, err)
+	case <-time.After(2 * time.Second):
+		t.Fatal("server did not shut down within expected time")
 	}
 }
 

@@ -480,4 +480,71 @@ func TestRouter(t *testing.T) {
 		assert.Contains(t, string(body), "Login")
 		assert.Contains(t, string(body), "<form")
 	})
+
+	t.Run("upload route enabled", func(t *testing.T) {
+		uploadSrv := setupTestServer(t)
+		uploadSrv.EnableUpload = true
+		uploadSrv.UploadMaxSize = 64 * 1024 * 1024
+
+		router, err := uploadSrv.router()
+		require.NoError(t, err)
+
+		ts := httptest.NewServer(router)
+		defer ts.Close()
+
+		// POST /upload should be reachable (returns 400 for invalid multipart body)
+		resp, err := http.Post(ts.URL+"/upload", "multipart/form-data", nil)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusBadRequest, resp.StatusCode, "upload route should be registered when enabled")
+	})
+
+	t.Run("upload route disabled", func(t *testing.T) {
+		disabledSrv := setupTestServer(t)
+		disabledSrv.EnableUpload = false
+
+		router, err := disabledSrv.router()
+		require.NoError(t, err)
+
+		ts := httptest.NewServer(router)
+		defer ts.Close()
+
+		client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}}
+
+		// POST /upload should not match any route when disabled
+		resp, err := client.Post(ts.URL+"/upload", "multipart/form-data", nil)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusMethodNotAllowed, resp.StatusCode, "upload route should not be registered when disabled")
+	})
+
+	t.Run("upload route with auth requires authentication", func(t *testing.T) {
+		authUploadSrv := &Web{
+			Config: Config{
+				RootDir:      "testdata",
+				Auth:         "testpassword",
+				EnableUpload: true,
+			},
+			FS: os.DirFS("testdata"),
+		}
+
+		router, err := authUploadSrv.router()
+		require.NoError(t, err)
+
+		ts := httptest.NewServer(router)
+		defer ts.Close()
+
+		client := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		}}
+
+		// POST /upload without auth should redirect to login
+		resp, err := client.Post(ts.URL+"/upload", "multipart/form-data", nil)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusSeeOther, resp.StatusCode, "upload route should require auth")
+		assert.Equal(t, "/login", resp.Header.Get("Location"))
+	})
 }
