@@ -16,6 +16,9 @@ import (
 	"github.com/alecthomas/chroma/v2/formatters/html"
 	"github.com/alecthomas/chroma/v2/lexers"
 	"github.com/alecthomas/chroma/v2/styles"
+	"github.com/yuin/goldmark"
+	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	"github.com/yuin/goldmark/extension"
 )
 
 // getTemplateFuncs returns the common template functions map
@@ -472,6 +475,35 @@ func (wb *Web) highlightCode(code, filename, theme string) (string, error) {
 	}
 
 	// write HTML footer
+	buf.WriteString("</div>")
+
+	return buf.String(), nil
+}
+
+// renderMarkdown converts markdown content to HTML using goldmark with GFM extensions.
+// the theme parameter controls the chroma style for fenced code blocks: "dark" uses monokai, any other value uses github.
+// the output is wrapped in a <div class="markdown-content"> element.
+func (wb *Web) renderMarkdown(content, theme string) (string, error) {
+	chromaStyle := "github"
+	if theme == "dark" {
+		chromaStyle = "monokai"
+	}
+
+	md := goldmark.New(
+		goldmark.WithExtensions(
+			extension.GFM,
+			highlighting.NewHighlighting(
+				highlighting.WithStyle(chromaStyle),
+				highlighting.WithFormatOptions(html.WithClasses(true)),
+			),
+		),
+	)
+
+	var buf strings.Builder
+	buf.WriteString(`<div class="markdown-content">`)
+	if err := md.Convert([]byte(content), &buf); err != nil {
+		return "", fmt.Errorf("markdown conversion: %w", err)
+	}
 	buf.WriteString("</div>")
 
 	return buf.String(), nil

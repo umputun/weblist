@@ -309,7 +309,7 @@ func TestGetFileList(t *testing.T) {
 			path:           ".",
 			sortBy:         "name",
 			sortDir:        "asc",
-			expectedFiles:  []string{"file1.txt", "file2.txt"},
+			expectedFiles:  []string{"file1.txt", "file2.txt", "test.md"},
 			expectedDirs:   []string{"dir1", "dir2", "empty-dir"},
 			expectedParent: false,
 		},
@@ -327,7 +327,7 @@ func TestGetFileList(t *testing.T) {
 			path:           ".",
 			sortBy:         "name",
 			sortDir:        "desc",
-			expectedFiles:  []string{"file2.txt", "file1.txt"},
+			expectedFiles:  []string{"test.md", "file2.txt", "file1.txt"},
 			expectedDirs:   []string{"empty-dir", "dir2", "dir1"},
 			expectedParent: false,
 		},
@@ -1675,4 +1675,86 @@ func TestDetectBinary(t *testing.T) {
 		webNoCache.detectBinary(&fi)
 		assert.True(t, fi.isBinary, "should work without cache")
 	})
+}
+
+func TestRenderMarkdown(t *testing.T) {
+	web := &Web{}
+
+	tests := []struct {
+		name            string
+		content         string
+		theme           string
+		wantContains    []string
+		wantNotContains []string
+	}{
+		{
+			name:    "heading renders as h1",
+			content: "# Hello World",
+			theme:   "light",
+			wantContains: []string{
+				`<div class="markdown-content">`,
+				"<h1>Hello World</h1>",
+			},
+		},
+		{
+			name:    "fenced code block with syntax highlighting",
+			content: "```go\npackage main\n```",
+			theme:   "light",
+			wantContains: []string{
+				`<div class="markdown-content">`,
+				"chroma",
+				"package",
+			},
+		},
+		{
+			name:         "dark theme uses monokai",
+			content:      "```go\nfunc main() {}\n```",
+			theme:        "dark",
+			wantContains: []string{`<div class="markdown-content">`, "chroma"},
+		},
+		{
+			name:         "list renders as ul/li",
+			content:      "- item one\n- item two\n",
+			theme:        "light",
+			wantContains: []string{"<ul>", "<li>item one</li>", "<li>item two</li>"},
+		},
+		{
+			name:         "link renders as anchor",
+			content:      "[example](https://example.com)",
+			theme:        "light",
+			wantContains: []string{`<a href="https://example.com">example</a>`},
+		},
+		{
+			name:         "table renders as html table",
+			content:      "| A | B |\n|---|---|\n| 1 | 2 |",
+			theme:        "light",
+			wantContains: []string{"<table>", "<th>A</th>", "<td>1</td>"},
+		},
+		{
+			name:         "empty content produces wrapper only",
+			content:      "",
+			theme:        "light",
+			wantContains: []string{`<div class="markdown-content">`, `</div>`},
+		},
+		{
+			name:            "raw html is sanitized",
+			content:         `<script>alert("xss")</script>`,
+			theme:           "light",
+			wantContains:    []string{`<div class="markdown-content">`},
+			wantNotContains: []string{"<script>"},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := web.renderMarkdown(tt.content, tt.theme)
+			require.NoError(t, err)
+			for _, want := range tt.wantContains {
+				assert.Contains(t, result, want)
+			}
+			for _, notWant := range tt.wantNotContains {
+				assert.NotContains(t, result, notWant)
+			}
+		})
+	}
 }

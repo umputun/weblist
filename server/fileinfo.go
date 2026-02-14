@@ -25,11 +25,12 @@ type FileInfo struct {
 
 // ContentTypeInfo holds content type information for a file
 type ContentTypeInfo struct {
-	MIMEType string // MIME type string for the file
-	IsText   bool   // true for text-based content (plain text, code, HTML, JSON, XML)
-	IsHTML   bool   // true specifically for HTML content
-	IsPDF    bool   // true for PDF documents
-	IsImage  bool   // true for all image formats
+	MIMEType   string // MIME type string for the file
+	IsText     bool   // true for text-based content (plain text, code, HTML, JSON, XML)
+	IsHTML     bool   // true specifically for HTML content
+	IsPDF      bool   // true for PDF documents
+	IsImage    bool   // true for all image formats
+	IsMarkdown bool   // true for markdown files (.md, .markdown)
 }
 
 // SizeToString converts file size to human-readable format
@@ -132,11 +133,12 @@ func DetermineContentType(filePath string) ContentTypeInfo {
 	}
 
 	return ContentTypeInfo{
-		MIMEType: mimeType,
-		IsText:   isTextLikeMIME(mimeType) || commonTextExtensions[extLower],
-		IsHTML:   strings.Contains(mimeType, "html"),
-		IsPDF:    mimeType == "application/pdf",
-		IsImage:  strings.HasPrefix(mimeType, "image/"),
+		MIMEType:   mimeType,
+		IsText:     isTextLikeMIME(mimeType) || commonTextExtensions[extLower],
+		IsHTML:     strings.Contains(mimeType, "html"),
+		IsPDF:      mimeType == "application/pdf",
+		IsImage:    strings.HasPrefix(mimeType, "image/"),
+		IsMarkdown: extLower == ".md" || extLower == ".markdown",
 	}
 }
 
@@ -211,7 +213,7 @@ func (f *FileInfo) checkBinaryContent(fsys fs.FS) bool {
 	if err != nil {
 		return false
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	buf := make([]byte, 512)
 	n, err := io.ReadFull(file, buf)

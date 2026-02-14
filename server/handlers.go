@@ -120,7 +120,7 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleViewFile serves a file view for text files
+// handleViewFile serves a file view for text files with optional syntax highlighting and markdown rendering
 func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 	// extract the file path from the URL
 	filePath := strings.TrimPrefix(r.URL.Path, "/view/")
@@ -188,23 +188,33 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 
 	// prepare data for the template
 	data := struct {
-		FileName string
-		Content  string
-		Theme    string
-		IsHTML   bool
+		FileName   string
+		Content    string
+		Theme      string
+		IsHTML     bool
+		IsMarkdown bool
 	}{
-		FileName: fileInfo.Name(),
-		Content:  string(fileContent),
-		Theme:    theme,
-		IsHTML:   ctInfo.IsHTML,
+		FileName:   fileInfo.Name(),
+		Content:    string(fileContent),
+		Theme:      theme,
+		IsHTML:     ctInfo.IsHTML,
+		IsMarkdown: ctInfo.IsMarkdown,
 	}
 
-	// apply syntax highlighting for non-HTML text files if enabled
-	if !ctInfo.IsHTML && wb.EnableSyntaxHighlighting {
+	// render markdown or apply syntax highlighting
+	switch {
+	case ctInfo.IsMarkdown:
+		rendered, err := wb.renderMarkdown(data.Content, theme)
+		if err != nil {
+			log.Printf("[WARN] failed to render markdown: %v", err)
+			data.IsMarkdown = false // fall back to plain text rendering with escaping
+		} else {
+			data.Content = rendered
+		}
+	case !ctInfo.IsHTML && wb.EnableSyntaxHighlighting:
 		highlighted, err := wb.highlightCode(string(fileContent), fileInfo.Name(), theme)
 		if err != nil {
 			log.Printf("[WARN] failed to highlight code: %v", err)
-			// fall back to plain text if highlighting fails
 		} else {
 			data.Content = highlighted
 		}
@@ -429,7 +439,11 @@ func (wb *Web) handleDownloadSelected(w http.ResponseWriter, r *http.Request) {
 
 	// create the ZIP file directly on the response writer
 	zipWriter := zip.NewWriter(w)
-	defer zipWriter.Close()
+	defer func() {
+		if err := zipWriter.Close(); err != nil {
+			log.Printf("[WARN] failed to finalize zip: %v", err)
+		}
+	}()
 
 	// process each selected file
 	for _, filePath := range selectedFiles {
@@ -473,7 +487,7 @@ func (wb *Web) addFileToZip(zipWriter *zip.Writer, filePath, zipPath string) err
 	if err != nil {
 		return fmt.Errorf("failed to open file: %w", err)
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	// get file info
 	info, err := file.Stat()

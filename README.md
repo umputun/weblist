@@ -21,6 +21,7 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 - **File Upload**: Upload files via click-to-browse, drag-and-drop, or clipboard paste (optional)
 - **SFTP Support**: Access the same files via SFTP for more advanced operations
 - **Syntax Highlighting**: Beautiful code highlighting for various programming languages (optional)
+- **Markdown Rendering**: Markdown files (.md, .markdown) are rendered as formatted HTML with headings, tables, code blocks, and more
 - **JSON API**: Programmatic access to file listings via a simple JSON API
 
 <details markdown>
@@ -378,6 +379,8 @@ For viewing text files or code in the browser with syntax highlighting (when ena
 ```
 GET /view/{path/to/file}
 ```
+
+Markdown files (`.md`, `.markdown`) are automatically rendered as formatted HTML with support for GFM (GitHub Flavored Markdown) — headings, tables, task lists, fenced code blocks with syntax highlighting, and more. This happens automatically without any configuration.
 
 All file access respects the same authentication and exclusion rules as the web interface.
 

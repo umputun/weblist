@@ -203,6 +203,32 @@ func TestView_ViewIconOnlyForViewableFiles(t *testing.T) {
 	assert.Equal(t, 1, viewIconCount, "test.png should have view icon")
 }
 
+func TestView_MarkdownRendered(t *testing.T) {
+	page := newPage(t)
+	_, err := page.Goto(baseURL + "/view/test.md")
+	require.NoError(t, err)
+
+	// verify rendered heading is present (not raw markdown)
+	heading, err := page.Locator("h1").InnerText()
+	require.NoError(t, err)
+	assert.Equal(t, "Markdown Test", heading)
+
+	// verify markdown-content wrapper is present
+	visible, err := page.Locator(".markdown-content").IsVisible()
+	require.NoError(t, err)
+	assert.True(t, visible, "markdown-content wrapper should be visible")
+
+	// verify raw markdown is not shown
+	body, err := page.Locator("body").InnerHTML()
+	require.NoError(t, err)
+	assert.NotContains(t, body, "# Markdown Test")
+
+	// verify table rendered
+	tableVisible, err := page.Locator(".markdown-content table").IsVisible()
+	require.NoError(t, err)
+	assert.True(t, tableVisible, "table should be rendered")
+}
+
 // --- theme tests ---
 
 func TestTheme_DefaultIsLight(t *testing.T) {

@@ -87,6 +87,12 @@
 - Only files with viewable extensions are content-checked to minimize I/O overhead
 - Binary files with text extensions (e.g., ELF named `.jsx`) are correctly identified and excluded from view
 
+### Markdown Rendering
+- Markdown files (.md, .markdown) are rendered as formatted HTML using goldmark with GFM extensions
+- Always enabled (not gated by `--syntax-highlight` flag), unlike code syntax highlighting
+- Uses goldmark-highlighting with chroma for fenced code block syntax highlighting
+- Raw HTML in markdown is sanitized by default (goldmark strips unsafe HTML tags)
+
 ## Dependency Management
 - All dependencies are vendored (vendor directory is committed)
 - When updating routegroup, check for breaking changes in middleware registration order
