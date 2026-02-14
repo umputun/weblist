@@ -106,13 +106,14 @@ func TestTimeString(t *testing.T) {
 
 func TestDetermineContentType(t *testing.T) {
 	tests := []struct {
-		name        string
-		filePath    string
-		wantType    string
-		wantIsText  bool
-		wantIsHTML  bool
-		wantIsPDF   bool
-		wantIsImage bool
+		name           string
+		filePath       string
+		wantType       string
+		wantIsText     bool
+		wantIsHTML     bool
+		wantIsPDF      bool
+		wantIsImage    bool
+		wantIsMarkdown bool
 	}{
 		{
 			name:        "plain text file",
@@ -177,6 +178,26 @@ func TestDetermineContentType(t *testing.T) {
 			wantIsPDF:   false,
 			wantIsImage: false,
 		},
+		{
+			name:           "markdown file .md",
+			filePath:       "readme.md",
+			wantType:       "text/plain",
+			wantIsText:     true,
+			wantIsMarkdown: true,
+		},
+		{
+			name:           "markdown file .markdown",
+			filePath:       "readme.markdown",
+			wantType:       "text/plain",
+			wantIsText:     true,
+			wantIsMarkdown: true,
+		},
+		{
+			name:       "plain text is not markdown",
+			filePath:   "readme.txt",
+			wantType:   "text/plain",
+			wantIsText: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -201,6 +222,7 @@ func TestDetermineContentType(t *testing.T) {
 			assert.Equal(t, tt.wantIsHTML, ctInfo.IsHTML)
 			assert.Equal(t, tt.wantIsPDF, ctInfo.IsPDF)
 			assert.Equal(t, tt.wantIsImage, ctInfo.IsImage)
+			assert.Equal(t, tt.wantIsMarkdown, ctInfo.IsMarkdown)
 		})
 	}
 }

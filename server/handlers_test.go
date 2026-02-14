@@ -742,6 +742,7 @@ func TestAPIList_Contents(t *testing.T) {
 			"empty-dir": true,
 			"file1.txt": true,
 			"file2.txt": true,
+			"test.md":   true,
 		}
 
 		foundFiles := make(map[string]bool)
@@ -762,7 +763,7 @@ func TestAPIList_Contents(t *testing.T) {
 		}
 
 		assert.Equal(t, 3, dirCount, "unexpected number of directories")
-		assert.Equal(t, 2, fileCount, "unexpected number of files")
+		assert.Equal(t, 3, fileCount, "unexpected number of files")
 	})
 
 	t.Run("subdirectory listing", func(t *testing.T) {
@@ -1167,4 +1168,24 @@ func TestHandleDownloadSelected(t *testing.T) {
 		assert.Contains(t, zipPaths, "file3.txt", "file3.txt should be in the ZIP")
 		assert.Contains(t, zipPaths, "subdir/file4.txt", "subdir/file4.txt should be in the ZIP")
 	})
+}
+
+func TestHandleViewFile_Markdown(t *testing.T) {
+	srv := setupTestServer(t)
+
+	req, err := http.NewRequest("GET", "/view/test.md", nil)
+	require.NoError(t, err)
+
+	rr := httptest.NewRecorder()
+	srv.handleViewFile(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
+
+	body := rr.Body.String()
+	assert.Contains(t, body, `<div class="markdown-content">`)
+	assert.Contains(t, body, "<h1>Test Heading</h1>")
+	assert.NotContains(t, body, "# Test Heading") // raw markdown should not appear
+	assert.Contains(t, body, `<a href="https://example.com">link</a>`)
+	assert.Contains(t, body, "<li>item one</li>")
 }
