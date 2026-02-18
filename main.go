@@ -63,7 +63,9 @@ type options struct {
 var opts options
 
 func main() {
-	fmt.Printf("weblist %s\n", versionInfo())
+	if os.Getenv("GO_FLAGS_COMPLETION") == "" {
+		fmt.Printf("weblist %s\n", versionInfo())
+	}
 	p := flags.NewParser(&opts, flags.PrintErrors|flags.PassDoubleDash|flags.HelpFlag)
 	if _, err := p.Parse(); err != nil {
 		if !errors.Is(err.(*flags.Error).Type, flags.ErrHelp) {

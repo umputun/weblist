@@ -41,6 +41,7 @@ archives:
     files:
       - LICENSE
       - README.md
+      - completions/*
     rlcp: true
 
 brews:
@@ -57,6 +58,10 @@ brews:
     homepage: "https://weblist.umputun.dev"
     description: "weblist is a self-hosted web service to access local files and folders"
     license: "MIT"
+    extra_install: |
+      bash_completion.install "completions/weblist.bash" => "weblist"
+      zsh_completion.install "completions/weblist.zsh" => "_weblist"
+      fish_completion.install "completions/weblist.fish" => "weblist.fish"
 
 nfpms:
   - id: weblist
@@ -74,3 +79,10 @@ nfpms:
     bindir: /usr/bin
     epoch: 1
     release: 1
+    contents:
+      - src: completions/weblist.bash
+        dst: /usr/share/bash-completion/completions/weblist
+      - src: completions/weblist.zsh
+        dst: /usr/share/zsh/vendor-completions/_weblist
+      - src: completions/weblist.fish
+        dst: /usr/share/fish/vendor_completions.d/weblist.fish
