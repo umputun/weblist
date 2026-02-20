@@ -108,6 +108,12 @@ func runServer(ctx context.Context, opts *options) error {
 	}
 	opts.RootDir = absRootDir
 
+	// ensure temp directory exists for multipart uploads in minimal containers (e.g., scratch).
+	// tries /tmp first, then /srv/tmp, then .tmp under root dir.
+	if opts.Upload.Enabled {
+		ensureTempDir(opts.RootDir, &opts.Exclude)
+	}
+
 	// create OS filesystem locked to the root directory
 	fs := os.DirFS(opts.RootDir)
 
@@ -189,7 +195,37 @@ func runServer(ctx context.Context, opts *options) error {
 	}
 }
 
-// showVersionInfo displays the version information from Go's build info
+// ensureTempDir makes sure a writable temp directory exists for multipart uploads.
+// in minimal containers (scratch/distroless), /tmp may not exist and the filesystem root
+// may be read-only. this function tries /tmp, /srv/tmp, and finally .tmp under rootDir.
+// when the rootDir fallback is used, .tmp is added to the exclude list to hide it from listings.
+func ensureTempDir(rootDir string, exclude *[]string) {
+	defaultTmp := os.TempDir()
+	rootTmp := filepath.Join(rootDir, ".tmp")
+	candidates := []string{defaultTmp, "/srv/tmp", rootTmp}
+	for _, dir := range candidates {
+		if dir == "" {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			continue
+		}
+		if dir != defaultTmp {
+			if err := os.Setenv("TMPDIR", dir); err != nil {
+				log.Printf("[WARN] failed to set TMPDIR to %s: %v", dir, err)
+				continue
+			}
+			log.Printf("[DEBUG] using %s as temp directory", dir)
+		}
+		if dir == rootTmp {
+			*exclude = append(*exclude, ".tmp")
+		}
+		return
+	}
+	log.Printf("[WARN] failed to create temp directory, large uploads may fail")
+}
+
+// versionInfo returns the version string from Go's build info
 func versionInfo() string {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		version := info.Main.Version

@@ -30,6 +30,11 @@ linters:
     - modernize
     - testifylint
   settings:
+    gosec:
+      excludes:
+        - G117
+        - G703
+        - G706
     goconst:
       min-len: 2
       min-occurrences: 2

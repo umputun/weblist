@@ -37,7 +37,8 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 			wb.writeJSONError(w, http.StatusRequestEntityTooLarge, "file too large")
 			return
 		}
-		wb.writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("failed to parse form: %v", err))
+		log.Printf("[WARN] failed to parse multipart form: %v", err)
+		wb.writeJSONError(w, http.StatusBadRequest, "failed to parse form data")
 		return
 	}
 
