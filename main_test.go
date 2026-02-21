@@ -23,11 +23,20 @@ import (
 )
 
 func TestVersionInfo(t *testing.T) {
-	// this will return either "dev" or the actual version
-	version := versionInfo()
-	assert.NotEmpty(t, version, "Version should not be empty")
-	assert.True(t, version == "dev" || version == "unknown" || version != "",
-		"Version should be 'dev', 'unknown', or a valid version string")
+	t.Run("uses revision when set via ldflags", func(t *testing.T) {
+		orig := revision
+		defer func() { revision = orig }()
+		revision = "master-abc1234-20260101T000000"
+		assert.Equal(t, "master-abc1234-20260101T000000", versionInfo())
+	})
+
+	t.Run("falls back to build info when revision is unknown", func(t *testing.T) {
+		orig := revision
+		defer func() { revision = orig }()
+		revision = "unknown"
+		v := versionInfo()
+		assert.NotEmpty(t, v)
+	})
 }
 
 func TestSetupLog(t *testing.T) {

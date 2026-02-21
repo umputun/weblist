@@ -61,6 +61,7 @@ type options struct {
 }
 
 var opts options
+var revision = "unknown" // set via ldflags -X main.revision=...
 
 func main() {
 	if os.Getenv("GO_FLAGS_COMPLETION") == "" {
@@ -236,8 +237,12 @@ func ensureTempDir(rootDir string, exclude *[]string) {
 	log.Printf("[WARN] failed to create temp directory, large uploads may fail")
 }
 
-// versionInfo returns the version string from Go's build info
+// versionInfo returns the version string. it uses the revision set via ldflags
+// at build time and falls back to Go's build info for local builds.
 func versionInfo() string {
+	if revision != "unknown" {
+		return revision
+	}
 	if info, ok := debug.ReadBuildInfo(); ok {
 		version := info.Main.Version
 		if version == "" {
