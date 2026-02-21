@@ -37,7 +37,8 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 			wb.writeJSONError(w, http.StatusRequestEntityTooLarge, "file too large")
 			return
 		}
-		wb.writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("failed to parse form: %v", err))
+		log.Printf("[WARN] failed to parse multipart form: %v", err)
+		wb.writeJSONError(w, http.StatusBadRequest, "failed to parse form data")
 		return
 	}
 
@@ -59,7 +60,8 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 		if errors.As(err, &ue) {
 			wb.writeJSONError(w, ue.status, ue.Error())
 		} else {
-			wb.writeJSONError(w, http.StatusInternalServerError, err.Error())
+			log.Printf("[ERROR] failed to validate upload path %q: %v", targetPath, err)
+			wb.writeJSONError(w, http.StatusInternalServerError, "failed to validate upload path")
 		}
 		return
 	}
@@ -84,7 +86,8 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 		// open the uploaded file
 		src, err := fh.Open()
 		if err != nil {
-			wb.writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to read uploaded file: %v", err))
+			log.Printf("[WARN] failed to read uploaded file %q: %v", fh.Filename, err)
+			wb.writeJSONError(w, http.StatusInternalServerError, "failed to read uploaded file")
 			return
 		}
 
@@ -95,7 +98,8 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 			if errors.As(err, &ue) {
 				wb.writeJSONError(w, ue.status, ue.Error())
 			} else {
-				wb.writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("failed to save file: %v", err))
+				log.Printf("[ERROR] failed to save file %q: %v", fh.Filename, err)
+				wb.writeJSONError(w, http.StatusInternalServerError, "failed to save file")
 			}
 			return
 		}

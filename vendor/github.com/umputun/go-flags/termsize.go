@@ -1,3 +1,4 @@
+//go:build !windows && !plan9 && !solaris && !appengine && !wasm
 // +build !windows,!plan9,!solaris,!appengine,!wasm
 
 package flags

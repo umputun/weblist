@@ -207,6 +207,105 @@ func TestParseCommandLineArgs(t *testing.T) {
 	}
 }
 
+func TestEnsureTempDir(t *testing.T) {
+	t.Run("uses existing tmp dir", func(t *testing.T) {
+		origTmpDir := os.Getenv("TMPDIR")
+		defer os.Setenv("TMPDIR", origTmpDir) //nolint:errcheck // test cleanup
+
+		tmpDir := t.TempDir()
+		require.NoError(t, os.Setenv("TMPDIR", tmpDir))
+
+		rootDir := t.TempDir()
+		var exclude []string
+		ensureTempDir(rootDir, &exclude)
+
+		// should keep TMPDIR unchanged since it already exists and is writable
+		assert.Equal(t, tmpDir, os.Getenv("TMPDIR"))
+		assert.Empty(t, exclude, ".tmp should not be added to excludes when default tmp works")
+
+		// .tmp should not be created under rootDir
+		_, err := os.Stat(filepath.Join(rootDir, ".tmp"))
+		assert.True(t, os.IsNotExist(err), ".tmp should not be created when default tmp works")
+	})
+
+	t.Run("falls back when tmp not writable", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("test requires non-root user")
+		}
+		origTmpDir := os.Getenv("TMPDIR")
+		defer os.Setenv("TMPDIR", origTmpDir) //nolint:errcheck // test cleanup
+
+		// point TMPDIR to a non-existent path inside a read-only dir
+		roDir := t.TempDir()
+		badTmp := filepath.Join(roDir, "readonly", "tmp")
+		require.NoError(t, os.Setenv("TMPDIR", badTmp))
+		require.NoError(t, os.Chmod(roDir, 0o444))
+		defer os.Chmod(roDir, 0o755) //nolint:errcheck // test cleanup
+
+		rootDir := t.TempDir()
+		var exclude []string
+		ensureTempDir(rootDir, &exclude)
+
+		// should fall through to rootDir/.tmp
+		expected := filepath.Join(rootDir, ".tmp")
+		assert.Equal(t, expected, os.Getenv("TMPDIR"))
+		assert.Contains(t, exclude, ".tmp", ".tmp should be added to excludes")
+
+		info, err := os.Stat(expected)
+		require.NoError(t, err, "fallback temp dir should exist")
+		assert.True(t, info.IsDir())
+	})
+
+	t.Run("creates .tmp under rootDir as last resort and excludes it", func(t *testing.T) {
+		origTmpDir := os.Getenv("TMPDIR")
+		defer os.Setenv("TMPDIR", origTmpDir) //nolint:errcheck // test cleanup
+
+		// create rootDir before poisoning TMPDIR
+		rootDir := t.TempDir()
+
+		// point TMPDIR to impossible path
+		require.NoError(t, os.Setenv("TMPDIR", "/nonexistent-path-xyz/tmp"))
+
+		var exclude []string
+		ensureTempDir(rootDir, &exclude)
+
+		expected := filepath.Join(rootDir, ".tmp")
+		assert.Equal(t, expected, os.Getenv("TMPDIR"))
+		assert.Contains(t, exclude, ".tmp", ".tmp should be added to excludes when rootDir fallback is used")
+
+		info, err := os.Stat(expected)
+		require.NoError(t, err)
+		assert.True(t, info.IsDir())
+	})
+
+	t.Run("skips existing but read-only dir", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("test requires non-root user")
+		}
+		origTmpDir := os.Getenv("TMPDIR")
+		defer os.Setenv("TMPDIR", origTmpDir) //nolint:errcheck // test cleanup
+
+		// create a dir that exists but is read-only
+		roTmp := t.TempDir()
+		require.NoError(t, os.Chmod(roTmp, 0o444))
+		defer os.Chmod(roTmp, 0o755) //nolint:errcheck // test cleanup
+
+		require.NoError(t, os.Setenv("TMPDIR", roTmp))
+
+		rootDir := t.TempDir()
+		var exclude []string
+		ensureTempDir(rootDir, &exclude)
+
+		// should skip the read-only dir and fall through to rootDir/.tmp
+		result := os.Getenv("TMPDIR")
+		assert.NotEqual(t, roTmp, result, "should not use read-only dir")
+
+		info, err := os.Stat(result)
+		require.NoError(t, err, "fallback dir should exist")
+		assert.True(t, info.IsDir())
+	})
+}
+
 func TestRunServer(t *testing.T) {
 	tempDir := t.TempDir()
 

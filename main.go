@@ -108,6 +108,12 @@ func runServer(ctx context.Context, opts *options) error {
 	}
 	opts.RootDir = absRootDir
 
+	// ensure temp directory exists for multipart uploads in minimal containers (e.g., scratch).
+	// tries the system temp dir first, then .tmp under root dir.
+	if opts.Upload.Enabled {
+		ensureTempDir(opts.RootDir, &opts.Exclude)
+	}
+
 	// create OS filesystem locked to the root directory
 	fs := os.DirFS(opts.RootDir)
 
@@ -189,7 +195,48 @@ func runServer(ctx context.Context, opts *options) error {
 	}
 }
 
-// showVersionInfo displays the version information from Go's build info
+// ensureTempDir makes sure a writable temp directory exists for multipart uploads.
+// in minimal containers (scratch/distroless), /tmp may not exist and the filesystem root
+// may be read-only. this function tries the system temp dir and then .tmp under rootDir.
+// when a fallback under rootDir is used, it is added to the exclude list to hide it from listings.
+func ensureTempDir(rootDir string, exclude *[]string) {
+	defaultTmp := os.TempDir()
+	rootTmp := filepath.Join(rootDir, ".tmp")
+	candidates := []string{defaultTmp, rootTmp}
+	for _, dir := range candidates {
+		if dir == "" {
+			continue
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			continue
+		}
+		// verify the directory is actually writable; MkdirAll returns nil for existing read-only dirs.
+		// use CreateTemp to avoid predictable filenames and symlink attacks in shared dirs
+		probe, err := os.CreateTemp(dir, ".weblist-probe-*")
+		if err != nil {
+			continue
+		}
+		probe.Close()           //nolint:gosec // closing probe file before removal
+		os.Remove(probe.Name()) //nolint:gosec // best-effort cleanup of zero-byte probe file
+
+		if dir != defaultTmp {
+			if err := os.Setenv("TMPDIR", dir); err != nil {
+				log.Printf("[WARN] failed to set TMPDIR to %s: %v", dir, err)
+				continue
+			}
+			log.Printf("[DEBUG] using %s as temp directory", dir)
+		}
+		// if we're using a fallback temp dir under rootDir (not the system default),
+		// exclude it from directory listings to hide upload temp files
+		if dir == rootTmp {
+			*exclude = append(*exclude, ".tmp")
+		}
+		return
+	}
+	log.Printf("[WARN] failed to create temp directory, large uploads may fail")
+}
+
+// versionInfo returns the version string from Go's build info
 func versionInfo() string {
 	if info, ok := debug.ReadBuildInfo(); ok {
 		version := info.Main.Version
