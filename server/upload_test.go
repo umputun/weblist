@@ -259,6 +259,26 @@ func TestHandleUpload_NonexistentDirectory(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
+func TestHandleUpload_InvalidMultipartBody(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20}}
+
+	// send a body that is not valid multipart data, triggering ParseMultipartForm error
+	req := httptest.NewRequest(http.MethodPost, "/upload", strings.NewReader("this is not multipart data"))
+	req.Header.Set("Content-Type", "multipart/form-data; boundary=bogus")
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+
+	var resp uploadResponse
+	require.NoError(t, json.NewDecoder(rr.Body).Decode(&resp))
+	// response must contain the generic message, not internal temp file paths or raw error details
+	assert.Equal(t, "failed to parse form data", resp.Error)
+	assert.NotContains(t, rr.Body.String(), "/tmp")
+	assert.NotContains(t, rr.Body.String(), "multipart")
+}
+
 func TestHandleUpload_InvalidFilename_Backslash(t *testing.T) {
 	tmpDir := t.TempDir()
 	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20}}
