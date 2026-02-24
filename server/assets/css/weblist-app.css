@@ -29,10 +29,10 @@ table th.name-cell, table td.name-cell { width: 60%; }
 table th.date-col, table td.date-col { width: 25%; }
 table th.size-col, table td.size-col { width: 15%; }
 
-/* Backup nth-child selectors for non-multi-select mode */
-table th:nth-child(1):not(.select-col), table td:nth-child(1):not(.select-cell) { width: 60%; }
-table th:nth-child(2):not(.name-cell), table td:nth-child(2):not(.name-cell) { width: 25%; }
-table th:nth-child(3):not(.date-col), table td:nth-child(3):not(.date-col) { width: 15%; }
+/* Backup nth-child selectors for non-multi-select mode (scoped to file listing) */
+#file-listing table th:nth-child(1):not(.select-col), #file-listing table td:nth-child(1):not(.select-cell) { width: 60%; }
+#file-listing table th:nth-child(2):not(.name-cell), #file-listing table td:nth-child(2):not(.name-cell) { width: 25%; }
+#file-listing table th:nth-child(3):not(.date-col), #file-listing table td:nth-child(3):not(.date-col) { width: 15%; }
 
 /* Ensure all column headers have the same styling */
 table th.date-col, table th.size-col {
@@ -97,8 +97,8 @@ table a:hover {
   text-decoration: none;
 }
 
-/* Secondary column styles */
-td:nth-child(2), td:nth-child(3) {
+/* Secondary column styles (scoped to file listing table) */
+#file-listing td:nth-child(2), #file-listing td:nth-child(3) {
   white-space: nowrap;
   font-size: 0.95rem; /* Increased from 0.90rem to match header */
   color: var(--color-text-muted);
@@ -622,8 +622,8 @@ pre {
   color: var(--color-primary-text, var(--color-primary));
 }
 
-[data-theme="dark"] td:nth-child(2), 
-[data-theme="dark"] td:nth-child(3) {
+[data-theme="dark"] #file-listing td:nth-child(2),
+[data-theme="dark"] #file-listing td:nth-child(3) {
   color: var(--color-text-muted);
 }
 
