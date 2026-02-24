@@ -309,7 +309,7 @@ func TestGetFileList(t *testing.T) {
 			path:           ".",
 			sortBy:         "name",
 			sortDir:        "asc",
-			expectedFiles:  []string{"file1.txt", "file2.txt", "test.md"},
+			expectedFiles:  []string{"file1.txt", "file2.txt", "test.csv", "test.md"},
 			expectedDirs:   []string{"dir1", "dir2", "empty-dir"},
 			expectedParent: false,
 		},
@@ -327,7 +327,7 @@ func TestGetFileList(t *testing.T) {
 			path:           ".",
 			sortBy:         "name",
 			sortDir:        "desc",
-			expectedFiles:  []string{"test.md", "file2.txt", "file1.txt"},
+			expectedFiles:  []string{"test.md", "test.csv", "file2.txt", "file1.txt"},
 			expectedDirs:   []string{"empty-dir", "dir2", "dir1"},
 			expectedParent: false,
 		},
@@ -1757,4 +1757,74 @@ func TestRenderMarkdown(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestRenderCSV(t *testing.T) {
+	web := &Web{}
+
+	t.Run("normal csv with header and data", func(t *testing.T) {
+		result, err := web.renderCSV("Name,Age,City\nAlice,30,New York\nBob,25,London\n")
+		require.NoError(t, err)
+		assert.Contains(t, result, `<div class="csv-content"><table>`)
+		assert.Contains(t, result, "<thead><tr><th>Name</th><th>Age</th><th>City</th></tr></thead>")
+		assert.Contains(t, result, "<td>Alice</td><td>30</td><td>New York</td>")
+		assert.Contains(t, result, "<td>Bob</td><td>25</td><td>London</td>")
+		assert.Contains(t, result, "</table></div>")
+	})
+
+	t.Run("header only", func(t *testing.T) {
+		result, err := web.renderCSV("Col1,Col2,Col3\n")
+		require.NoError(t, err)
+		assert.Contains(t, result, "<thead><tr><th>Col1</th><th>Col2</th><th>Col3</th></tr></thead>")
+		assert.Contains(t, result, "<tbody></tbody>")
+	})
+
+	t.Run("empty content returns error", func(t *testing.T) {
+		_, err := web.renderCSV("")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "csv parse")
+	})
+
+	t.Run("malformed csv returns error", func(t *testing.T) {
+		// csv with unbalanced quotes
+		_, err := web.renderCSV("a,\"b\nc\n")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "csv parse")
+	})
+
+	t.Run("malformed data row returns error", func(t *testing.T) {
+		// malformed record after a valid header and first data row
+		_, err := web.renderCSV("h1,h2\n1,2\n3,\"4\n5,6\n")
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "csv parse")
+	})
+
+	t.Run("html special chars are escaped", func(t *testing.T) {
+		result, err := web.renderCSV("Header\n<script>alert('xss')</script>\n")
+		require.NoError(t, err)
+		assert.NotContains(t, result, "<script>")
+		assert.Contains(t, result, "&lt;script&gt;")
+	})
+
+	t.Run("truncation beyond 1000 rows", func(t *testing.T) {
+		var buf strings.Builder
+		buf.WriteString("id,value\n")
+		for i := range 1005 {
+			fmt.Fprintf(&buf, "%d,val%d\n", i, i)
+		}
+		result, err := web.renderCSV(buf.String())
+		require.NoError(t, err)
+		assert.Contains(t, result, "showing 1000 of 1005 rows")
+		// verify the 1000th row is present but 1001st is not
+		assert.Contains(t, result, "<td>999</td>")
+		assert.NotContains(t, result, "<td>1000</td>")
+	})
+
+	t.Run("variable field count", func(t *testing.T) {
+		result, err := web.renderCSV("a,b,c\n1,2\n3,4,5,6\n")
+		require.NoError(t, err)
+		assert.Contains(t, result, "<th>a</th><th>b</th><th>c</th>")
+		assert.Contains(t, result, "<td>1</td><td>2</td>")
+		assert.Contains(t, result, "<td>3</td><td>4</td><td>5</td><td>6</td>")
+	})
 }

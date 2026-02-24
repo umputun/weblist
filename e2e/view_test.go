@@ -229,6 +229,41 @@ func TestView_MarkdownRendered(t *testing.T) {
 	assert.True(t, tableVisible, "table should be rendered")
 }
 
+func TestView_CSVRenderedAsTable(t *testing.T) {
+	page := newPage(t)
+	_, err := page.Goto(baseURL + "/view/test.csv")
+	require.NoError(t, err)
+
+	// verify csv-content wrapper is present
+	visible, err := page.Locator(".csv-content").IsVisible()
+	require.NoError(t, err)
+	assert.True(t, visible, "csv-content wrapper should be visible")
+
+	// verify table is rendered
+	tableVisible, err := page.Locator(".csv-content table").IsVisible()
+	require.NoError(t, err)
+	assert.True(t, tableVisible, "table should be rendered")
+
+	// verify header row
+	headerText, err := page.Locator(".csv-content thead").InnerText()
+	require.NoError(t, err)
+	assert.Contains(t, headerText, "Name")
+	assert.Contains(t, headerText, "Age")
+	assert.Contains(t, headerText, "City")
+
+	// verify data rows
+	bodyText, err := page.Locator(".csv-content tbody").InnerText()
+	require.NoError(t, err)
+	assert.Contains(t, bodyText, "Alice")
+	assert.Contains(t, bodyText, "Bob")
+	assert.Contains(t, bodyText, "Charlie")
+
+	// verify raw csv is not shown
+	body, err := page.Locator("body").InnerHTML()
+	require.NoError(t, err)
+	assert.NotContains(t, body, "Name,Age,City")
+}
+
 // --- theme tests ---
 
 func TestTheme_DefaultIsLight(t *testing.T) {

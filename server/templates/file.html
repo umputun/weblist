@@ -278,12 +278,58 @@
             border: 0;
         }
         .markdown-content del { color: var(--color-text-muted, #656d76); }
+
+        /* CSV table styles */
+        .csv-content {
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 0.5rem;
+            overflow-x: auto;
+        }
+        .csv-content table {
+            border-collapse: collapse;
+            width: auto;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+            font-size: 1rem;
+            line-height: 1.6;
+        }
+        .csv-content th, .csv-content td {
+            padding: 0.4em 0.8em;
+            border: 1px solid var(--color-border);
+            white-space: nowrap;
+            color: var(--color-text);
+            font-size: 1rem;
+        }
+        .csv-content th {
+            font-weight: 600;
+            background-color: var(--color-surface);
+            position: sticky;
+            top: 0;
+            z-index: 1;
+        }
+        .csv-content tbody tr:nth-child(even) {
+            background-color: var(--color-surface);
+        }
+        .csv-content tbody tr:hover {
+            background-color: var(--color-hover, rgba(0,0,0,0.04));
+        }
+        [data-theme="dark"] .csv-content tbody tr:hover {
+            background-color: var(--color-hover, rgba(255,255,255,0.06));
+        }
+        .csv-truncated {
+            margin-top: 0.75em;
+            color: var(--color-text-muted, #656d76);
+            font-style: italic;
+            font-size: 0.875rem;
+        }
     </style>
 </head>
 <body>
 {{ if .IsHTML }}
     <div class="html-content">{{ .Content | safe }}</div>
 {{ else if .IsMarkdown }}
+    {{ .Content | safe }}
+{{ else if .IsCSV }}
     {{ .Content | safe }}
 {{ else }}
     {{ if hasPrefix .Content "<div class=\"highlight-wrapper\">" }}

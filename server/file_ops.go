@@ -1,8 +1,10 @@
 package server
 
 import (
+	"encoding/csv"
 	"fmt"
 	"html/template"
+	"io"
 	"io/fs"
 	"log"
 	"net/http"
@@ -475,6 +477,70 @@ func (wb *Web) highlightCode(code, filename, theme string) (string, error) {
 	}
 
 	// write HTML footer
+	buf.WriteString("</div>")
+
+	return buf.String(), nil
+}
+
+// renderCSV parses CSV content incrementally and renders it as an HTML table.
+// the first row is treated as a header. output is capped at maxCSVRows data rows.
+// rows beyond the limit are counted but not stored, avoiding unbounded memory allocation.
+// all cell values are HTML-escaped.
+func (wb *Web) renderCSV(content string) (string, error) {
+	const maxCSVRows = 1000
+
+	reader := csv.NewReader(strings.NewReader(content))
+	reader.FieldsPerRecord = -1 // allow variable number of fields
+
+	// read header row
+	header, err := reader.Read()
+	if err != nil {
+		return "", fmt.Errorf("csv parse: %w", err)
+	}
+
+	var buf strings.Builder
+	buf.WriteString(`<div class="csv-content"><table>`)
+
+	// render header
+	buf.WriteString("<thead><tr>")
+	for _, cell := range header {
+		buf.WriteString("<th>")
+		buf.WriteString(template.HTMLEscapeString(cell))
+		buf.WriteString("</th>")
+	}
+	buf.WriteString("</tr></thead>")
+
+	// render body rows incrementally, only store rendered output
+	buf.WriteString("<tbody>")
+	totalDataRows := 0
+	for {
+		row, err := reader.Read()
+		if err != nil {
+			if err == io.EOF {
+				break
+			}
+			return "", fmt.Errorf("csv parse: %w", err)
+		}
+		totalDataRows++
+		if totalDataRows > maxCSVRows {
+			continue // count remaining rows but don't render
+		}
+		buf.WriteString("<tr>")
+		for _, cell := range row {
+			buf.WriteString("<td>")
+			buf.WriteString(template.HTMLEscapeString(cell))
+			buf.WriteString("</td>")
+		}
+		buf.WriteString("</tr>")
+	}
+	buf.WriteString("</tbody>")
+
+	buf.WriteString("</table>")
+
+	if totalDataRows > maxCSVRows {
+		fmt.Fprintf(&buf, `<p class="csv-truncated">showing %d of %d rows</p>`, maxCSVRows, totalDataRows)
+	}
+
 	buf.WriteString("</div>")
 
 	return buf.String(), nil

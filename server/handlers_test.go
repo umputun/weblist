@@ -742,6 +742,7 @@ func TestAPIList_Contents(t *testing.T) {
 			"empty-dir": true,
 			"file1.txt": true,
 			"file2.txt": true,
+			"test.csv":  true,
 			"test.md":   true,
 		}
 
@@ -763,7 +764,7 @@ func TestAPIList_Contents(t *testing.T) {
 		}
 
 		assert.Equal(t, 3, dirCount, "unexpected number of directories")
-		assert.Equal(t, 3, fileCount, "unexpected number of files")
+		assert.Equal(t, 4, fileCount, "unexpected number of files")
 	})
 
 	t.Run("subdirectory listing", func(t *testing.T) {
@@ -1188,4 +1189,24 @@ func TestHandleViewFile_Markdown(t *testing.T) {
 	assert.NotContains(t, body, "# Test Heading") // raw markdown should not appear
 	assert.Contains(t, body, `<a href="https://example.com">link</a>`)
 	assert.Contains(t, body, "<li>item one</li>")
+}
+
+func TestHandleViewFile_CSV(t *testing.T) {
+	srv := setupTestServer(t)
+
+	req, err := http.NewRequest("GET", "/view/test.csv", nil)
+	require.NoError(t, err)
+
+	rr := httptest.NewRecorder()
+	srv.handleViewFile(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
+
+	body := rr.Body.String()
+	assert.Contains(t, body, `<div class="csv-content"><table>`)
+	assert.Contains(t, body, "<th>Name</th><th>Age</th><th>City</th>")
+	assert.Contains(t, body, "<td>Alice</td><td>30</td><td>New York</td>")
+	assert.Contains(t, body, "<td>Bob</td><td>25</td><td>London</td>")
+	assert.NotContains(t, body, "Name,Age,City") // raw csv should not appear
 }

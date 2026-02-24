@@ -120,6 +120,47 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// viewFileData holds template data for the file view page
+type viewFileData struct {
+	FileName   string
+	Content    string
+	Theme      string
+	IsHTML     bool
+	IsMarkdown bool
+	IsCSV      bool
+}
+
+// renderViewContent applies format-specific rendering (markdown, csv, syntax highlighting) to view data.
+// on rendering failure, falls back to plain text display.
+func (wb *Web) renderViewContent(data *viewFileData, ctInfo ContentTypeInfo, rawContent []byte) {
+	switch {
+	case ctInfo.IsMarkdown:
+		rendered, err := wb.renderMarkdown(data.Content, data.Theme)
+		if err != nil {
+			log.Printf("[WARN] failed to render markdown: %v", err)
+			data.IsMarkdown = false // fall back to plain text rendering with escaping
+		} else {
+			data.Content = rendered
+		}
+	case ctInfo.IsCSV:
+		rendered, err := wb.renderCSV(data.Content)
+		if err != nil {
+			log.Printf("[WARN] failed to render csv: %v", err)
+			// fall through to plain text
+		} else {
+			data.Content = rendered
+			data.IsCSV = true
+		}
+	case !ctInfo.IsHTML && wb.EnableSyntaxHighlighting:
+		highlighted, err := wb.highlightCode(string(rawContent), data.FileName, data.Theme)
+		if err != nil {
+			log.Printf("[WARN] failed to highlight code: %v", err)
+		} else {
+			data.Content = highlighted
+		}
+	}
+}
+
 // handleViewFile serves a file view for text files with optional syntax highlighting and markdown rendering
 func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 	// extract the file path from the URL
@@ -187,13 +228,7 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 	// parse templates
 
 	// prepare data for the template
-	data := struct {
-		FileName   string
-		Content    string
-		Theme      string
-		IsHTML     bool
-		IsMarkdown bool
-	}{
+	data := viewFileData{
 		FileName:   fileInfo.Name(),
 		Content:    string(fileContent),
 		Theme:      theme,
@@ -201,24 +236,8 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 		IsMarkdown: ctInfo.IsMarkdown,
 	}
 
-	// render markdown or apply syntax highlighting
-	switch {
-	case ctInfo.IsMarkdown:
-		rendered, err := wb.renderMarkdown(data.Content, theme)
-		if err != nil {
-			log.Printf("[WARN] failed to render markdown: %v", err)
-			data.IsMarkdown = false // fall back to plain text rendering with escaping
-		} else {
-			data.Content = rendered
-		}
-	case !ctInfo.IsHTML && wb.EnableSyntaxHighlighting:
-		highlighted, err := wb.highlightCode(string(fileContent), fileInfo.Name(), theme)
-		if err != nil {
-			log.Printf("[WARN] failed to highlight code: %v", err)
-		} else {
-			data.Content = highlighted
-		}
-	}
+	// render content based on type
+	wb.renderViewContent(&data, ctInfo, fileContent)
 
 	// execute the file-view template
 	if err := wb.templates.fileTemplate.ExecuteTemplate(w, "file-view", data); err != nil {

@@ -114,6 +114,7 @@ func TestDetermineContentType(t *testing.T) {
 		wantIsPDF      bool
 		wantIsImage    bool
 		wantIsMarkdown bool
+		wantIsCSV      bool
 	}{
 		{
 			name:        "plain text file",
@@ -198,6 +199,13 @@ func TestDetermineContentType(t *testing.T) {
 			wantType:   "text/plain",
 			wantIsText: true,
 		},
+		{
+			name:       "csv file",
+			filePath:   "data.csv",
+			wantType:   "text/plain",
+			wantIsText: true,
+			wantIsCSV:  true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -223,6 +231,7 @@ func TestDetermineContentType(t *testing.T) {
 			assert.Equal(t, tt.wantIsPDF, ctInfo.IsPDF)
 			assert.Equal(t, tt.wantIsImage, ctInfo.IsImage)
 			assert.Equal(t, tt.wantIsMarkdown, ctInfo.IsMarkdown)
+			assert.Equal(t, tt.wantIsCSV, ctInfo.IsCSV)
 		})
 	}
 }

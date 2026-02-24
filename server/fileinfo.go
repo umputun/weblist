@@ -31,6 +31,7 @@ type ContentTypeInfo struct {
 	IsPDF      bool   // true for PDF documents
 	IsImage    bool   // true for all image formats
 	IsMarkdown bool   // true for markdown files (.md, .markdown)
+	IsCSV      bool   // true for CSV files (.csv)
 }
 
 // SizeToString converts file size to human-readable format
@@ -139,6 +140,7 @@ func DetermineContentType(filePath string) ContentTypeInfo {
 		IsPDF:      mimeType == "application/pdf",
 		IsImage:    strings.HasPrefix(mimeType, "image/"),
 		IsMarkdown: extLower == ".md" || extLower == ".markdown",
+		IsCSV:      extLower == ".csv",
 	}
 }
 
