@@ -159,11 +159,12 @@ jobs:
 
       - name: create ghcr.io manifest and push
         working-directory: /tmp/digests/ghcr
+        env:
+          BRANCH: ${{ steps.tags.outputs.branch }}
+          IS_TAG: ${{ steps.tags.outputs.is_tag }}
         run: |
-          branch="${{ steps.tags.outputs.branch }}"
-          is_tag="${{ steps.tags.outputs.is_tag }}"
-          tags="-t ghcr.io/${{ github.actor }}/weblist:${branch}"
-          if [[ "$is_tag" == "true" ]]; then
+          tags="-t ghcr.io/${{ github.actor }}/weblist:${BRANCH}"
+          if [[ "$IS_TAG" == "true" ]]; then
             tags="${tags} -t ghcr.io/${{ github.actor }}/weblist:latest"
           fi
           docker buildx imagetools create ${tags} \
@@ -171,11 +172,12 @@ jobs:
 
       - name: create dockerhub manifest and push
         working-directory: /tmp/digests/dockerhub
+        env:
+          BRANCH: ${{ steps.tags.outputs.branch }}
+          IS_TAG: ${{ steps.tags.outputs.is_tag }}
         run: |
-          branch="${{ steps.tags.outputs.branch }}"
-          is_tag="${{ steps.tags.outputs.is_tag }}"
-          tags="-t ${{ github.actor }}/weblist:${branch}"
-          if [[ "$is_tag" == "true" ]]; then
+          tags="-t ${{ github.actor }}/weblist:${BRANCH}"
+          if [[ "$IS_TAG" == "true" ]]; then
             tags="${tags} -t ${{ github.actor }}/weblist:latest"
           fi
           docker buildx imagetools create ${tags} \
