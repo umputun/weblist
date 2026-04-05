@@ -28,7 +28,7 @@ require (
 	github.com/deckarep/golang-set/v2 v2.7.0 // indirect
 	github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f // indirect
 	github.com/dlclark/regexp2 v1.11.5 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.4 // indirect
+	github.com/go-jose/go-jose/v3 v3.0.5 // indirect
 	github.com/go-pkgz/expirable-cache/v3 v3.1.0 // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
