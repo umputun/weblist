@@ -2,13 +2,10 @@ package server
 
 import (
 	"crypto/hmac"
-	"crypto/rand"
 	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"fmt"
-	"io"
-	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -26,35 +23,17 @@ type loginTemplateData struct {
 	BrandName    string
 	BrandColor   string
 	CustomFooter string
-	CSRFToken    string
 }
 
 // handleLoginPage renders the login page
-func (wb *Web) handleLoginPage(w http.ResponseWriter, r *http.Request) {
-
-	// generate CSRF token
-	csrfToken := wb.generateCSRFToken()
-
-	// set CSRF token in a cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "csrf_token",
-		Value:    csrfToken,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   wb.isRequestSecure(r),
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(5 * time.Minute.Seconds()), // CSRF token valid for 5 minutes
-	})
-
+func (wb *Web) handleLoginPage(w http.ResponseWriter, _ *http.Request) {
 	data := loginTemplateData{
 		Theme:        wb.Theme,
 		HideFooter:   wb.HideFooter,
 		Title:        wb.Title,
 		BrandName:    wb.BrandName,
 		BrandColor:   wb.BrandColor,
-		Error:        "",
 		CustomFooter: wb.CustomFooter,
-		CSRFToken:    csrfToken,
 	}
 
 	if err := wb.templates.loginTemplate.Execute(w, data); err != nil {
@@ -63,45 +42,25 @@ func (wb *Web) handleLoginPage(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// handleLoginSubmit handles the login form submission
+// handleLoginSubmit handles the login form submission. CSRF protection is
+// applied at the router level via http.CrossOriginProtection.
 func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
 	}
 
-	// verify CSRF token
-	formToken := r.FormValue("csrf_token")
-	cookieToken, err := r.Cookie("csrf_token")
-	if err != nil || formToken == "" || subtle.ConstantTimeCompare([]byte(formToken), []byte(cookieToken.Value)) != 1 {
-		wb.renderLoginError(w, r, "Invalid or missing CSRF token")
-		return
-	}
-
 	username := r.FormValue("username")
 	password := r.FormValue("password")
 
-	// check credentials
 	usernameCorrect := subtle.ConstantTimeCompare([]byte(username), []byte(wb.getAuthUser())) == 1
 	passwordCorrect := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) == 1
 
-	// authentication failed, show error
 	if !usernameCorrect || !passwordCorrect {
-		wb.renderLoginError(w, r, "Invalid username or password")
+		wb.renderLoginError(w, "Invalid username or password")
 		return
 	}
 
-	// clear the CSRF token cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "csrf_token",
-		Value:    "",
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   wb.isRequestSecure(r),
-		MaxAge:   -1, // delete the cookie
-	})
-
-	// authentication successful, generate session token and set cookie
 	http.SetCookie(w, &http.Cookie{
 		Name:     "auth",
 		Value:    wb.generateSessionToken(),
@@ -112,27 +71,11 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		MaxAge:   wb.getSessionMaxAge(),
 	})
 
-	// redirect to the home page
 	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 // renderLoginError renders the login page with an error message
-func (wb *Web) renderLoginError(w http.ResponseWriter, r *http.Request, errorMsg string) {
-
-	// generate a new CSRF token
-	csrfToken := wb.generateCSRFToken()
-
-	// set CSRF token in cookie
-	http.SetCookie(w, &http.Cookie{
-		Name:     "csrf_token",
-		Value:    csrfToken,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   wb.isRequestSecure(r),
-		SameSite: http.SameSiteStrictMode,
-		MaxAge:   int(5 * time.Minute.Seconds()),
-	})
-
+func (wb *Web) renderLoginError(w http.ResponseWriter, errorMsg string) {
 	data := loginTemplateData{
 		Theme:        wb.Theme,
 		HideFooter:   wb.HideFooter,
@@ -141,7 +84,6 @@ func (wb *Web) renderLoginError(w http.ResponseWriter, r *http.Request, errorMsg
 		BrandColor:   wb.BrandColor,
 		Error:        errorMsg,
 		CustomFooter: wb.CustomFooter,
-		CSRFToken:    csrfToken,
 	}
 
 	if err := wb.templates.loginTemplate.Execute(w, data); err != nil {
@@ -237,19 +179,6 @@ func (wb *Web) normalizeBrandColor(color string) string {
 	}
 
 	return color
-}
-
-// generateCSRFToken creates a random token for CSRF protection
-func (wb *Web) generateCSRFToken() string {
-	const tokenLength = 32
-	b := make([]byte, tokenLength)
-	_, err := io.ReadFull(rand.Reader, b)
-	if err != nil {
-		// if crypto/rand fails, use uuid which has its own entropy source
-		log.Printf("[WARN] Failed to generate random CSRF token: %v, using UUID fallback", err)
-		return uuid.NewString()
-	}
-	return fmt.Sprintf("%x", b)
 }
 
 // generateSessionToken creates a secure session token based on a random value

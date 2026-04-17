@@ -2,6 +2,7 @@ package server
 
 import (
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -38,23 +39,15 @@ func TestLoginRateLimit(t *testing.T) {
 
 	// simulate multiple login attempts from the same IP
 	for i := range 10 {
-		// create login form data with incorrect credentials
 		formData := url.Values{}
 		formData.Set("username", "weblist")
 		formData.Set("password", "wrongpassword")
-		formData.Set("csrf_token", "dummy-token") // will fail on CSRF but that's fine for testing rate limit
 
 		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
 		require.NoError(t, err)
 
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.RemoteAddr = "192.168.1.1:1234" // use same IP for all requests
-
-		// add a cookie for CSRF token
-		req.AddCookie(&http.Cookie{
-			Name:  "csrf_token",
-			Value: "dummy-token",
-		})
+		req.RemoteAddr = "192.168.1.1:1234"
 
 		rr := httptest.NewRecorder()
 		router.ServeHTTP(rr, req)
@@ -149,41 +142,18 @@ func TestAuthentication(t *testing.T) {
 	})
 
 	t.Run("access allowed with cookie", func(t *testing.T) {
-		// first we need to login to get a valid token
-		// get CSRF token first
-		loginPageReq, err := http.NewRequest("GET", "/login", nil)
-		require.NoError(t, err)
-		loginPageRR := httptest.NewRecorder()
-		loginHandler := http.HandlerFunc(srv.handleLoginPage)
-		loginHandler.ServeHTTP(loginPageRR, loginPageReq)
-
-		// extract CSRF token
-		cookies := loginPageRR.Result().Cookies()
-		var csrfCookie *http.Cookie
-		for _, cookie := range cookies {
-			if cookie.Name == "csrf_token" {
-				csrfCookie = cookie
-				break
-			}
-		}
-		require.NotNil(t, csrfCookie, "CSRF cookie should be set")
-
-		// submit login
 		formData := url.Values{}
 		formData.Set("username", "weblist")
 		formData.Set("password", "testpassword")
-		formData.Set("csrf_token", csrfCookie.Value)
 		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.AddCookie(csrfCookie)
 
 		rr := httptest.NewRecorder()
 		loginSubmitHandler := http.HandlerFunc(srv.handleLoginSubmit)
 		loginSubmitHandler.ServeHTTP(rr, req)
 
-		// get auth cookie
-		cookies = rr.Result().Cookies()
+		cookies := rr.Result().Cookies()
 		var authCookie *http.Cookie
 		for _, cookie := range cookies {
 			if cookie.Name == "auth" {
@@ -381,46 +351,22 @@ func TestHandleLoginSubmit(t *testing.T) {
 	require.NoError(t, err, "failed to initialize templates")
 
 	t.Run("successful login", func(t *testing.T) {
-		// first get a CSRF token from the login page
-		loginPageReq, err := http.NewRequest("GET", "/login", nil)
-		require.NoError(t, err)
-
-		loginPageRR := httptest.NewRecorder()
-		loginHandler := http.HandlerFunc(srv.handleLoginPage)
-		loginHandler.ServeHTTP(loginPageRR, loginPageReq)
-
-		// extract CSRF token cookie
-		cookies := loginPageRR.Result().Cookies()
-		var csrfCookie *http.Cookie
-		for _, cookie := range cookies {
-			if cookie.Name == "csrf_token" {
-				csrfCookie = cookie
-				break
-			}
-		}
-		require.NotNil(t, csrfCookie, "CSRF cookie should be set")
-
-		// create a form data with correct credentials
 		formData := url.Values{}
 		formData.Set("username", "weblist")
 		formData.Set("password", "testpassword")
-		formData.Set("csrf_token", csrfCookie.Value)
 
 		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.AddCookie(csrfCookie) // add the CSRF cookie to the request
 
 		rr := httptest.NewRecorder()
 		handler := http.HandlerFunc(srv.handleLoginSubmit)
 		handler.ServeHTTP(rr, req)
 
-		// check redirect on successful login
 		assert.Equal(t, http.StatusSeeOther, rr.Code)
 		assert.Equal(t, "/", rr.Header().Get("Location"))
 
-		// check that auth cookie was set
-		cookies = rr.Result().Cookies()
+		cookies := rr.Result().Cookies()
 		var authCookie *http.Cookie
 		for _, cookie := range cookies {
 			if cookie.Name == "auth" {
@@ -429,90 +375,44 @@ func TestHandleLoginSubmit(t *testing.T) {
 			}
 		}
 		require.NotNil(t, authCookie, "Auth cookie should be set")
-		// verify the session token is valid using our validation function
 		assert.True(t, srv.validateSessionToken(authCookie.Value), "Session token should be valid")
 	})
 
 	t.Run("failed login - wrong username", func(t *testing.T) {
-		// first get a CSRF token from the login page
-		loginPageReq, err := http.NewRequest("GET", "/login", nil)
-		require.NoError(t, err)
-
-		loginPageRR := httptest.NewRecorder()
-		loginHandler := http.HandlerFunc(srv.handleLoginPage)
-		loginHandler.ServeHTTP(loginPageRR, loginPageReq)
-
-		// extract CSRF token cookie
-		cookies := loginPageRR.Result().Cookies()
-		var csrfCookie *http.Cookie
-		for _, cookie := range cookies {
-			if cookie.Name == "csrf_token" {
-				csrfCookie = cookie
-				break
-			}
-		}
-		require.NotNil(t, csrfCookie, "CSRF cookie should be set")
-
 		formData := url.Values{}
 		formData.Set("username", "wronguser")
 		formData.Set("password", "testpassword")
-		formData.Set("csrf_token", csrfCookie.Value)
 
 		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.AddCookie(csrfCookie) // add the CSRF cookie to the request
 
 		rr := httptest.NewRecorder()
 		handler := http.HandlerFunc(srv.handleLoginSubmit)
 		handler.ServeHTTP(rr, req)
 
-		// should render login page with error
 		assert.Equal(t, http.StatusOK, rr.Code)
 		assert.Contains(t, rr.Body.String(), "Invalid username or password")
 	})
 
 	t.Run("failed login - wrong password", func(t *testing.T) {
-		// first get a CSRF token from the login page
-		loginPageReq, err := http.NewRequest("GET", "/login", nil)
-		require.NoError(t, err)
-
-		loginPageRR := httptest.NewRecorder()
-		loginHandler := http.HandlerFunc(srv.handleLoginPage)
-		loginHandler.ServeHTTP(loginPageRR, loginPageReq)
-
-		// extract CSRF token cookie
-		cookies := loginPageRR.Result().Cookies()
-		var csrfCookie *http.Cookie
-		for _, cookie := range cookies {
-			if cookie.Name == "csrf_token" {
-				csrfCookie = cookie
-				break
-			}
-		}
-		require.NotNil(t, csrfCookie, "CSRF cookie should be set")
-
 		formData := url.Values{}
 		formData.Set("username", "weblist")
 		formData.Set("password", "wrongpassword")
-		formData.Set("csrf_token", csrfCookie.Value)
 
 		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.AddCookie(csrfCookie) // add the CSRF cookie to the request
 
 		rr := httptest.NewRecorder()
 		handler := http.HandlerFunc(srv.handleLoginSubmit)
 		handler.ServeHTTP(rr, req)
 
-		// should render login page with error
 		assert.Equal(t, http.StatusOK, rr.Code)
 		assert.Contains(t, rr.Body.String(), "Invalid username or password")
 	})
 
 	t.Run("form parsing error", func(t *testing.T) {
-		// create a malformed request body to trigger ParseForm error
 		req, err := http.NewRequest("POST", "/login", strings.NewReader("%"))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
@@ -526,63 +426,6 @@ func TestHandleLoginSubmit(t *testing.T) {
 		assert.Contains(t, rr.Body.String(), "Failed to parse form")
 	})
 
-	t.Run("missing CSRF token", func(t *testing.T) {
-		formData := url.Values{}
-		formData.Set("username", "weblist")
-		formData.Set("password", "testpassword")
-		// deliberately missing CSRF token
-
-		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
-		require.NoError(t, err)
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-		rr := httptest.NewRecorder()
-		handler := http.HandlerFunc(srv.handleLoginSubmit)
-		handler.ServeHTTP(rr, req)
-
-		// should render login page with CSRF error
-		assert.Equal(t, http.StatusOK, rr.Code)
-		assert.Contains(t, rr.Body.String(), "Invalid or missing CSRF token")
-	})
-
-	t.Run("invalid CSRF token", func(t *testing.T) {
-		// first get a CSRF token from the login page
-		loginPageReq, err := http.NewRequest("GET", "/login", nil)
-		require.NoError(t, err)
-
-		loginPageRR := httptest.NewRecorder()
-		loginHandler := http.HandlerFunc(srv.handleLoginPage)
-		loginHandler.ServeHTTP(loginPageRR, loginPageReq)
-
-		// extract CSRF token cookie
-		cookies := loginPageRR.Result().Cookies()
-		var csrfCookie *http.Cookie
-		for _, cookie := range cookies {
-			if cookie.Name == "csrf_token" {
-				csrfCookie = cookie
-				break
-			}
-		}
-		require.NotNil(t, csrfCookie, "CSRF cookie should be set")
-
-		formData := url.Values{}
-		formData.Set("username", "weblist")
-		formData.Set("password", "testpassword")
-		formData.Set("csrf_token", "invalid-token") // invalid token
-
-		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
-		require.NoError(t, err)
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		req.AddCookie(csrfCookie) // add the real CSRF cookie
-
-		rr := httptest.NewRecorder()
-		handler := http.HandlerFunc(srv.handleLoginSubmit)
-		handler.ServeHTTP(rr, req)
-
-		// should render login page with CSRF error
-		assert.Equal(t, http.StatusOK, rr.Code)
-		assert.Contains(t, rr.Body.String(), "Invalid or missing CSRF token")
-	})
 }
 
 func TestHandleLoginPage(t *testing.T) {
@@ -630,6 +473,79 @@ func TestNormalizeBrandColor(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			got := srv.normalizeBrandColor(tt.input)
 			assert.Equal(t, tt.want, got)
+		})
+	}
+}
+
+func TestCrossOriginProtection(t *testing.T) {
+	testdataDir, err := filepath.Abs("testdata")
+	require.NoError(t, err)
+
+	srv := &Web{
+		Config: Config{ListenAddr: ":0", Theme: "light", RootDir: testdataDir, Auth: "testpassword", Title: "Test"},
+		FS:     os.DirFS(testdataDir),
+	}
+	router, err := srv.router()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name           string
+		method         string
+		path           string
+		secFetchSite   string
+		origin         string
+		host           string
+		body           string
+		contentType    string
+		wantForbidden  bool
+		wantStatusZero bool // when not forbidden, we don't care which non-403 code we get
+	}{
+		{name: "GET allowed without headers", method: "GET", path: "/login"},
+		{name: "POST same-origin allowed", method: "POST", path: "/login", secFetchSite: "same-origin",
+			body: "username=weblist&password=wrongpass", contentType: "application/x-www-form-urlencoded"},
+		{name: "POST none allowed (direct nav)", method: "POST", path: "/login", secFetchSite: "none",
+			body: "username=weblist&password=wrongpass", contentType: "application/x-www-form-urlencoded"},
+		{name: "POST cross-site rejected", method: "POST", path: "/login", secFetchSite: "cross-site",
+			body: "username=weblist&password=wrongpass", contentType: "application/x-www-form-urlencoded",
+			wantForbidden: true},
+		{name: "POST same-site rejected (subdomain)", method: "POST", path: "/login", secFetchSite: "same-site",
+			body: "username=weblist&password=wrongpass", contentType: "application/x-www-form-urlencoded",
+			wantForbidden: true},
+		{name: "POST origin matches host allowed", method: "POST", path: "/login",
+			origin: "http://example.com", host: "example.com",
+			body: "username=weblist&password=wrongpass", contentType: "application/x-www-form-urlencoded"},
+		{name: "POST origin mismatch rejected", method: "POST", path: "/login",
+			origin: "http://evil.com", host: "example.com",
+			body: "username=weblist&password=wrongpass", contentType: "application/x-www-form-urlencoded",
+			wantForbidden: true},
+		{name: "POST no headers (non-browser) allowed", method: "POST", path: "/login",
+			body: "username=weblist&password=wrongpass", contentType: "application/x-www-form-urlencoded"},
+	}
+	for i, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			body := strings.NewReader(tt.body)
+			req := httptest.NewRequest(tt.method, tt.path, body)
+			if tt.contentType != "" {
+				req.Header.Set("Content-Type", tt.contentType)
+			}
+			if tt.secFetchSite != "" {
+				req.Header.Set("Sec-Fetch-Site", tt.secFetchSite)
+			}
+			if tt.origin != "" {
+				req.Header.Set("Origin", tt.origin)
+			}
+			if tt.host != "" {
+				req.Host = tt.host
+			}
+			// unique source IP per case to avoid /login rate-limiter triggering across cases
+			req.RemoteAddr = fmt.Sprintf("10.0.0.%d:1234", i+1)
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+			if tt.wantForbidden {
+				assert.Equal(t, http.StatusForbidden, rr.Code, "should be rejected as cross-origin")
+				return
+			}
+			assert.NotEqual(t, http.StatusForbidden, rr.Code, "should not be rejected as cross-origin")
 		})
 	}
 }

@@ -773,9 +773,7 @@ func TestIntegrationWithAuth(t *testing.T) {
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
 
-		// check login page content
 		assert.Contains(t, string(body), "<h3>Login</h3>")
-		assert.Contains(t, string(body), "csrf_token")
 		assert.Contains(t, string(body), "password")
 	})
 
@@ -807,31 +805,15 @@ func TestIntegrationWithAuth(t *testing.T) {
 			},
 		}
 
-		// first get the login page to extract the CSRF token
-		resp, err := failedLoginClient.Get(baseURL + "/login")
-		require.NoError(t, err)
-		resp.Body.Close()
-
-		// find the CSRF token in cookies
-		csrfCookie := ""
-		for _, cookie := range jar.Cookies(resp.Request.URL) {
-			if cookie.Name == "csrf_token" {
-				csrfCookie = cookie.Value
-				break
-			}
-		}
-		require.NotEmpty(t, csrfCookie, "CSRF cookie should be set")
-
-		// POST the login form with invalid credentials
-		formValues := fmt.Sprintf("username=%s&password=%s&csrf_token=%s",
-			testUser, "wrong-form-password", csrfCookie)
+		formValues := fmt.Sprintf("username=%s&password=%s",
+			testUser, "wrong-form-password")
 
 		req, err := http.NewRequest("POST", baseURL+"/login",
 			strings.NewReader(formValues))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		resp, err = failedLoginClient.Do(req)
+		resp, err := failedLoginClient.Do(req)
 		require.NoError(t, err)
 		defer resp.Body.Close()
 
@@ -876,32 +858,15 @@ func TestIntegrationWithAuth(t *testing.T) {
 			},
 		}
 
-		// first get the login page to extract the CSRF token
-		resp, err := formLoginClient.Get(baseURL + "/login")
-		require.NoError(t, err)
-		// no need to read the body here, we only need the cookie
-		resp.Body.Close()
-
-		// find the CSRF token in cookies
-		csrfCookie := ""
-		for _, cookie := range jar.Cookies(resp.Request.URL) {
-			if cookie.Name == "csrf_token" {
-				csrfCookie = cookie.Value
-				break
-			}
-		}
-		require.NotEmpty(t, csrfCookie, "CSRF cookie should be set")
-
-		// POST the login form with valid credentials
-		formValues := fmt.Sprintf("username=%s&password=%s&csrf_token=%s",
-			testUser, testPassword, csrfCookie)
+		formValues := fmt.Sprintf("username=%s&password=%s",
+			testUser, testPassword)
 
 		req, err := http.NewRequest("POST", baseURL+"/login",
 			strings.NewReader(formValues))
 		require.NoError(t, err)
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		resp, err = formLoginClient.Do(req)
+		resp, err := formLoginClient.Do(req)
 		require.NoError(t, err)
 		resp.Body.Close()
 
