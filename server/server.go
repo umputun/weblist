@@ -213,6 +213,7 @@ func (wb *Web) router() (http.Handler, error) {
 
 	router.Use(rest.Trace, rest.RealIP, rest.Recoverer(lgr.Default()))
 	router.Use(rest.Throttle(1000))
+	router.Use(http.NewCrossOriginProtection().Handler)
 
 	// global rate limiter - 50 requests per second
 	router.Use(tollbooth.HTTPMiddleware(tollbooth.NewLimiter(50, nil)))
