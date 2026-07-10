@@ -19,7 +19,7 @@ require (
 	github.com/umputun/go-flags v1.5.1
 	github.com/yuin/goldmark v1.7.16
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
-	golang.org/x/crypto v0.48.0
+	golang.org/x/crypto v0.52.0
 )
 
 require (
@@ -41,6 +41,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/redis/go-redis/v9 v9.18.0 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/sys v0.41.0 // indirect
+	golang.org/x/sys v0.45.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
