@@ -1,16 +1,12 @@
 name: build-app
 on:
   push:
-    branches:
-    tags:
-    paths_ignored:
-      - ".github/workflows/updater.yml"
-      - "updater/**"
+    branches: ["**"]
+    tags: ["**"]
+    paths-ignore:
       - "**.md"
   pull_request:
-    paths_ignored:
-      - ".github/workflows/updater.yml"
-      - "updater/**"
+    paths-ignore:
       - "**.md"
 
 permissions:
@@ -23,13 +19,13 @@ jobs:
     steps:
 
     - name: set up go
-      uses: actions/setup-go@v6
+      uses: actions/setup-go@v7
       with:
         go-version: "1.26"
       id: go
 
     - name: Check out code into the Go module directory
-      uses: actions/checkout@v6
+      uses: actions/checkout@v7
       with:
         persist-credentials: false
 
