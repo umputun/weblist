@@ -15,7 +15,6 @@ import (
 	"net"
 	"os"
 	"path/filepath"
-	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -571,36 +570,10 @@ func (j *jailedFilesystem) securePath(requestPath string) (string, error) {
 	return osPath, nil
 }
 
-// shouldExclude checks if a path should be excluded based on exclusion patterns
+// shouldExclude checks if a path should be excluded based on exclusion patterns,
+// using the same component matching as the web listing
 func (j *jailedFilesystem) shouldExclude(path string) bool {
-	if len(j.excludes) == 0 {
-		return false
-	}
-
-	// normalize path for matching
-	normalizedPath := filepath.ToSlash(path)
-
-	for _, pattern := range j.excludes {
-		// convert pattern to forward slashes
-		pattern = filepath.ToSlash(pattern)
-
-		// exact match
-		if normalizedPath == pattern {
-			return true
-		}
-
-		// check if any path component matches the pattern
-		if slices.Contains(strings.Split(normalizedPath, "/"), pattern) {
-			return true
-		}
-
-		// check if path ends with the pattern
-		if strings.HasSuffix(normalizedPath, "/"+pattern) {
-			return true
-		}
-	}
-
-	return false
+	return matchesExcludes(path, j.excludes)
 }
 
 // loadOrGenerateHostKey loads an existing SSH host key or generates a new one if it doesn't exist

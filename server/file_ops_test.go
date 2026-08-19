@@ -1,12 +1,15 @@
 package server
 
 import (
+	"archive/zip"
+	"bytes"
 	"context"
 	"fmt"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"slices"
@@ -1058,6 +1061,84 @@ func TestShouldExclude(t *testing.T) {
 			exclude:  []string{".git"},
 			expected: true,
 		},
+		{
+			name:     "multi-segment pattern matches the directory itself",
+			path:     "docs/private",
+			exclude:  []string{"docs/private"},
+			expected: true,
+		},
+		{
+			name:     "multi-segment pattern matches a direct child",
+			path:     "docs/private/secret.txt",
+			exclude:  []string{"docs/private"},
+			expected: true,
+		},
+		{
+			name:     "multi-segment pattern matches a deep descendant",
+			path:     "docs/private/nested/deep/secret.txt",
+			exclude:  []string{"docs/private"},
+			expected: true,
+		},
+		{
+			name:     "multi-segment pattern matches nested occurrence",
+			path:     "share/docs/private/secret.txt",
+			exclude:  []string{"docs/private"},
+			expected: true,
+		},
+		{
+			name:     "multi-segment pattern does not match sibling with common prefix",
+			path:     "docs/private2/public.txt",
+			exclude:  []string{"docs/private"},
+			expected: false,
+		},
+		{
+			name:     "multi-segment pattern does not match partial component",
+			path:     "docs2/private/secret.txt",
+			exclude:  []string{"docs/private"},
+			expected: false,
+		},
+		{
+			name:     "multi-segment pattern requires adjacent components",
+			path:     "docs/public/private/file.txt",
+			exclude:  []string{"docs/private"},
+			expected: false,
+		},
+		{
+			name:     "pattern with trailing slash",
+			path:     "docs/private/secret.txt",
+			exclude:  []string{"docs/private/"},
+			expected: true,
+		},
+		{
+			name:     "pattern with leading dot slash",
+			path:     "docs/private/secret.txt",
+			exclude:  []string{"./docs/private"},
+			expected: true,
+		},
+		{
+			name:     "empty pattern matches nothing",
+			path:     "docs/private/secret.txt",
+			exclude:  []string{""},
+			expected: false,
+		},
+		{
+			name:     "root path is not excluded by an unrelated pattern",
+			path:     ".",
+			exclude:  []string{"docs/private"},
+			expected: false,
+		},
+		{
+			name:     "pattern equal to the path always matches",
+			path:     ".",
+			exclude:  []string{"."},
+			expected: true,
+		},
+		{
+			name:     "single component pattern matches descendants",
+			path:     ".git/objects/pack",
+			exclude:  []string{".git"},
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -1826,5 +1907,129 @@ func TestRenderCSV(t *testing.T) {
 		assert.Contains(t, result, "<th>a</th><th>b</th><th>c</th>")
 		assert.Contains(t, result, "<td>1</td><td>2</td>")
 		assert.Contains(t, result, "<td>3</td><td>4</td><td>5</td><td>6</td>")
+	})
+}
+
+// TestExcludeMultiSegmentPathAccess verifies a multi-segment exclude pattern such as "docs/private"
+// protects the directory itself and everything beneath it on every access surface, while leaving a
+// sibling with a common prefix ("docs/private2") reachable.
+func TestExcludeMultiSegmentPathAccess(t *testing.T) {
+	tempDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "docs", "private", "nested"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(tempDir, "docs", "private2"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "docs", "private", "secret.txt"), []byte("secret"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "docs", "private", "nested", "deep.txt"), []byte("deep"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "docs", "private2", "public.txt"), []byte("public"), 0o600))
+
+	wb := &Web{
+		Config: Config{RootDir: tempDir, Theme: "light", Exclude: []string{"docs/private"}},
+		FS:     os.DirFS(tempDir),
+	}
+	require.NoError(t, wb.initTemplates())
+
+	excluded := []string{"docs/private", "docs/private/secret.txt", "docs/private/nested", "docs/private/nested/deep.txt"}
+
+	t.Run("download denied", func(t *testing.T) {
+		for _, p := range excluded {
+			rr := httptest.NewRecorder()
+			wb.handleDownload(rr, httptest.NewRequest(http.MethodGet, "/"+p, http.NoBody))
+			assert.Equal(t, http.StatusForbidden, rr.Code, "download of %s must be denied", p)
+		}
+	})
+
+	t.Run("view denied", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		wb.handleViewFile(rr, httptest.NewRequest(http.MethodGet, "/view/docs/private/secret.txt", http.NoBody))
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+		assert.NotContains(t, rr.Body.String(), "secret")
+	})
+
+	t.Run("modal denied", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		wb.handleFileModal(rr, httptest.NewRequest(http.MethodGet, "/modal?path=docs/private/secret.txt", http.NoBody))
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+	})
+
+	t.Run("directory listing denied", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		wb.handleRoot(rr, httptest.NewRequest(http.MethodGet, "/?path=docs/private", http.NoBody))
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+		assert.NotContains(t, rr.Body.String(), "secret.txt")
+	})
+
+	t.Run("htmx partial listing denied", func(t *testing.T) {
+		req := httptest.NewRequest(http.MethodGet, "/partial?path=docs/private", http.NoBody)
+		req.Header.Set("HX-Request", "true")
+		rr := httptest.NewRecorder()
+		wb.handleDirContents(rr, req)
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+		assert.NotContains(t, rr.Body.String(), "secret.txt")
+	})
+
+	t.Run("api listing denied", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		wb.handleAPIList(rr, httptest.NewRequest(http.MethodGet, "/api/v1/list?path=docs/private", http.NoBody))
+		assert.Equal(t, http.StatusForbidden, rr.Code)
+		assert.NotContains(t, rr.Body.String(), "secret.txt")
+	})
+
+	t.Run("parent listing hides excluded directory", func(t *testing.T) {
+		files, err := wb.getFileList("docs", "name", "asc")
+		require.NoError(t, err)
+		names := make([]string, 0, len(files))
+		for _, f := range files {
+			names = append(names, f.Name)
+		}
+		assert.NotContains(t, names, "private")
+		assert.Contains(t, names, "private2")
+	})
+
+	t.Run("zip of selected excluded paths is empty", func(t *testing.T) {
+		form := url.Values{}
+		for _, p := range excluded {
+			form.Add("selected-files", p)
+		}
+		req := httptest.NewRequest(http.MethodPost, "/download-selected", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+		wb.handleDownloadSelected(rr, req)
+
+		zr, err := zip.NewReader(bytes.NewReader(rr.Body.Bytes()), int64(rr.Body.Len()))
+		require.NoError(t, err)
+		assert.Empty(t, zr.File, "no excluded entry may appear in the archive")
+	})
+
+	t.Run("zip of parent directory omits excluded subtree", func(t *testing.T) {
+		form := url.Values{}
+		form.Add("selected-files", "docs")
+		req := httptest.NewRequest(http.MethodPost, "/download-selected", strings.NewReader(form.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+		wb.handleDownloadSelected(rr, req)
+
+		zr, err := zip.NewReader(bytes.NewReader(rr.Body.Bytes()), int64(rr.Body.Len()))
+		require.NoError(t, err)
+		names := make([]string, 0, len(zr.File))
+		for _, f := range zr.File {
+			names = append(names, filepath.ToSlash(f.Name))
+		}
+		for _, n := range names {
+			assert.NotContains(t, n, "private/", "archive must not contain the excluded subtree, got %s", n)
+		}
+		assert.Contains(t, names, "private2/public.txt")
+	})
+
+	t.Run("sibling with common prefix stays reachable", func(t *testing.T) {
+		rr := httptest.NewRecorder()
+		wb.handleDownload(rr, httptest.NewRequest(http.MethodGet, "/docs/private2/public.txt", http.NoBody))
+		assert.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "public", rr.Body.String())
+	})
+
+	t.Run("recursive mtime skips excluded subtree", func(t *testing.T) {
+		future := time.Now().Add(24 * time.Hour)
+		require.NoError(t, os.Chtimes(filepath.Join(tempDir, "docs", "private", "secret.txt"), future, future))
+		mtime := wb.getRecursiveMtime("docs")
+		assert.True(t, mtime.Before(future), "excluded file must not drive the directory mtime")
 	})
 }
