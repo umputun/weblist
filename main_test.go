@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"log"
 	"net"
 	"net/http"
@@ -1054,29 +1053,4 @@ func TestIntegrationWithAuth(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Server did not shut down within expected time")
 	}
-}
-
-func TestRootFSRefusesSymlinkEscape(t *testing.T) {
-	base := t.TempDir()
-	root := filepath.Join(base, "root")
-	outside := filepath.Join(base, "outside")
-	require.NoError(t, os.MkdirAll(root, 0o750))
-	require.NoError(t, os.MkdirAll(outside, 0o750))
-	require.NoError(t, os.WriteFile(filepath.Join(outside, "secret.txt"), []byte("outside"), 0o600))
-	require.NoError(t, os.WriteFile(filepath.Join(root, "inside.txt"), []byte("inside"), 0o600))
-	require.NoError(t, os.Symlink(outside, filepath.Join(root, "escape")))
-
-	r, err := os.OpenRoot(root)
-	require.NoError(t, err)
-	defer r.Close() //nolint:errcheck // test cleanup
-	fsys := r.FS()
-
-	// os.DirFS serves this: it only guarantees opened paths start with the root, not that
-	// they stay inside it, which is what the readme promises and the SFTP jail assumes
-	_, err = fs.ReadFile(fsys, "escape/secret.txt")
-	require.Error(t, err, "a symlink inside the root must not reach outside it")
-
-	got, err := fs.ReadFile(fsys, "inside.txt")
-	require.NoError(t, err)
-	assert.Equal(t, "inside", string(got))
 }

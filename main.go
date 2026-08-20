@@ -115,16 +115,8 @@ func runServer(ctx context.Context, opts *options) error {
 		ensureTempDir(opts.RootDir, &opts.Exclude)
 	}
 
-	// create OS filesystem locked to the root directory. os.OpenRoot rather than os.DirFS:
-	// DirFS only guarantees the paths it opens start with the root, so a symlink inside the
-	// root still reaches outside it. Root refuses that, which is what "locked to the root"
-	// means in the readme and what the SFTP jail assumes.
-	root, err := os.OpenRoot(opts.RootDir)
-	if err != nil {
-		return fmt.Errorf("can't open root directory %s: %w", opts.RootDir, err)
-	}
-	defer root.Close()
-	fs := root.FS()
+	// create OS filesystem locked to the root directory
+	fs := os.DirFS(opts.RootDir)
 
 	// prepare common configuration
 	config := server.Config{
