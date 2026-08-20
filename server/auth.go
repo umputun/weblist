@@ -61,7 +61,7 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the transport, plain HTTP is a supported deployment
 		Name:     "auth",
 		Value:    wb.generateSessionToken(),
 		Path:     "/",
@@ -94,12 +94,13 @@ func (wb *Web) renderLoginError(w http.ResponseWriter, errorMsg string) {
 // handleLogout handles the logout request
 func (wb *Web) handleLogout(w http.ResponseWriter, r *http.Request) {
 	// clear the auth cookie
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the transport, plain HTTP is a supported deployment
 		Name:     "auth",
 		Value:    "",
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   wb.isRequestSecure(r),
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   -1, // delete the cookie
 	})
 
@@ -137,7 +138,7 @@ func (wb *Web) tryBasicAuth(w http.ResponseWriter, r *http.Request) bool {
 	}
 
 	// set cookie for future requests
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the transport, plain HTTP is a supported deployment
 		Name:     "auth",
 		Value:    wb.generateSessionToken(),
 		Path:     "/",

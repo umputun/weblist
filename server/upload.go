@@ -31,7 +31,7 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 	r.Body = http.MaxBytesReader(w, r.Body, wb.UploadMaxSize)
 
 	// parse multipart form with 10MB in-memory buffer
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
+	if err := r.ParseMultipartForm(10 << 20); err != nil { //nolint:gosec // G120: body already bounded by MaxBytesReader above
 		var maxBytesErr *http.MaxBytesError
 		if errors.As(err, &maxBytesErr) {
 			wb.writeJSONError(w, http.StatusRequestEntityTooLarge, "file too large")
