@@ -161,6 +161,24 @@ func TestShouldExcludeForSFTP(t *testing.T) {
 			exclude:  []string{".git", "node_modules"},
 			expected: true,
 		},
+		{
+			name:     "multi-segment pattern matches the directory itself",
+			path:     "docs/private",
+			exclude:  []string{"docs/private"},
+			expected: true,
+		},
+		{
+			name:     "multi-segment pattern matches a descendant",
+			path:     "docs/private/nested/secret.txt",
+			exclude:  []string{"docs/private"},
+			expected: true,
+		},
+		{
+			name:     "multi-segment pattern does not match sibling with common prefix",
+			path:     "docs/private2/public.txt",
+			exclude:  []string{"docs/private"},
+			expected: false,
+		},
 	}
 
 	// create a jailed filesystem for testing
@@ -1436,4 +1454,49 @@ func TestSetupSSHServerConfig(t *testing.T) {
 			assert.NotNil(t, s.ipAttempts)
 		})
 	}
+}
+
+// TestSFTPExcludeMultiSegmentPath verifies a multi-segment exclude pattern blocks reads and listings
+// of the excluded directory and its descendants over SFTP, while a sibling with a common prefix stays available.
+func TestSFTPExcludeMultiSegmentPath(t *testing.T) {
+	rootDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(rootDir, "docs", "private", "nested"), 0o755))
+	require.NoError(t, os.MkdirAll(filepath.Join(rootDir, "docs", "private2"), 0o755))
+	require.NoError(t, os.WriteFile(filepath.Join(rootDir, "docs", "private", "secret.txt"), []byte("secret"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(rootDir, "docs", "private", "nested", "deep.txt"), []byte("deep"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(rootDir, "docs", "private2", "public.txt"), []byte("public"), 0o600))
+
+	jailed := &jailedFilesystem{rootDir: rootDir, excludes: []string{"docs/private"}, fsys: os.DirFS(rootDir)}
+
+	t.Run("excluded paths rejected", func(t *testing.T) {
+		paths := []string{"/docs/private", "/docs/private/secret.txt", "/docs/private/nested", "/docs/private/nested/deep.txt"}
+		for _, p := range paths {
+			_, err := jailed.securePath(p)
+			assert.Error(t, err, "securePath(%q) must reject the excluded path", p)
+		}
+	})
+
+	t.Run("sibling with common prefix allowed", func(t *testing.T) {
+		secPath, err := jailed.securePath("/docs/private2/public.txt")
+		require.NoError(t, err)
+		assert.Equal(t, "docs/private2/public.txt", filepath.ToSlash(secPath))
+	})
+
+	t.Run("listing omits excluded directory", func(t *testing.T) {
+		lister, err := jailed.Filelist(&sftp.Request{Method: "List", Filepath: "/docs"})
+		require.NoError(t, err)
+
+		entries := make([]os.FileInfo, 10)
+		n, err := lister.ListAt(entries, 0)
+		if err != nil {
+			require.ErrorIs(t, err, io.EOF)
+		}
+
+		names := make([]string, 0, n)
+		for _, e := range entries[:n] {
+			names = append(names, e.Name())
+		}
+		assert.NotContains(t, names, "private")
+		assert.Contains(t, names, "private2")
+	})
 }

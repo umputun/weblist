@@ -47,6 +47,12 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	// clean the path to avoid directory traversal
 	path = filepath.ToSlash(filepath.Clean(path))
 
+	// check if the directory itself should be excluded, otherwise its content would be listed
+	if wb.shouldExclude(path) {
+		http.Error(w, "access denied to requested path", http.StatusForbidden)
+		return
+	}
+
 	// check if the path exists and is a directory
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
@@ -659,6 +665,12 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	}
 	// clean the path to avoid directory traversal
 	path = filepath.ToSlash(filepath.Clean(path))
+
+	// check if the directory itself should be excluded, otherwise its content would be listed
+	if wb.shouldExclude(path) {
+		wb.writeJSONError(w, http.StatusForbidden, "access denied to requested path")
+		return
+	}
 
 	// check if the path exists and is a directory
 	fileInfo, err := fs.Stat(wb.FS, path)
