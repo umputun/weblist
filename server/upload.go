@@ -32,8 +32,7 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	// parse multipart form with 10MB in-memory buffer
 	if err := r.ParseMultipartForm(10 << 20); err != nil { //nolint:gosec // G120: body already bounded by MaxBytesReader above
-		var maxBytesErr *http.MaxBytesError
-		if errors.As(err, &maxBytesErr) {
+		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			wb.writeJSONError(w, http.StatusRequestEntityTooLarge, "file too large")
 			return
 		}
@@ -56,8 +55,7 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	cleanPath, err := wb.validateUploadPath(targetPath)
 	if err != nil {
-		var ue *uploadError
-		if errors.As(err, &ue) {
+		if ue, ok := errors.AsType[*uploadError](err); ok {
 			wb.writeJSONError(w, ue.status, ue.Error())
 		} else {
 			log.Printf("[ERROR] failed to validate upload path %q: %v", targetPath, err)
@@ -94,8 +92,7 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 		// write the file to disk
 		if err := wb.writeUploadedFile(destPath, src, wb.UploadOverwrite); err != nil {
 			_ = src.Close()
-			var ue *uploadError
-			if errors.As(err, &ue) {
+			if ue, ok := errors.AsType[*uploadError](err); ok {
 				wb.writeJSONError(w, ue.status, ue.Error())
 			} else {
 				log.Printf("[ERROR] failed to save file %q: %v", fh.Filename, err)
