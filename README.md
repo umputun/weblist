@@ -133,6 +133,23 @@ Branding Options (with `--brand` prefix):
 - `--brand.name`: Company or organization name to display in navbar - env: `BRAND_NAME`
 - `--brand.color`: Color for navbar (e.g. `3498db` or `#3498db`) - env: `BRAND_COLOR`
 
+### Exclusions
+
+`--exclude` takes a path made of one or more components, matched against whole path components
+relative to the root directory. A pattern matches wherever its components appear as a consecutive
+run in a path, and everything below a match is excluded as well:
+
+```bash
+# hide every .git directory anywhere in the tree, along with its content
+weblist --exclude .git
+
+# hide the docs/private directory and everything beneath it, leaving docs/private2 visible
+weblist --exclude docs/private
+```
+
+Excluded paths are hidden from listings and rejected for download, preview, archive selection and
+SFTP access. Matching is on whole components, so `--exclude vendor` does not affect `vendors`.
+
 ## Authentication
 
 Weblist provides optional password protection for your file listings:

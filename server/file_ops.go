@@ -108,6 +108,12 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	// clean the path to avoid directory traversal attacks
 	path = filepath.ToSlash(filepath.Clean(path))
 
+	// check if the directory itself should be excluded, otherwise its content would be listed
+	if wb.shouldExclude(path) {
+		http.Error(w, "access denied to requested path", http.StatusForbidden)
+		return
+	}
+
 	// check if the path exists
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
@@ -310,42 +316,56 @@ func (wb *Web) getRecursiveMtime(path string) time.Time {
 }
 
 // shouldExclude checks if a path should be excluded based on the Exclude patterns.
-// It performs several matching strategies:
-// 1. Exact path match with the pattern
-// 2. Any directory component matches the pattern (e.g. ".git" would exclude ".git/config")
-// 3. Path ends with the pattern as a directory component
-// All paths are normalized to use forward slashes for consistent matching across platforms.
 func (wb *Web) shouldExclude(path string) bool {
-	if len(wb.Exclude) == 0 {
+	return matchesExcludes(path, wb.Exclude)
+}
+
+// matchesExcludes reports whether the path matches any of the exclusion patterns. A pattern matches
+// a path equal to it, and it matches wherever the pattern components appear as a contiguous run of
+// path components, which covers everything below the match: ".git" excludes "some/.git" along with
+// "some/.git/config", and "docs/private" excludes "docs/private" along with everything beneath it.
+// Matching works on whole components, so "docs/private" leaves "docs/private2" alone and "vendor"
+// leaves "vendors" alone. All paths are normalized to forward slashes for consistent matching
+// across platforms.
+func matchesExcludes(path string, patterns []string) bool {
+	if len(patterns) == 0 {
 		return false
 	}
 
-	// normalize path for matching
 	normalizedPath := filepath.ToSlash(path)
-	pathParts := strings.Split(normalizedPath, "/")
-
-	for _, pattern := range wb.Exclude {
-		// convert pattern to use forward slashes for consistency
+	pathParts := pathComponents(path)
+	for _, pattern := range patterns {
 		pattern = filepath.ToSlash(pattern)
-
-		// check if the path matches the pattern exactly
 		if normalizedPath == pattern {
 			return true
 		}
 
-		// check if the path contains the pattern as a directory component
-		// this handles cases like "some/git/path" when pattern is ".git"
-		if slices.Contains(pathParts, pattern) {
-			return true
+		patternParts := pathComponents(pattern)
+		if len(patternParts) == 0 {
+			continue
 		}
-
-		// check if the path ends with the pattern
-		if strings.HasSuffix(normalizedPath, "/"+pattern) {
-			return true
+		for i := 0; i+len(patternParts) <= len(pathParts); i++ {
+			if slices.Equal(pathParts[i:i+len(patternParts)], patternParts) {
+				return true
+			}
 		}
 	}
 
 	return false
+}
+
+// pathComponents splits a path into its significant components, dropping empty and "." elements
+// so that "docs/private", "./docs/private/" and "docs//private" all yield the same result.
+func pathComponents(path string) []string {
+	parts := strings.Split(filepath.ToSlash(path), "/")
+	res := make([]string, 0, len(parts))
+	for _, part := range parts {
+		if part == "" || part == "." {
+			continue
+		}
+		res = append(res, part)
+	}
+	return res
 }
 
 // sortFiles sorts the file list based on the specified criteria (name, date, or size).
