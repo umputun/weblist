@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -31,7 +32,8 @@ func (wb *Web) handleRoot(w http.ResponseWriter, r *http.Request) {
 func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	// redirect non-HTMX requests to main page for proper full-page rendering
 	if !wb.isHTMXRequest(r) {
-		http.Redirect(w, r, "/?"+r.URL.RawQuery, http.StatusFound)
+		// same origin: everything after the literal ? is query, so the target is always "/"
+		http.Redirect(w, r, "/?"+r.URL.RawQuery, http.StatusFound) //nolint:gosec // G710: target is a literal "/" path
 		return
 	}
 
@@ -282,7 +284,11 @@ func (wb *Web) handleDownload(w http.ResponseWriter, r *http.Request) {
 
 	// if it's a directory, redirect to directory view
 	if fileInfo.IsDir() {
-		http.Redirect(w, r, "/?path="+filePath, http.StatusSeeOther)
+		// escaped: a name containing & or # would otherwise be read as query or fragment
+		// syntax. slashes are put back because a query value may legally contain them and
+		// %2F everywhere would make every directory URL unreadable
+		escaped := strings.ReplaceAll(url.QueryEscape(filePath), "%2F", "/")
+		http.Redirect(w, r, "/?path="+escaped, http.StatusSeeOther)
 		return
 	}
 

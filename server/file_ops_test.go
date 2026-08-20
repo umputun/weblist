@@ -2033,3 +2033,23 @@ func TestExcludeMultiSegmentPathAccess(t *testing.T) {
 		assert.True(t, mtime.Before(future), "excluded file must not drive the directory mtime")
 	})
 }
+
+func TestWeb_renderFullPageEscapesSpecialCharsInFileRedirect(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "a#b.txt"), []byte("x"), 0o600))
+
+	wb := &Web{Config: Config{RootDir: root, Theme: "light", InsecureCookies: true}, FS: os.DirFS(root)}
+	require.NoError(t, wb.initTemplates())
+
+	req := httptest.NewRequest(http.MethodGet, "/", http.NoBody)
+	rr := httptest.NewRecorder()
+	wb.renderFullPage(rr, req, "a#b.txt")
+
+	require.Equal(t, http.StatusSeeOther, rr.Code)
+	loc := rr.Header().Get("Location")
+	u, err := url.Parse(loc)
+	require.NoError(t, err)
+	// unescaped, everything from the # onwards becomes a fragment and the path is just "/a"
+	assert.Equal(t, "/a#b.txt", u.Path, "location %q truncated the file name", loc)
+	assert.Empty(t, u.Fragment)
+}

@@ -1210,3 +1210,24 @@ func TestHandleViewFile_CSV(t *testing.T) {
 	assert.Contains(t, body, "<td>Bob</td><td>25</td><td>London</td>")
 	assert.NotContains(t, body, "Name,Age,City") // raw csv should not appear
 }
+
+func TestWeb_handleDownloadEscapesSpecialCharsInDirRedirect(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "q&a"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "q&a", "notes.txt"), []byte("x"), 0o600))
+
+	wb := &Web{Config: Config{RootDir: root, Theme: "light", InsecureCookies: true}, FS: os.DirFS(root)}
+	require.NoError(t, wb.initTemplates())
+
+	req := httptest.NewRequest(http.MethodGet, "/q&a", http.NoBody)
+	req.SetPathValue("path", "q&a")
+	rr := httptest.NewRecorder()
+	wb.handleDownload(rr, req)
+
+	require.Equal(t, http.StatusSeeOther, rr.Code)
+	loc := rr.Header().Get("Location")
+	u, err := url.Parse(loc)
+	require.NoError(t, err)
+	// unescaped, the & would end the path parameter and "q" alone would be requested
+	assert.Equal(t, "q&a", u.Query().Get("path"), "location %q lost the directory name", loc)
+}

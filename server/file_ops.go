@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -61,21 +62,23 @@ func (wb *Web) processSortQueryParams(w http.ResponseWriter, r *http.Request, so
 	}
 
 	// set cookies with sorting preferences
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the transport, plain HTTP is a supported deployment
 		Name:     "sortBy",
 		Value:    sortBy,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   wb.isRequestSecure(r),
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   60 * 60 * 24 * 365, // 1 year
 	})
 
-	http.SetCookie(w, &http.Cookie{
+	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the transport, plain HTTP is a supported deployment
 		Name:     "sortDir",
 		Value:    sortDir,
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   wb.isRequestSecure(r),
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   60 * 60 * 24 * 365, // 1 year
 	})
 
@@ -123,7 +126,10 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 
 	// if it's not a directory, redirect to download handler
 	if !fileInfo.IsDir() {
-		http.Redirect(w, r, "/"+path, http.StatusSeeOther)
+		// built through url.URL so a name containing # or ? is escaped rather than
+		// starting a fragment or query
+		download := url.URL{Path: "/" + path}
+		http.Redirect(w, r, download.String(), http.StatusSeeOther)
 		return
 	}
 
