@@ -116,7 +116,10 @@ func runServer(ctx context.Context, opts *options) error {
 	}
 
 	// create OS filesystem locked to the root directory
-	fs := os.DirFS(opts.RootDir)
+	fs, err := newRootFS(opts.RootDir)
+	if err != nil {
+		return fmt.Errorf("failed to create root filesystem: %w", err)
+	}
 
 	// prepare common configuration
 	config := server.Config{
