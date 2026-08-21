@@ -332,7 +332,9 @@ func (wb *Web) shouldExclude(path string) bool {
 // "some/.git/config", and "docs/private" excludes "docs/private" along with everything beneath it.
 // Matching works on whole components, so "docs/private" leaves "docs/private2" alone and "vendor"
 // leaves "vendors" alone. All paths are normalized to forward slashes for consistent matching
-// across platforms.
+// across platforms. Comparison is case-insensitive: on case-insensitive filesystems (macOS, Windows)
+// an exact match would let "secret" through when "Secret" is excluded, serving the file the operator
+// meant to hide.
 func matchesExcludes(path string, patterns []string) bool {
 	if len(patterns) == 0 {
 		return false
@@ -342,7 +344,7 @@ func matchesExcludes(path string, patterns []string) bool {
 	pathParts := pathComponents(path)
 	for _, pattern := range patterns {
 		pattern = filepath.ToSlash(pattern)
-		if normalizedPath == pattern {
+		if strings.EqualFold(normalizedPath, pattern) {
 			return true
 		}
 
@@ -351,7 +353,7 @@ func matchesExcludes(path string, patterns []string) bool {
 			continue
 		}
 		for i := 0; i+len(patternParts) <= len(pathParts); i++ {
-			if slices.Equal(pathParts[i:i+len(patternParts)], patternParts) {
+			if slices.EqualFunc(pathParts[i:i+len(patternParts)], patternParts, strings.EqualFold) {
 				return true
 			}
 		}

@@ -1139,6 +1139,24 @@ func TestShouldExclude(t *testing.T) {
 			exclude:  []string{".git"},
 			expected: true,
 		},
+		{
+			name:     "case-differing component matches, a case-insensitive fs serves it otherwise",
+			path:     "secret/hidden.txt",
+			exclude:  []string{"Secret"},
+			expected: true,
+		},
+		{
+			name:     "case-differing exact path matches",
+			path:     "docs/PRIVATE",
+			exclude:  []string{"docs/private"},
+			expected: true,
+		},
+		{
+			name:     "case folding does not widen matching to partial names",
+			path:     "some/SECRETS/path",
+			exclude:  []string{"Secret"},
+			expected: false,
+		},
 	}
 
 	for _, tt := range tests {
