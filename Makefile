@@ -41,7 +41,7 @@ prep_site:
 
 # install playwright browsers (run once or after playwright-go version update)
 e2e-setup:
-	go run github.com/playwright-community/playwright-go/cmd/playwright@latest install --with-deps chromium
+	go tool playwright install --with-deps chromium
 
 # run e2e tests headless (default, for CI and quick checks)
 e2e:
