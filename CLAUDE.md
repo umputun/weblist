@@ -100,7 +100,7 @@
 ## Release Process
 - Semantic versioning format: v0.x.x
 - Hotfixes increment patch version (e.g., v0.14.3 -> v0.14.4)
-- GitHub release titles must use format: "Version x.y.z"
+- GitHub release titles use the tag name: `vX.Y.Z`
 - Release notes sections: Dependencies Updated, Bug Fixes, Technical Changes
 - Create tag first, then create GitHub release using `gh release create`
 
