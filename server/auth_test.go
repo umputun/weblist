@@ -143,7 +143,6 @@ func TestAuthentication(t *testing.T) {
 
 	t.Run("access allowed with cookie", func(t *testing.T) {
 		formData := url.Values{}
-		formData.Set("username", "weblist")
 		formData.Set("password", "testpassword")
 		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
 		require.NoError(t, err)
@@ -341,6 +340,7 @@ func TestHandleLoginSubmit(t *testing.T) {
 			Theme:      "light",
 			RootDir:    testdataDir,
 			Auth:       "testpassword",
+			AuthUser:   "customuser",
 			Title:      "Test Server",
 		},
 		FS: os.DirFS(testdataDir),
@@ -350,9 +350,8 @@ func TestHandleLoginSubmit(t *testing.T) {
 	err = srv.initTemplates()
 	require.NoError(t, err, "failed to initialize templates")
 
-	t.Run("successful login", func(t *testing.T) {
+	t.Run("password-only login with custom auth user", func(t *testing.T) {
 		formData := url.Values{}
-		formData.Set("username", "weblist")
 		formData.Set("password", "testpassword")
 
 		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
@@ -378,26 +377,39 @@ func TestHandleLoginSubmit(t *testing.T) {
 		assert.True(t, srv.validateSessionToken(authCookie.Value), "Session token should be valid")
 	})
 
-	t.Run("failed login - wrong username", func(t *testing.T) {
-		formData := url.Values{}
-		formData.Set("username", "wronguser")
-		formData.Set("password", "testpassword")
+	t.Run("posted username is ignored", func(t *testing.T) {
+		tests := []struct {
+			name     string
+			username string
+			include  bool
+		}{
+			{name: "absent", include: false},
+			{name: "wrong", username: "wronguser", include: true},
+		}
 
-		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
-		require.NoError(t, err)
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		for _, tt := range tests {
+			t.Run(tt.name, func(t *testing.T) {
+				formData := url.Values{"password": {"testpassword"}}
+				if tt.include {
+					formData.Set("username", tt.username)
+				}
 
-		rr := httptest.NewRecorder()
-		handler := http.HandlerFunc(srv.handleLoginSubmit)
-		handler.ServeHTTP(rr, req)
+				req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
+				require.NoError(t, err)
+				req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
-		assert.Equal(t, http.StatusOK, rr.Code)
-		assert.Contains(t, rr.Body.String(), "Invalid username or password")
+				rr := httptest.NewRecorder()
+				handler := http.HandlerFunc(srv.handleLoginSubmit)
+				handler.ServeHTTP(rr, req)
+
+				assert.Equal(t, http.StatusSeeOther, rr.Code)
+				assert.Equal(t, "/", rr.Header().Get("Location"))
+			})
+		}
 	})
 
 	t.Run("failed login - wrong password", func(t *testing.T) {
 		formData := url.Values{}
-		formData.Set("username", "weblist")
 		formData.Set("password", "wrongpassword")
 
 		req, err := http.NewRequest("POST", "/login", strings.NewReader(formData.Encode()))
@@ -409,7 +421,7 @@ func TestHandleLoginSubmit(t *testing.T) {
 		handler.ServeHTTP(rr, req)
 
 		assert.Equal(t, http.StatusOK, rr.Code)
-		assert.Contains(t, rr.Body.String(), "Invalid username or password")
+		assert.Contains(t, rr.Body.String(), "Invalid password")
 	})
 
 	t.Run("form parsing error", func(t *testing.T) {
@@ -454,6 +466,7 @@ func TestHandleLoginPage(t *testing.T) {
 	assert.Contains(t, responseBody, "<form")
 	assert.Contains(t, responseBody, "method=\"post\"")
 	assert.Contains(t, responseBody, "action=\"/login\"")
+	assert.NotContains(t, responseBody, "name=\"username\"")
 }
 
 func TestNormalizeBrandColor(t *testing.T) {

@@ -33,6 +33,7 @@ func startAuthServer(t *testing.T) func() {
 		"--listen=:18081",
 		"--root="+absTestData,
 		"--auth="+testPassword,
+		"--auth-user=customuser",
 		"--insecure-cookies", // needed for http in tests
 	)
 	cmd.Stdout = nil
@@ -65,7 +66,7 @@ func TestAuth_LoginPageShown(t *testing.T) {
 	// should redirect to login page
 	require.NoError(t, page.WaitForURL("**/login"))
 
-	// check login form is visible - note: username is hidden, only password is visible
+	// check password-only login form is visible
 	visible, err := page.Locator("input[name='password']").IsVisible()
 	require.NoError(t, err)
 	assert.True(t, visible, "password input should be visible")
@@ -74,10 +75,9 @@ func TestAuth_LoginPageShown(t *testing.T) {
 	require.NoError(t, err)
 	assert.True(t, visible, "submit button should be visible")
 
-	// verify hidden username field exists with value "weblist"
-	usernameValue, err := page.Locator("input[name='username']").GetAttribute("value")
+	usernameCount, err := page.Locator("input[name='username']").Count()
 	require.NoError(t, err)
-	assert.Equal(t, "weblist", usernameValue)
+	assert.Zero(t, usernameCount, "username input should not exist")
 }
 
 func TestAuth_LoginValid(t *testing.T) {
@@ -88,10 +88,10 @@ func TestAuth_LoginValid(t *testing.T) {
 	_, err := page.Goto(authBaseURL + "/login")
 	require.NoError(t, err)
 
-	// wait for login form - only password field is visible
+	// wait for password-only login form
 	waitVisible(t, page.Locator("input[name='password']"))
 
-	// fill in password (username is pre-filled as hidden field)
+	// fill in password
 	require.NoError(t, page.Locator("input[name='password']").Fill(testPassword))
 
 	// submit form

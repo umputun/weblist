@@ -50,14 +50,12 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	username := r.FormValue("username")
 	password := r.FormValue("password")
 
-	usernameCorrect := subtle.ConstantTimeCompare([]byte(username), []byte(wb.getAuthUser())) == 1
 	passwordCorrect := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) == 1
 
-	if !usernameCorrect || !passwordCorrect {
-		wb.renderLoginError(w, "Invalid username or password")
+	if !passwordCorrect {
+		wb.renderLoginError(w, "Invalid password")
 		return
 	}
 

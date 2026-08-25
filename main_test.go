@@ -695,7 +695,7 @@ func TestIntegrationWithAuth(t *testing.T) {
 
 	// test password and credentials
 	testPassword := "test-password"
-	testUser := "weblist"
+	testUser := "testuser"
 
 	// set up options for the server with authentication
 	opts = options{
@@ -805,8 +805,7 @@ func TestIntegrationWithAuth(t *testing.T) {
 			},
 		}
 
-		formValues := fmt.Sprintf("username=%s&password=%s",
-			testUser, "wrong-form-password")
+		formValues := "password=wrong-form-password"
 
 		req, err := http.NewRequest("POST", baseURL+"/login",
 			strings.NewReader(formValues))
@@ -823,7 +822,7 @@ func TestIntegrationWithAuth(t *testing.T) {
 		// check the response contains error message
 		body, err := io.ReadAll(resp.Body)
 		require.NoError(t, err)
-		assert.Contains(t, string(body), "Invalid username or password")
+		assert.Contains(t, string(body), "Invalid password")
 
 		// verify no auth cookie is set after failed login
 		authCookieFound := false
@@ -858,8 +857,7 @@ func TestIntegrationWithAuth(t *testing.T) {
 			},
 		}
 
-		formValues := fmt.Sprintf("username=%s&password=%s",
-			testUser, testPassword)
+		formValues := "password=" + testPassword
 
 		req, err := http.NewRequest("POST", baseURL+"/login",
 			strings.NewReader(formValues))

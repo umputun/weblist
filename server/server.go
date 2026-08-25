@@ -303,7 +303,7 @@ func (wb *Web) router() (http.Handler, error) {
 // It uses a multi-tiered authentication approach:
 // 1. Login page (/login) and static assets are always accessible without authentication
 // 2. Checks for a valid authentication cookie first
-// 3. Falls back to HTTP Basic Auth with username "weblist" and password from config
+// 3. Falls back to HTTP Basic Auth with the configured username and password
 // 4. On successful Basic Auth, sets a cookie for future requests to avoid repeated authentication
 // 5. Redirects unauthenticated requests to the login page
 // This middleware belongs after all other middleware but before route handlers.
