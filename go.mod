@@ -13,8 +13,8 @@ require (
 	github.com/go-pkgz/routegroup v1.6.1
 	github.com/google/uuid v1.6.0
 	github.com/jessevdk/go-flags v1.6.1
+	github.com/mxschmitt/playwright-go v0.6201.1
 	github.com/pkg/sftp v1.13.11
-	github.com/playwright-community/playwright-go v0.5200.1
 	github.com/stretchr/testify v1.12.0
 	github.com/umputun/go-flags v1.5.1
 	github.com/yuin/goldmark v1.8.5
@@ -24,9 +24,8 @@ require (
 
 require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
-	github.com/deckarep/golang-set/v2 v2.7.0 // indirect
+	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/dlclark/regexp2/v2 v2.7.1 // indirect
-	github.com/go-jose/go-jose/v3 v3.0.5 // indirect
 	github.com/go-pkgz/expirable-cache/v3 v3.1.1 // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
@@ -39,3 +38,5 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
+
+tool github.com/mxschmitt/playwright-go/cmd/playwright

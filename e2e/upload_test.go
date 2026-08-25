@@ -145,7 +145,7 @@ func TestUpload_ToastOnSuccessfulUpload(t *testing.T) {
 
 	// toast should appear with success message
 	toast := page.Locator("#upload-toast")
-	waitVisible(t, toast)
+	waitVisible(t, page.Locator("#upload-toast:has-text('Uploaded:')"))
 	text, err := toast.TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, text, "Uploaded:")
@@ -174,7 +174,7 @@ func TestUpload_ToastOnDuplicateFile(t *testing.T) {
 
 	// toast should appear with error message
 	toast := page.Locator("#upload-toast")
-	waitVisible(t, toast)
+	waitVisible(t, page.Locator("#upload-toast:has-text('already exists')"))
 	text, err := toast.TextContent()
 	require.NoError(t, err)
 	assert.Contains(t, text, "already exists")
