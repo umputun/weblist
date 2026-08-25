@@ -105,7 +105,7 @@ weblist [options]
 - `-e, --exclude`: Files and directories to exclude (can be repeated) - env: `EXCLUDE`
 - `-f, --hide-footer`: Hide footer - env: `HIDE_FOOTER`
 - `-a, --auth`: Enable authentication with the specified password - env: `AUTH`
-- `--auth-user`: Username for authentication (default: `weblist`) - env: `AUTH_USER`
+- `--auth-user`: Username for HTTP Basic Auth (default: `weblist`) - env: `AUTH_USER`
 - `--session-secret`: Secret key for session tokens (auto-generated if not set) - env: `SESSION_SECRET`
 - `--session-ttl`: Session timeout duration (default: `24h`) - env: `SESSION_TTL`
 - `--insecure-cookies`: Allow cookies without secure flag - env: `INSECURE_COOKIES`
@@ -158,7 +158,7 @@ Weblist provides optional password protection for your file listings:
 # Enable authentication with a password
 weblist --auth your_password
 
-# Customize the username (default is "weblist")
+# Customize the HTTP Basic Auth username (default is "weblist")
 weblist --auth your_password --auth-user admin
 
 # Set a specific session secret key
@@ -172,8 +172,8 @@ weblist --auth your_password --insecure-cookies
 ```
 
 When authentication is enabled:
-- Users will be prompted with a login screen
-- The username is customizable via the `--auth-user` parameter (defaults to "weblist")
+- Browser login uses a password-only form
+- The HTTP Basic Auth username is customizable via `--auth-user` (defaults to "weblist")
 - The password is whatever you specify with the `--auth` parameter
 - Sessions are secured with HMAC-SHA256 signed tokens
 - Session secrets are automatically generated if not explicitly provided
@@ -429,7 +429,7 @@ services:
       - ROOT_DIR=/data
       - EXCLUDE=.git,.env
       - AUTH=your_password  # Optional: Enable password authentication
-      - AUTH_USER=admin  # Optional: Custom username for authentication (default: weblist)
+      - AUTH_USER=admin  # Optional: HTTP Basic Auth username (default: weblist)
       - SESSION_SECRET=your_secure_key  # Optional: Secret for signing session tokens
       - SESSION_TTL=24h  # Optional: Session timeout duration
       - BRAND_NAME=My Company  # Optional: Display company name in navbar
