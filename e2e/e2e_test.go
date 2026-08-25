@@ -194,6 +194,30 @@ func TestHome_MultiSelectCheckboxIsContained(t *testing.T) {
 	assert.InDelta(t, cellBox.X+(cellBox.Width-checkboxBox.Width)/2, checkboxBox.X, 0.1)
 }
 
+func TestHome_SelectAllTogglesRowCheckboxes(t *testing.T) {
+	page := newPage(t)
+	_, err := page.Goto(baseURL)
+	require.NoError(t, err)
+
+	total, err := page.Locator(".file-checkbox").Count()
+	require.NoError(t, err)
+	require.NotZero(t, total)
+
+	require.NoError(t, page.Locator("#select-all").Click())
+	waitVisible(t, page.Locator(".selected-count"))
+	_, err = page.WaitForFunction(fmt.Sprintf("document.querySelectorAll('.file-checkbox:checked').length === %d", total), nil)
+	require.NoError(t, err)
+
+	count, err := page.Locator(".selected-count").TextContent()
+	require.NoError(t, err)
+	assert.Contains(t, count, fmt.Sprintf("%d files selected", total))
+
+	require.NoError(t, page.Locator("#select-all").Click())
+	waitHidden(t, page.Locator(".selected-count"))
+	_, err = page.WaitForFunction("document.querySelectorAll('.file-checkbox:checked').length === 0", nil)
+	require.NoError(t, err)
+}
+
 func TestHome_ShowsFiles(t *testing.T) {
 	page := newPage(t)
 	_, err := page.Goto(baseURL)
