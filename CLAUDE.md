@@ -11,10 +11,9 @@
 - On completion, run: formatting, code generation, linting and testing
 - Never commit without running completion sequence
 - Coverage report: `go test -race -coverprofile=coverage.out ./... && go tool cover -func=coverage.out`
-- Normalize code comments: `command -v unfuck-ai-comments >/dev/null || go install github.com/umputun/unfuck-ai-comments@latest; unfuck-ai-comments run --fmt --skip=mocks ./...`
 
 ## Important Workflow Notes
-- Always run tests, linter and normalize comments BEFORE committing anything
+- Always run tests and linter BEFORE committing anything
 - Run tests and linter after making significant changes to verify functionality
 - Don't add "Generated with Claude Code" or "Co-Authored-By: Claude" to commit messages or PRs
 - Do not include "Test plan" sections in PR descriptions

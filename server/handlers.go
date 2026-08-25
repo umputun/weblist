@@ -10,7 +10,6 @@ import (
 	"net/http"
 	"net/url"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -393,56 +392,30 @@ func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
 
 	// get all selected files from the form
 	selectedFiles := r.Form["selected-files"]
-	selectAll := r.FormValue("select-all")
+	selectAll := r.FormValue("select-all") == "true"
 
-	// toggle logic for select-all
-	var checkState bool
-	if selectAll == "true" {
-		// if select-all is clicked, we need to toggle between selected and unselected
-		// get the total number of files from the form
-		totalFilesStr := r.FormValue("total-files")
-		totalFiles, err := strconv.Atoi(totalFilesStr)
-		if err != nil {
-			http.Error(w, "Invalid total-files value", http.StatusBadRequest)
-			return
-		}
-
-		// check if we're toggling from "all selected" to "none selected" state
-		// if the number of selected files matches the total, we're in "all selected" state
-		if len(selectedFiles) == totalFiles {
-			// toggle to "none selected" state
-			checkState = false
-			selectedFiles = []string{} // clear the selection
-		} else {
-			// otherwise, we're toggling from "none selected" or "partially selected" to "all selected"
-			// get path values for all files in the current directory
+	if selectAll {
+		if r.FormValue("select-all-state") == "true" {
 			selectedFiles = r.Form["path-values"]
-			// set checkboxes to checked state
-			checkState = true
+		} else {
+			selectedFiles = nil
 		}
-	} else {
-		// regular checkbox update - just use the current selection
-		checkState = len(selectedFiles) > 0
 	}
 
 	// prepare template data
 	data := struct {
 		Count         int
 		SelectedFiles []string
-		SelectAll     bool
-		CheckState    bool
 	}{
 		Count:         len(selectedFiles),
 		SelectedFiles: selectedFiles,
-		SelectAll:     selectAll == "true",
-		CheckState:    checkState,
 	}
 
 	// execute the selection-status template
 	w.Header().Set("Content-Type", "text/html")
 	// trigger checkbox sync event when select-all is clicked
-	if selectAll == "true" {
-		w.Header().Set("HX-Trigger", "updateCheckboxes")
+	if selectAll {
+		w.Header().Set("HX-Trigger", "update-checkboxes")
 	}
 	if err := wb.templates.indexTemplate.ExecuteTemplate(w, "selection-status", data); err != nil {
 		http.Error(w, "template rendering error: "+err.Error(), http.StatusInternalServerError)

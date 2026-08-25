@@ -17,11 +17,14 @@ table th.select-col, table td.select-cell {
 }
 table th.select-col input[type="checkbox"],
 table td.select-cell input[type="checkbox"] {
+  display: inline-block;
   margin: 0;
+  padding: 0;
   vertical-align: middle;
   position: relative;
   cursor: pointer;
   width: 16px;
+  min-width: 16px;
   height: 16px;
 }
 /* Column widths by class name */

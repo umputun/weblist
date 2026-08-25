@@ -54,6 +54,23 @@ func TestHandleRoot(t *testing.T) {
 	}
 }
 
+func TestHandleRootMultiSelectContract(t *testing.T) {
+	srv := setupTestServer(t)
+	srv.EnableMultiSelect = true
+
+	req := httptest.NewRequest(http.MethodGet, "/", nil)
+	rr := httptest.NewRecorder()
+	srv.handleRoot(rr, req)
+
+	require.Equal(t, http.StatusOK, rr.Code)
+	body := rr.Body.String()
+	assert.Contains(t, body, "hx-on:update-checkboxes=")
+	assert.NotContains(t, body, "hx-on:updateCheckboxes=")
+	assert.Contains(t, body, `<input type="checkbox" id="select-all" name="select-all-state" value="true"`)
+	assert.Contains(t, body, `hx-vals='{"select-all": "true"}'`)
+	assert.NotContains(t, body, "total-files")
+}
+
 func TestHandleDownload(t *testing.T) {
 	srv := setupTestServer(t)
 
@@ -1004,23 +1021,12 @@ func TestHandleSelectionStatus(t *testing.T) {
 		assert.Empty(t, rr.Header().Get("HX-Trigger"))
 	})
 
-	t.Run("select-all with invalid total-files", func(t *testing.T) {
+	t.Run("checked select-all selects every path", func(t *testing.T) {
 		formData := url.Values{}
 		formData.Set("select-all", "true")
-		formData.Set("total-files", "invalid")
-		req := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData.Encode()))
-		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-		rr := httptest.NewRecorder()
-
-		web.handleSelectionStatus(rr, req)
-		require.Equal(t, http.StatusBadRequest, rr.Code)
-		require.Contains(t, rr.Body.String(), "Invalid total-files value")
-	})
-
-	t.Run("select-all toggles from none to all", func(t *testing.T) {
-		formData := url.Values{}
-		formData.Set("select-all", "true")
-		formData.Set("total-files", "3")
+		formData.Set("select-all-state", "true")
+		formData.Add("selected-files", "file1.txt")
+		formData.Add("selected-files", "file2.txt")
 		formData.Add("path-values", "file1.txt")
 		formData.Add("path-values", "file2.txt")
 		formData.Add("path-values", "file3.txt")
@@ -1030,25 +1036,44 @@ func TestHandleSelectionStatus(t *testing.T) {
 
 		web.handleSelectionStatus(rr, req)
 		require.Equal(t, http.StatusOK, rr.Code)
-		assert.Equal(t, "updateCheckboxes", rr.Header().Get("HX-Trigger"))
+		assert.Equal(t, "update-checkboxes", rr.Header().Get("HX-Trigger"))
 		require.Contains(t, rr.Body.String(), "3 files selected")
 	})
 
-	t.Run("select-all toggles from all to none", func(t *testing.T) {
+	t.Run("checked select-all handles a non-selectable parent row", func(t *testing.T) {
+		listingEntries := []string{"..", "file1.txt", "file2.txt"}
 		formData := url.Values{}
 		formData.Set("select-all", "true")
-		formData.Set("total-files", "2")
-		formData.Add("selected-files", "file1.txt")
-		formData.Add("selected-files", "file2.txt")
-		formData.Add("path-values", "file1.txt")
-		formData.Add("path-values", "file2.txt")
+		formData.Set("select-all-state", "true")
+		for _, path := range listingEntries[1:] {
+			formData.Add("path-values", path)
+		}
 		req := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData.Encode()))
 		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 		rr := httptest.NewRecorder()
 
 		web.handleSelectionStatus(rr, req)
 		require.Equal(t, http.StatusOK, rr.Code)
-		assert.Equal(t, "updateCheckboxes", rr.Header().Get("HX-Trigger"))
+		assert.Equal(t, "update-checkboxes", rr.Header().Get("HX-Trigger"))
+		require.Contains(t, rr.Body.String(), "2 files selected")
+		require.NotContains(t, rr.Body.String(), `value=".."`)
+	})
+
+	t.Run("unchecked select-all clears a partial selection", func(t *testing.T) {
+		formData := url.Values{}
+		formData.Set("select-all", "true")
+		formData.Add("selected-files", "file1.txt")
+		formData.Add("selected-files", "file2.txt")
+		formData.Add("path-values", "file1.txt")
+		formData.Add("path-values", "file2.txt")
+		formData.Add("path-values", "file3.txt")
+		req := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(formData.Encode()))
+		req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		rr := httptest.NewRecorder()
+
+		web.handleSelectionStatus(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code)
+		assert.Equal(t, "update-checkboxes", rr.Header().Get("HX-Trigger"))
 		require.NotContains(t, rr.Body.String(), "files selected")
 	})
 }

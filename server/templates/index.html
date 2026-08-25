@@ -11,7 +11,7 @@
     <script src="/assets/js/htmx.min.js"></script>
 </head>
 <body hx-on:keydown="if(event.key === 'Escape') { document.body.style.overflow = ''; document.getElementById('modal-container').innerHTML = ''; }"
-      hx-on:updateCheckboxes="document.querySelectorAll('.file-checkbox').forEach(function(cb) { cb.checked = document.getElementById('select-all').checked; })">
+      hx-on:update-checkboxes="document.querySelectorAll('.file-checkbox').forEach(function(cb) { cb.checked = document.getElementById('select-all').checked; })">
 <div id="htmx-error" class="htmx-error-container"></div>
 <script>
 document.body.addEventListener('htmx:responseError', function(evt) {
@@ -142,12 +142,12 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
         <tr>
             {{ if .EnableMultiSelect }}
             <th class="select-col">
-                <input type="checkbox" id="select-all" title="Select all files" 
+                <input type="checkbox" id="select-all" name="select-all-state" value="true" title="Select all files"
                        hx-post="/partials/selection-status"
                        hx-trigger="click"
                        hx-target="#selection-status"
                        hx-include=".file-checkbox, .path-value"
-                       hx-vals='{"select-all": "true", "total-files": "{{ len .Files }}"}'
+                       hx-vals='{"select-all": "true"}'
                        hx-swap="innerHTML">
             </th>
             {{ end }}

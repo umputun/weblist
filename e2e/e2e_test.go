@@ -61,6 +61,7 @@ func TestMain(m *testing.M) {
 	serverCmd = exec.Command("/tmp/weblist-e2e",
 		"--listen=:18080",
 		"--root="+absTestData,
+		"--multi",
 	)
 	// suppress server output to keep test output clean
 	serverCmd.Stdout = nil
@@ -175,6 +176,46 @@ func TestHome_PageLoads(t *testing.T) {
 	title, err := page.Title()
 	require.NoError(t, err)
 	assert.Contains(t, title, "weblist")
+}
+
+func TestHome_MultiSelectCheckboxIsContained(t *testing.T) {
+	page := newPage(t)
+	_, err := page.Goto(baseURL)
+	require.NoError(t, err)
+
+	checkboxBox, err := page.Locator("#select-all").BoundingBox()
+	require.NoError(t, err)
+	require.NotNil(t, checkboxBox)
+	cellBox, err := page.Locator("th.select-col").BoundingBox()
+	require.NoError(t, err)
+	require.NotNil(t, cellBox)
+
+	assert.InDelta(t, 16, checkboxBox.Width, 0.1)
+	assert.InDelta(t, cellBox.X+(cellBox.Width-checkboxBox.Width)/2, checkboxBox.X, 0.1)
+}
+
+func TestHome_SelectAllTogglesRowCheckboxes(t *testing.T) {
+	page := newPage(t)
+	_, err := page.Goto(baseURL)
+	require.NoError(t, err)
+
+	total, err := page.Locator(".file-checkbox").Count()
+	require.NoError(t, err)
+	require.NotZero(t, total)
+
+	require.NoError(t, page.Locator("#select-all").Click())
+	waitVisible(t, page.Locator(".selected-count"))
+	_, err = page.WaitForFunction(fmt.Sprintf("document.querySelectorAll('.file-checkbox:checked').length === %d", total), nil)
+	require.NoError(t, err)
+
+	count, err := page.Locator(".selected-count").TextContent()
+	require.NoError(t, err)
+	assert.Contains(t, count, fmt.Sprintf("%d files selected", total))
+
+	require.NoError(t, page.Locator("#select-all").Click())
+	waitHidden(t, page.Locator(".selected-count"))
+	_, err = page.WaitForFunction("document.querySelectorAll('.file-checkbox:checked').length === 0", nil)
+	require.NoError(t, err)
 }
 
 func TestHome_ShowsFiles(t *testing.T) {
