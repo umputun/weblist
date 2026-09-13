@@ -235,8 +235,7 @@ func (wb *Web) router() (http.Handler, error) {
 		return nil, fmt.Errorf("failed to load embedded assets: %w", err)
 	}
 
-	// register upload route in its own group without SizeLimit, so large uploads are allowed.
-	// the upload handler applies its own MaxBytesReader with UploadMaxSize.
+	// upload route has no SizeLimit: the handler bounds the body itself at UploadMaxSize plus overhead
 	if wb.EnableUpload {
 		router.Group().Route(func(uploadGroup *routegroup.Bundle) {
 			if wb.Auth != "" {

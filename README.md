@@ -18,7 +18,7 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 - **Dark Mode**: Easy on the eyes with both light and dark themes
 - **Optional Authentication**: Password-protect your file listings when needed
 - **Multi-file Selection**: Select and download multiple files as a ZIP archive (optional)
-- **File Upload**: Upload files via click-to-browse, drag-and-drop, or clipboard paste (optional)
+- **File Upload**: Upload files and folders through pickers or drag-and-drop, and paste files from the clipboard (optional)
 - **SFTP Support**: Access the same files via SFTP for more advanced operations
 - **Syntax Highlighting**: Beautiful code highlighting for various programming languages (optional)
 - **Markdown Rendering**: Markdown files (.md, .markdown) are rendered as formatted HTML with headings, tables, code blocks, and more
@@ -251,16 +251,19 @@ weblist --upload.enabled --upload.overwrite
 ```
 
 When file upload is enabled:
-- An upload button appears in the toolbar for uploading files via file picker
-- Files can be dragged and dropped onto the file listing area
+- "Upload" and "Folder" buttons appear in the toolbar for picking files or a whole directory
+- Files and folders can be dragged and dropped onto the file listing area; a dropped folder is recreated with its subdirectories under the current directory
 - Files can be pasted from the clipboard (e.g., screenshots)
-- Multiple files can be uploaded at once
-- File size is validated both client-side and server-side
+- Multiple files can be uploaded at once; each file is sent as its own request, so one failure does not stop the rest, and a summary reports what was uploaded, what failed and why
+- A selection is limited to 1000 files; empty directories inside a dropped folder are not recreated
+- Enabling upload also permits creating directories under the root: a target subdirectory that does not exist yet is created, after every file in the request has passed validation
+- Exclude patterns (`--exclude`) apply to uploaded directories and file names, so an excluded name such as `.env` cannot be written
+- File size is validated per file, client-side and server-side; a request carrying several files is additionally bounded at the max size plus a small overhead
 - Duplicate filenames are rejected by default (configurable with `--upload.overwrite`)
-- Path traversal attacks are blocked — files can only be uploaded to valid directories within the root
+- Path traversal attacks are blocked — upload paths are checked against the root after resolving existing directory symlinks
 - Upload is protected by authentication when auth is enabled
 
-The upload endpoint accepts `POST /upload` with `multipart/form-data` containing a `path` field (target directory) and one or more `file` fields.
+The upload endpoint accepts `POST /upload` with `multipart/form-data` containing a `path` field (target directory, which may name a subdirectory that does not exist yet and will be created) and one or more `file` fields.
 
 File upload is disabled by default and can be enabled with the `--upload.enabled` flag.
 

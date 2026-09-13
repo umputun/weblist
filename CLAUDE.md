@@ -32,7 +32,7 @@
 - Testing: `github.com/stretchr/testify`
 - Mock generation: `github.com/matryer/moq`
 - OpenAI: `github.com/sashabaranov/go-openai`
-- Frontend: HTMX v2. Try to avoid using JS.
+- Frontend: HTMX (vendored 1.9.10 in `server/assets/js/htmx.min.js`). Try to avoid using JS.
 - For containerized tests use `github.com/go-pkgz/testutils`
 - To access libraries, figure how to use ang check their documentation, use `go doc` command and `gh` tool
 
@@ -75,9 +75,13 @@
 - Static assets served from embedded filesystem (assets/*)
 - Templates stored in templates/* and embedded at compile time
 - Upload is optional - controlled by --upload.enabled flag
-  - Upload route group has no SizeLimit middleware (uses its own MaxBytesReader)
+  - Upload route group has no SizeLimit middleware; the handler bounds the body at `UploadMaxSize + uploadOverheadBytes` (8 KB) and checks each part's size against `UploadMaxSize`, with a 1 MB in-memory multipart buffer
   - Main route group retains SizeLimit(1MB) for all other routes
-  - Upload handler uses `os.Create` directly since `fs.FS` is read-only
+  - Upload handler writes with `os.OpenFile` directly since `fs.FS` is read-only
+  - The `path` field may name a subdirectory that does not exist yet: `validateUploadPath` walks to the deepest existing ancestor, checks symlink containment there and validates each missing component, and `ensureUploadDir` creates it only after every part has passed `validateParts` (filename, exclude on the full destination path, size)
+  - The client is `server/assets/js/upload.js`, loaded from `<head>` so its state survives HTMX swaps; the template hands it `data-max-size` and `data-path` on `#upload-controls`
+  - The client sends one `POST /upload` per file through a FIFO queue with 4 workers, 25 ms between request starts, and retries only 429 (the global tollbooth limiter answers before the handler runs); the post-upload refresh carries an `X-Upload-Refresh` header and is dropped in `htmx:beforeSwap` when the user has navigated away
+  - `window.weblistUpload` exposes `walkEntries` and `enqueue` as the e2e test seam for the directory walk
 
 ### File Type Detection
 - File viewability determined by extension + content detection (`server/fileinfo.go`)

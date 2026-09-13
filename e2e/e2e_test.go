@@ -102,8 +102,8 @@ func TestMain(m *testing.M) {
 		slowMo = 50 // slow down visible browser for easier observation
 	}
 	browser, err = pw.Chromium.Launch(playwright.BrowserTypeLaunchOptions{
-		Headless: playwright.Bool(headless),
-		SlowMo:   playwright.Float(slowMo),
+		Headless: new(headless),
+		SlowMo:   new(slowMo),
 	})
 	if err != nil {
 		fmt.Printf("failed to launch browser: %v\n", err)
