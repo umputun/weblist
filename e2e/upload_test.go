@@ -364,6 +364,188 @@ func waitCount(t *testing.T, counter *atomic.Int32, want int32) {
 	require.Eventually(t, func() bool { return counter.Load() >= want }, 10*time.Second, 50*time.Millisecond)
 }
 
+func TestUpload_ManyFilesComplete(t *testing.T) {
+	root, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	names := make([]string, 0, 60)
+	for i := range 60 {
+		names = append(names, fmt.Sprintf("many-%02d.txt", i))
+	}
+	pickFiles(t, page, writeTempFiles(t, names, "x"))
+
+	waitVisible(t, page.Locator("#upload-toast:has-text('Uploaded 60 files')"))
+	for _, name := range names {
+		_, err := os.Stat(filepath.Join(root, name))
+		assert.NoError(t, err, name)
+	}
+	waitVisible(t, page.Locator("td:has-text('many-59.txt')"))
+}
+
+func TestUpload_RetriesOn429(t *testing.T) {
+	root, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	var attempts atomic.Int32
+	require.NoError(t, page.Route("**/upload", func(route playwright.Route) {
+		if attempts.Add(1) <= 2 {
+			_ = route.Fulfill(playwright.RouteFulfillOptions{Status: new(429), ContentType: new("text/plain"), Body: "Too Many Requests"})
+			return
+		}
+		_ = route.Continue()
+	}))
+
+	pickFiles(t, page, writeTempFiles(t, []string{"retry.txt"}, "again"))
+
+	waitVisible(t, page.Locator("#upload-toast:has-text('Uploaded 1 file')"))
+	assert.Equal(t, int32(3), attempts.Load())
+	content, err := os.ReadFile(filepath.Join(root, "retry.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "again", string(content))
+}
+
+func TestUpload_StopsAfterRetryLimit(t *testing.T) {
+	root, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	var attempts atomic.Int32
+	require.NoError(t, page.Route("**/upload", func(route playwright.Route) {
+		attempts.Add(1)
+		_ = route.Fulfill(playwright.RouteFulfillOptions{Status: new(429), ContentType: new("text/plain"), Body: "Too Many Requests"})
+	}))
+
+	pickFiles(t, page, writeTempFiles(t, []string{"limited.txt"}, "x"))
+
+	waitVisible(t, page.Locator("#upload-toast:has-text('Too Many Requests')"))
+	text, err := page.Locator("#upload-toast").TextContent()
+	require.NoError(t, err)
+	assert.Equal(t, "Uploaded 0 files, 1 failed: limited.txt (Too Many Requests)", text)
+	assert.Equal(t, int32(6), attempts.Load())
+	_, err = os.Stat(filepath.Join(root, "limited.txt"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestUpload_NavigationDuringUploadKeepsNewDirectory(t *testing.T) {
+	root, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	release := make(chan struct{})
+	intercepted := holdUploads(t, page, release)
+
+	pickFiles(t, page, writeTempFiles(t, []string{"held.txt"}, "x"))
+	waitCount(t, intercepted, 1)
+
+	require.NoError(t, page.Locator("tr.dir-row:has-text('subdir')").Click())
+	require.NoError(t, page.WaitForURL("**/*path=subdir*"))
+	waitVisible(t, page.Locator("td:has-text('nested.txt')"))
+
+	close(release)
+	waitVisible(t, page.Locator("#upload-toast:has-text('Uploaded 1 file')"))
+	time.Sleep(500 * time.Millisecond)
+
+	url := page.URL()
+	assert.Contains(t, url, "path=subdir")
+	waitVisible(t, page.Locator("td:has-text('nested.txt')"))
+	count, err := page.Locator("td:has-text('held.txt')").Count()
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "root listing must not replace the subdirectory")
+	_, err = os.Stat(filepath.Join(root, "held.txt"))
+	assert.NoError(t, err)
+}
+
+func TestUpload_LateRefreshDoesNotReplaceNavigation(t *testing.T) {
+	_, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	release := make(chan struct{})
+	var heldRefresh atomic.Int32
+	require.NoError(t, page.Route("**/partials/dir-contents*", func(route playwright.Route) {
+		if v, _ := route.Request().HeaderValue("X-Upload-Refresh"); v == "" {
+			_ = route.Continue()
+			return
+		}
+		heldRefresh.Add(1)
+		<-release
+		_ = route.Continue()
+	}))
+
+	pickFiles(t, page, writeTempFiles(t, []string{"late.txt"}, "x"))
+	waitVisible(t, page.Locator("#upload-toast:has-text('Uploaded 1 file')"))
+	waitCount(t, &heldRefresh, 1)
+
+	_, err = page.Evaluate(`() => {
+		window.__refreshLoadEnd = false;
+		document.addEventListener('htmx:beforeSwap', function (evt) {
+			var cfg = evt.detail && evt.detail.requestConfig;
+			if (!cfg || !cfg.headers || !('X-Upload-Refresh' in cfg.headers)) return;
+			evt.detail.xhr.addEventListener('loadend', function () { window.__refreshLoadEnd = true; });
+		});
+	}`)
+	require.NoError(t, err)
+
+	require.NoError(t, page.Locator("tr.dir-row:has-text('subdir')").Click())
+	require.NoError(t, page.WaitForURL("**/*path=subdir*"))
+	waitVisible(t, page.Locator("td:has-text('nested.txt')"))
+
+	close(release)
+	_, err = page.WaitForFunction("() => window.__refreshLoadEnd === true", nil)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("td:has-text('nested.txt')"))
+	count, err := page.Locator("td:has-text('late.txt')").Count()
+	require.NoError(t, err)
+	assert.Equal(t, 0, count, "late refresh must not replace the subdirectory listing")
+}
+
+func TestUpload_ControlsWorkAfterHistoryBack(t *testing.T) {
+	root, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	require.NoError(t, page.Locator("tr.dir-row:has-text('subdir')").Click())
+	require.NoError(t, page.WaitForURL("**/*path=subdir*"))
+	waitVisible(t, page.Locator("td:has-text('nested.txt')"))
+
+	_, err = page.GoBack()
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("td:has-text('sample.txt')"))
+
+	pickFiles(t, page, writeTempFiles(t, []string{"after-back.txt"}, "x"))
+	waitVisible(t, page.Locator("#upload-toast:has-text('Uploaded 1 file')"))
+	content, err := os.ReadFile(filepath.Join(root, "after-back.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "x", string(content))
+	waitVisible(t, page.Locator("td:has-text('after-back.txt')"))
+}
+
 func TestUpload_FilenamesMatchingObjectPropertiesAreUploaded(t *testing.T) {
 	root, cleanup := startUploadServer(t, 18082)
 	defer cleanup()

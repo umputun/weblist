@@ -256,14 +256,14 @@ No server change. Uploads are paced under the limit of their own bucket and 429 
 - Modify: `server/assets/js/upload.js`
 - Modify: `e2e/upload_test.go`
 
-- [ ] write failing e2e `TestUpload_ManyFilesComplete` (60 small files through the file input; all appear in the listing; summary reads "Uploaded 60 files"; moved here from Task 3 because 60 unpaced requests exhaust the limiter's burst of 50, measured: 51 uploaded and 9 refused with 429)
-- [ ] write failing e2e `TestUpload_RetriesOn429` (`Page.Route` on `/upload` answers the first two attempts with a plain-text 429, then passes through; file uploaded; attempt count is 3)
-- [ ] write failing e2e `TestUpload_StopsAfterRetryLimit` (route always answers 429; summary lists the file as failed after `max429Retries + 1` attempts)
-- [ ] write failing e2e `TestUpload_NavigationDuringUploadKeepsNewDirectory` (hold the upload response; click the real HTMX link into a subdirectory; wait for its listing; release; wait for completion; assert the subdirectory listing and URL remain)
-- [ ] write failing e2e `TestUpload_LateRefreshDoesNotReplaceNavigation` (let the upload finish; route `**/partials/dir-contents*` and `Continue` every request without the `X-Upload-Refresh` header so navigation is not held, hold only the one carrying it; navigate into a subdirectory; release; assert the subdirectory listing remains)
-- [ ] write failing e2e `TestUpload_ControlsWorkAfterHistoryBack` (navigate into a subdirectory and Back; upload through the file input; file lands in the root listing)
-- [ ] add `minSendGapMs` pacing with `lastSendAt` updated immediately before every `fetch` and rechecked after waits, the shared 429 backoff, the `X-Upload-Refresh` marker with the `htmx:beforeSwap` guard, and `init()` on `htmx:historyRestore`
-- [ ] run unit and e2e tests - must pass before next task
+- [x] write failing e2e `TestUpload_ManyFilesComplete` (60 small files through the file input; all appear in the listing; summary reads "Uploaded 60 files"; moved here from Task 3 because 60 unpaced requests exhaust the limiter's burst of 50, measured: 51 uploaded and 9 refused with 429)
+- [x] write failing e2e `TestUpload_RetriesOn429` (`Page.Route` on `/upload` answers the first two attempts with a plain-text 429, then passes through; file uploaded; attempt count is 3)
+- [x] write failing e2e `TestUpload_StopsAfterRetryLimit` (route always answers 429; summary lists the file as failed after `max429Retries + 1` attempts)
+- [x] write failing e2e `TestUpload_NavigationDuringUploadKeepsNewDirectory` (hold the upload response; click the real HTMX link into a subdirectory; wait for its listing; release; wait for completion; assert the subdirectory listing and URL remain)
+- [x] write failing e2e `TestUpload_LateRefreshDoesNotReplaceNavigation` (let the upload finish; route `**/partials/dir-contents*` and `Continue` every request without the `X-Upload-Refresh` header so navigation is not held, hold only the one carrying it; navigate into a subdirectory; release; assert the subdirectory listing remains)
+- [x] write failing e2e `TestUpload_ControlsWorkAfterHistoryBack` (navigate into a subdirectory and Back; upload through the file input; file lands in the root listing)
+- [x] add `minSendGapMs` pacing with `lastSendAt` updated immediately before every `fetch` and rechecked after waits, the shared 429 backoff, the `X-Upload-Refresh` marker with the `htmx:beforeSwap` guard, and `init()` on `htmx:historyRestore`
+- [x] run unit and e2e tests - must pass before next task
 
 ### Task 5: Folder drop walk and folder picker button
 

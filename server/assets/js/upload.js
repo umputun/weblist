@@ -1,12 +1,17 @@
 (function () {
     var maxInFlight = 4;
     var maxFiles = 1000;
+    var minSendGapMs = 25;
+    var max429Retries = 5;
+    var refreshHeader = 'X-Upload-Refresh';
 
     var state = {
         queue: [],
         active: 0,
         reserved: Object.create(null),
         selections: [],
+        backoffUntil: 0,
+        lastSendAt: 0,
         maxSize: 0,
         enqueue: enqueue
     };
@@ -77,9 +82,34 @@
             sel.refreshPending = false;
         }
         if (!hit) return;
+        var headers = {};
+        headers[refreshHeader] = live;
+        // source keeps the in-flight class off body, where the stylesheet would dim and block the page
         htmx.ajax('GET', '/partials/dir-contents?path=' + encodeURIComponent(live), {
+            source: document.getElementById('upload-controls'),
             target: '#page-content',
-            swap: 'innerHTML'
+            swap: 'innerHTML',
+            headers: headers
+        });
+    }
+
+    // a refresh that lands after navigation must not swap the old directory back in
+    function dropStaleRefresh(evt) {
+        var cfg = evt.detail && evt.detail.requestConfig;
+        if (!cfg || !cfg.headers || !(refreshHeader in cfg.headers)) return;
+        if (cfg.headers[refreshHeader] !== livePath()) evt.detail.shouldSwap = false;
+    }
+
+    // one send per slot: lastSendAt is claimed synchronously so workers waking together cannot both pass
+    function waitForSlot() {
+        return new Promise(function (resolve) {
+            (function check() {
+                var now = Date.now();
+                var readyAt = Math.max(state.backoffUntil, state.lastSendAt + minSendGapMs);
+                if (readyAt > now) { setTimeout(check, readyAt - now); return; }
+                state.lastSendAt = now;
+                resolve();
+            })();
         });
     }
 
@@ -107,7 +137,7 @@
                 continue;
             }
             state.reserved[dest] = true;
-            state.queue.push({ file: file, relativeDir: entries[i].relativeDir, relativePath: relativePath, dest: dest, selection: sel });
+            state.queue.push({ file: file, relativeDir: entries[i].relativeDir, relativePath: relativePath, dest: dest, selection: sel, attempts: 0 });
             queued++;
         }
         if (queued === 0) { settleIfDone(sel); return; }
@@ -121,18 +151,37 @@
         function next() {
             var entry = state.queue.shift();
             if (!entry) { state.active--; maybeRefresh(); return; }
-            send(entry).then(next);
+            run(entry).then(next);
         }
     }
 
+    function run(entry) {
+        return waitForSlot()
+            .then(function () { return send(entry); })
+            .then(function (result) {
+                if (result.retry) return run(entry);
+                var sel = entry.selection;
+                delete state.reserved[entry.dest];
+                if (result.ok) sel.done++;
+                else sel.failed.push({ relativePath: entry.relativePath, reason: result.reason });
+                settleIfDone(sel);
+            });
+    }
+
+    // only 429 is retried: tollbooth answers before the handler runs, so nothing was written
     function send(entry) {
-        var sel = entry.selection;
         var formData = new FormData();
-        formData.append('path', joinPath(sel.targetDir, entry.relativeDir) || '.');
+        formData.append('path', joinPath(entry.selection.targetDir, entry.relativeDir) || '.');
         formData.append('file', entry.file);
 
         return fetch('/upload', { method: 'POST', body: formData })
             .then(function (resp) {
+                if (resp.status === 429 && entry.attempts < max429Retries) {
+                    entry.attempts++;
+                    var delay = Math.min(250 * Math.pow(2, entry.attempts - 1), 4000);
+                    state.backoffUntil = Math.max(state.backoffUntil, Date.now() + delay);
+                    return { retry: true };
+                }
                 var isJSON = (resp.headers.get('content-type') || '').indexOf('application/json') !== -1;
                 if (!isJSON) {
                     return { ok: false, reason: resp.ok ? 'unexpected response' : resp.statusText || ('HTTP ' + resp.status) };
@@ -142,13 +191,7 @@
                     return { ok: false, reason: data.error || resp.statusText || ('HTTP ' + resp.status) };
                 });
             })
-            .catch(function () { return { ok: false, reason: 'network error' }; })
-            .then(function (result) {
-                delete state.reserved[entry.dest];
-                if (result.ok) sel.done++;
-                else sel.failed.push({ relativePath: entry.relativePath, reason: result.reason });
-                settleIfDone(sel);
-            });
+            .catch(function () { return { ok: false, reason: 'network error' }; });
     }
 
     function filesFromList(list) {
@@ -236,4 +279,6 @@
     document.addEventListener('htmx:afterSwap', function (evt) {
         if (evt.detail.target && evt.detail.target.id === 'page-content') init();
     });
+    document.addEventListener('htmx:historyRestore', init);
+    document.addEventListener('htmx:beforeSwap', dropStaleRefresh);
 })();
