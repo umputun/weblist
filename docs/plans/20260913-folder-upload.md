@@ -200,17 +200,17 @@ No server change. Uploads are paced under the limit of their own bucket and 429 
 - Modify: `server/upload.go`
 - Modify: `server/upload_test.go`
 
-- [ ] extract the part loop of `handleUpload` into `storeUploadedFiles` and the four error sites onto `writeUploadError`, no behavior change; existing tests stay green and gocyclo reports the handler at or under 12
-- [ ] write failing test `TestHandleUpload_FileExactlyAtMaxSize` (content of `UploadMaxSize` bytes → 200)
-- [ ] write failing test `TestHandleUpload_FileOneByteOverMaxSize` (413, error names the file, nothing written)
-- [ ] write regression guard `TestHandleUpload_BodyOverAggregateLimit` (several parts whose total exceeds `UploadMaxSize + uploadOverheadBytes` → 413 "file too large"; this one passes against the current code and pins the aggregate ceiling)
-- [ ] write failing test `TestHandleUpload_ExcludedFilename` (`Exclude: [".env"]`, upload `.env` to `.` → 403, nothing written)
-- [ ] write failing test `TestHandleUpload_ExcludedNestedFilename` (`Exclude: ["secrets/key"]`, upload `key` to `secrets` → 403)
-- [ ] write failing test `TestHandleUpload_PartsValidatedBeforeAnyWrite` (two parts, second has an excluded name → 403 and the first is not written)
-- [ ] add `uploadOverheadBytes`, bound the body at `UploadMaxSize + uploadOverheadBytes`, drop the multipart buffer to `1 << 20`
-- [ ] add `validateParts` with the filename, full-path exclude and size checks and call it before `storeUploadedFiles`
-- [ ] keep `TestHandleUpload_MultipleFiles` and `TestHandleUpload_OversizedFile` passing; adjust the oversized fixture only if it relied on the exact whole-body bound
-- [ ] run tests - must pass before next task
+- [x] extract the part loop of `handleUpload` into `storeUploadedFiles` and the four error sites onto `writeUploadError`, no behavior change; existing tests stay green and gocyclo reports the handler at or under 12
+- [x] write failing test `TestHandleUpload_FileExactlyAtMaxSize` (content of `UploadMaxSize` bytes → 200)
+- [x] write failing test `TestHandleUpload_FileOneByteOverMaxSize` (413, error names the file, nothing written)
+- [x] write regression guard `TestHandleUpload_BodyOverAggregateLimit` (several parts whose total exceeds `UploadMaxSize + uploadOverheadBytes` → 413 "file too large"; this one passes against the current code and pins the aggregate ceiling)
+- [x] write failing test `TestHandleUpload_ExcludedFilename` (`Exclude: [".env"]`, upload `.env` to `.` → 403, nothing written)
+- [x] write failing test `TestHandleUpload_ExcludedNestedFilename` (`Exclude: ["secrets/key"]`, upload `key` to `secrets` → 403)
+- [x] write failing test `TestHandleUpload_PartsValidatedBeforeAnyWrite` (two parts, second has an excluded name → 403 and the first is not written)
+- [x] add `uploadOverheadBytes`, bound the body at `UploadMaxSize + uploadOverheadBytes`, drop the multipart buffer to `1 << 20`
+- [x] add `validateParts` with the filename, full-path exclude and size checks and call it before `storeUploadedFiles`
+- [x] keep `TestHandleUpload_MultipleFiles` and `TestHandleUpload_OversizedFile` passing; adjust the oversized fixture only if it relied on the exact whole-body bound
+- [x] run tests - must pass before next task
 
 ### Task 2: Accept and create not-yet-existing subdirectories in the upload path
 

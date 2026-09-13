@@ -377,3 +377,99 @@ func TestValidateFilename(t *testing.T) {
 		})
 	}
 }
+
+func TestHandleUpload_FileExactlyAtMaxSize(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 100}}
+
+	req := createMultipartRequest(t, map[string]string{"exact.txt": strings.Repeat("x", 100)}, map[string]string{"path": "."})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	content, err := os.ReadFile(filepath.Join(tmpDir, "exact.txt"))
+	require.NoError(t, err)
+	assert.Len(t, content, 100)
+}
+
+func TestHandleUpload_FileOneByteOverMaxSize(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 100}}
+
+	req := createMultipartRequest(t, map[string]string{"over.txt": strings.Repeat("x", 101)}, map[string]string{"path": "."})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
+	assert.Contains(t, rr.Body.String(), "over.txt")
+	_, err := os.Stat(filepath.Join(tmpDir, "over.txt"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestHandleUpload_BodyOverAggregateLimit(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 100}}
+
+	files := map[string]string{}
+	for i := range 100 {
+		files[fmt.Sprintf("f%d.txt", i)] = strings.Repeat("x", 100)
+	}
+	req := createMultipartRequest(t, files, map[string]string{"path": "."})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
+	assert.Contains(t, rr.Body.String(), "file too large")
+}
+
+func TestHandleUpload_ExcludedFilename(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20, Exclude: []string{".env"}}}
+
+	req := createMultipartRequest(t, map[string]string{".env": "SECRET=1"}, map[string]string{"path": "."})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+	_, err := os.Stat(filepath.Join(tmpDir, ".env"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestHandleUpload_ExcludedNestedFilename(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "secrets"), 0o755))
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20, Exclude: []string{"secrets/key"}}}
+
+	req := createMultipartRequest(t, map[string]string{"key": "data"}, map[string]string{"path": "secrets"})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+	_, err := os.Stat(filepath.Join(tmpDir, "secrets", "key"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestHandleUpload_PartsValidatedBeforeAnyWrite(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20, Exclude: []string{".env"}}}
+
+	var buf bytes.Buffer
+	writer := multipart.NewWriter(&buf)
+	require.NoError(t, writer.WriteField("path", "."))
+	for _, name := range []string{"ok.txt", ".env"} {
+		part, err := writer.CreateFormFile("file", name)
+		require.NoError(t, err)
+		_, err = io.WriteString(part, "data")
+		require.NoError(t, err)
+	}
+	require.NoError(t, writer.Close())
+	req := httptest.NewRequest(http.MethodPost, "/upload", &buf)
+	req.Header.Set("Content-Type", writer.FormDataContentType())
+
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+	_, err := os.Stat(filepath.Join(tmpDir, "ok.txt"))
+	assert.True(t, os.IsNotExist(err), "first part must not be written when a later part is rejected")
+}

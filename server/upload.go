@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"mime/multipart"
 	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 )
+
+// body bound above UploadMaxSize that covers the multipart preamble and the path field
+const uploadOverheadBytes = 8 << 10
 
 // uploadResponse represents the JSON response for upload operations
 type uploadResponse struct {
@@ -27,11 +31,9 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// apply size limit to the request body
-	r.Body = http.MaxBytesReader(w, r.Body, wb.UploadMaxSize)
+	r.Body = http.MaxBytesReader(w, r.Body, wb.UploadMaxSize+uploadOverheadBytes)
 
-	// parse multipart form with 10MB in-memory buffer
-	if err := r.ParseMultipartForm(10 << 20); err != nil { //nolint:gosec // G120: body already bounded by MaxBytesReader above
+	if err := r.ParseMultipartForm(1 << 20); err != nil { //nolint:gosec // G120: body already bounded by MaxBytesReader above
 		if _, ok := errors.AsType[*http.MaxBytesError](err); ok {
 			wb.writeJSONError(w, http.StatusRequestEntityTooLarge, "file too large")
 			return
@@ -55,12 +57,7 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 
 	cleanPath, err := wb.validateUploadPath(targetPath)
 	if err != nil {
-		if ue, ok := errors.AsType[*uploadError](err); ok {
-			wb.writeJSONError(w, ue.status, ue.Error())
-		} else {
-			log.Printf("[ERROR] failed to validate upload path %q: %v", targetPath, err)
-			wb.writeJSONError(w, http.StatusInternalServerError, "failed to validate upload path")
-		}
+		wb.writeUploadError(w, err, "failed to validate upload path")
 		return
 	}
 
@@ -71,45 +68,68 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var uploaded []string
-	for _, fh := range files {
-		// validate filename
-		if err := wb.validateFilename(fh.Filename); err != nil {
-			wb.writeJSONError(w, http.StatusBadRequest, fmt.Sprintf("invalid filename %q: %v", fh.Filename, err))
-			return
-		}
+	if err := wb.validateParts(cleanPath, files); err != nil {
+		wb.writeUploadError(w, err, "failed to validate upload")
+		return
+	}
 
-		destPath := filepath.Join(wb.RootDir, cleanPath, fh.Filename)
-
-		// open the uploaded file
-		src, err := fh.Open()
-		if err != nil {
-			log.Printf("[WARN] failed to read uploaded file %q: %v", fh.Filename, err)
-			wb.writeJSONError(w, http.StatusInternalServerError, "failed to read uploaded file")
-			return
-		}
-
-		// write the file to disk
-		if err := wb.writeUploadedFile(destPath, src, wb.UploadOverwrite); err != nil {
-			_ = src.Close()
-			if ue, ok := errors.AsType[*uploadError](err); ok {
-				wb.writeJSONError(w, ue.status, ue.Error())
-			} else {
-				log.Printf("[ERROR] failed to save file %q: %v", fh.Filename, err)
-				wb.writeJSONError(w, http.StatusInternalServerError, "failed to save file")
-			}
-			return
-		}
-		_ = src.Close()
-
-		uploaded = append(uploaded, fh.Filename)
-		log.Printf("[INFO] uploaded file %q to %s", fh.Filename, destPath)
+	uploaded, err := wb.storeUploadedFiles(cleanPath, files)
+	if err != nil {
+		wb.writeUploadError(w, err, "failed to save file")
+		return
 	}
 
 	w.Header().Set("Content-Type", "application/json")
 	if err := json.NewEncoder(w).Encode(uploadResponse{Uploaded: uploaded}); err != nil {
 		log.Printf("[ERROR] failed to encode upload response: %v", err)
 	}
+}
+
+func (wb *Web) validateParts(cleanPath string, files []*multipart.FileHeader) error {
+	for _, fh := range files {
+		if err := wb.validateFilename(fh.Filename); err != nil {
+			return &uploadError{http.StatusBadRequest, fmt.Sprintf("invalid filename %q: %v", fh.Filename, err)}
+		}
+		if wb.shouldExclude(filepath.Join(cleanPath, fh.Filename)) {
+			return &uploadError{http.StatusForbidden, fmt.Sprintf("access denied to %q", fh.Filename)}
+		}
+		if fh.Size > wb.UploadMaxSize {
+			return &uploadError{http.StatusRequestEntityTooLarge, fmt.Sprintf("file %q exceeds maximum size", fh.Filename)}
+		}
+	}
+	return nil
+}
+
+func (wb *Web) storeUploadedFiles(cleanPath string, files []*multipart.FileHeader) ([]string, error) {
+	uploaded := make([]string, 0, len(files))
+	for _, fh := range files {
+		destPath := filepath.Join(wb.RootDir, cleanPath, fh.Filename)
+
+		src, err := fh.Open()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read uploaded file %q: %w", fh.Filename, err)
+		}
+
+		if err := wb.writeUploadedFile(destPath, src, wb.UploadOverwrite); err != nil {
+			_ = src.Close()
+			return nil, fmt.Errorf("failed to save file %q: %w", fh.Filename, err)
+		}
+		_ = src.Close()
+
+		uploaded = append(uploaded, fh.Filename)
+		log.Printf("[INFO] uploaded file %q to %s", fh.Filename, destPath)
+	}
+	return uploaded, nil
+}
+
+// writeUploadError maps an *uploadError to its status, anything else to 500 with fallback as the message
+func (wb *Web) writeUploadError(w http.ResponseWriter, err error, fallback string) {
+	if ue, ok := errors.AsType[*uploadError](err); ok {
+		wb.writeJSONError(w, ue.status, ue.Error())
+		return
+	}
+	log.Printf("[ERROR] %s: %v", fallback, err)
+	wb.writeJSONError(w, http.StatusInternalServerError, fallback)
 }
 
 // uploadError is an error type that carries an HTTP status code
