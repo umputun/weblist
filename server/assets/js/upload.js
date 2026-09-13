@@ -13,6 +13,7 @@
         backoffUntil: 0,
         lastSendAt: 0,
         maxSize: 0,
+        walkEntries: walkEntries,
         enqueue: enqueue
     };
     window.weblistUpload = state;
@@ -225,17 +226,86 @@
         enqueue(newSelection(), entries, [], false);
     }
 
+    // walkEntries takes its entries as a parameter so a test can pass a fake tree; every file entry seen
+    // counts toward the budget whether or not file() succeeds, so unreadable trees cannot walk past the cap
+    function walkEntries(entries, budget) {
+        var out = { entries: [], truncated: false, errors: [] };
+        var seen = 0;
+
+        function reason(prefix, err) {
+            return prefix + (err && err.name ? ': ' + err.name : '');
+        }
+
+        function walk(entry, relativeDir) {
+            return new Promise(function (resolve) {
+                if (out.truncated) { resolve(); return; }
+                if (entry.isFile) {
+                    seen++;
+                    if (seen > budget) { out.truncated = true; resolve(); return; }
+                    entry.file(function (file) {
+                        out.entries.push({ file: file, relativeDir: relativeDir });
+                        resolve();
+                    }, function (err) {
+                        out.errors.push({ relativePath: joinPath(relativeDir, entry.name), reason: reason('unreadable', err) });
+                        resolve();
+                    });
+                    return;
+                }
+                if (!entry.isDirectory) { resolve(); return; }
+                var reader = entry.createReader();
+                var dir = joinPath(relativeDir, entry.name);
+                function readBatch() {
+                    if (out.truncated) { resolve(); return; }
+                    reader.readEntries(function (batch) {
+                        if (batch.length === 0) { resolve(); return; }
+                        var chain = Promise.resolve();
+                        for (var i = 0; i < batch.length; i++) {
+                            (function (child) { chain = chain.then(function () { return walk(child, dir); }); })(batch[i]);
+                        }
+                        chain.then(readBatch);
+                    }, function (err) {
+                        out.errors.push({ relativePath: dir, reason: reason('unreadable directory', err) });
+                        resolve();
+                    });
+                }
+                readBatch();
+            });
+        }
+
+        var chain = Promise.resolve();
+        for (var i = 0; i < entries.length; i++) {
+            (function (entry) { chain = chain.then(function () { return walk(entry, ''); }); })(entries[i]);
+        }
+        return chain.then(function () { return out; });
+    }
+
+    // entries are captured synchronously: webkitGetAsEntry returns null once the drop handler has returned
     function onDrop(e) {
         e.preventDefault();
         var listing = document.getElementById('file-listing');
         if (listing) listing.classList.remove('drag-over');
         if (!e.dataTransfer) return;
         var sel = newSelection();
+        var items = e.dataTransfer.items;
         var entries = [];
-        for (var i = 0; i < e.dataTransfer.files.length; i++) {
-            entries.push({ file: e.dataTransfer.files[i], relativeDir: '' });
+        var errors = [];
+        for (var i = 0; items && i < items.length; i++) {
+            if (items[i].kind !== 'file' || typeof items[i].webkitGetAsEntry !== 'function') continue;
+            var entry = items[i].webkitGetAsEntry();
+            if (entry) entries.push(entry);
+            else errors.push({ relativePath: 'item ' + (i + 1), reason: 'unreadable' });
         }
-        enqueue(sel, entries, [], false);
+        if (entries.length === 0 && errors.length === 0) {
+            var files = [];
+            for (var j = 0; j < e.dataTransfer.files.length; j++) {
+                files.push({ file: e.dataTransfer.files[j], relativeDir: '' });
+            }
+            enqueue(sel, files, [], false);
+            return;
+        }
+        walkEntries(entries, maxFiles).then(function (res) {
+            enqueue(sel, res.entries, errors.concat(res.errors), res.truncated);
+        });
     }
 
     function bind(id, event, handler) {
@@ -256,14 +326,21 @@
             var input = document.getElementById('upload-file-input');
             if (input) input.click();
         });
-        bind('upload-file-input', 'change', function () {
+        bind('upload-folder-btn', 'click', function (e) {
+            e.preventDefault();
+            var input = document.getElementById('upload-folder-input');
+            if (input) input.click();
+        });
+        bind('upload-folder-input', 'change', onInputChange);
+        bind('upload-file-input', 'change', onInputChange);
+        function onInputChange() {
             var input = this;
             if (input.files.length === 0) return;
             var sel = newSelection();
             var entries = filesFromList(input.files);
             input.value = '';
             enqueue(sel, entries, [], false);
-        });
+        }
 
         var listing = document.getElementById('file-listing');
         if (listing) {

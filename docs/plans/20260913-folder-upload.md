@@ -272,16 +272,17 @@ No server change. Uploads are paced under the limit of their own bucket and 429 
 - Modify: `server/templates/index.html`
 - Modify: `e2e/upload_test.go`
 
-- [ ] write failing e2e `TestUpload_FolderPickerCreatesTree` (generate a two-level tree in a separate `t.TempDir()`; `SetInputFiles` with that directory on `#upload-folder-input`; nested files appear at their relative paths under the served root)
-- [ ] add `uploadExcludeURL = "http://localhost:18085"` next to the existing port constants; it is the only new server this plan starts
-- [ ] write failing e2e `TestUpload_FolderPickerHonorsExcludeOnFilename` (server started with `--exclude .env` on port 18085; the tree's `.env` is reported failed by relative path with the server's "access denied" text, the rest uploaded)
-- [ ] write failing e2e `TestUpload_FolderPickerRefusesOverMaxFiles` (generated tree of 1001 tiny files; toast names the limit; no `/upload` request is made)
-- [ ] write failing e2e `TestUpload_WalkEntriesAlgorithm` (fake entry tree built in `page.Evaluate` and passed to `window.weblistUpload.walkEntries`, covering `readEntries` pagination, cutoff at `budget + 1` with `truncated` set, a reader error and a `file()` failure recorded by relative path, and a null item; assert the selection's final summary and completion, not only the walk result; labelled as algorithm coverage)
-- [ ] write failing e2e `TestUpload_AllUnreadableSelectionSettles` (fake tree where every `file()` fails, driven through `window.weblistUpload.enqueue`; no `/upload` request; summary lists every path as failed)
-- [ ] write failing e2e `TestUpload_FolderButtonVisibleWhenEnabled` and hidden when disabled
-- [ ] add `walkEntries` with the `readEntries` loop, the early cutoff and error counting, and the drop handler's synchronous entry capture with the `dataTransfer.files` fallback
-- [ ] add the folder input handling using `webkitRelativePath`, the `FileList` cap, and the "Folder" button with its `webkitdirectory` input next to "Upload"
-- [ ] run unit and e2e tests - must pass before next task
+- [x] write failing e2e `TestUpload_FolderPickerCreatesTree` (generate a two-level tree in a separate `t.TempDir()`; `SetInputFiles` with that directory on `#upload-folder-input`; nested files appear at their relative paths under the served root)
+- [x] add `uploadExcludeURL = "http://localhost:18085"` next to the existing port constants; it is the only new server this plan starts
+- [x] write failing e2e `TestUpload_FolderPickerHonorsExcludeOnFilename` (server started with `--exclude .env` on port 18085; the tree's `.env` is reported failed by relative path with the server's "access denied" text, the rest uploaded)
+- [x] write failing e2e `TestUpload_FolderPickerRefusesOverMaxFiles` (generated tree of 1001 tiny files; toast names the limit; no `/upload` request is made)
+- [x] write failing e2e `TestUpload_WalkEntriesAlgorithm` (fake entry tree built in `page.Evaluate` and passed to `window.weblistUpload.walkEntries`, covering `readEntries` pagination, cutoff at `budget + 1` with `truncated` set, a reader error and a `file()` failure recorded by relative path, and a null item; assert the selection's final summary and completion, not only the walk result; labelled as algorithm coverage)
+- [x] ➕ write failing e2e `TestUpload_DropWithUnreadableItemsReported` (a synthetic DataTransfer dropped on the listing yields null entries; both items reported as unreadable, no request; from codex's Task 5 review, which also caught the walk paging past the cutoff, now pinned by the `reads=2` assertion in the walk test)
+- [x] write failing e2e `TestUpload_AllUnreadableSelectionSettles` (fake tree where every `file()` fails, driven through `window.weblistUpload.enqueue`; no `/upload` request; summary lists every path as failed)
+- [x] write failing e2e `TestUpload_FolderButtonVisibleWhenEnabled` and hidden when disabled
+- [x] add `walkEntries` with the `readEntries` loop, the early cutoff and error counting, and the drop handler's synchronous entry capture with the `dataTransfer.files` fallback
+- [x] add the folder input handling using `webkitRelativePath`, the `FileList` cap, and the "Folder" button with its `webkitdirectory` input next to "Upload"
+- [x] run unit and e2e tests - must pass before next task
 
 ### Task 6: Verify acceptance criteria
 - [ ] verify all requirements from Overview are implemented

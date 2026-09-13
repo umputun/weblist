@@ -23,9 +23,10 @@ import (
 
 // upload tests run on separate server instances to avoid conflicts with main server
 const (
-	uploadBaseURL   = "http://localhost:18082"
-	uploadAuthURL   = "http://localhost:18083"
-	uploadNoAuthURL = "http://localhost:18084" // upload disabled server for visibility test
+	uploadBaseURL    = "http://localhost:18082"
+	uploadAuthURL    = "http://localhost:18083"
+	uploadNoAuthURL  = "http://localhost:18084" // upload disabled server for visibility test
+	uploadExcludeURL = "http://localhost:18085"
 )
 
 // startUploadServer starts a server with upload enabled
@@ -544,6 +545,250 @@ func TestUpload_ControlsWorkAfterHistoryBack(t *testing.T) {
 	require.NoError(t, err)
 	assert.Equal(t, "x", string(content))
 	waitVisible(t, page.Locator("td:has-text('after-back.txt')"))
+}
+
+func writeTree(t *testing.T, files map[string]string) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "tree")
+	for rel, content := range files {
+		p := filepath.Join(dir, filepath.FromSlash(rel))
+		require.NoError(t, os.MkdirAll(filepath.Dir(p), 0o750))
+		require.NoError(t, os.WriteFile(p, []byte(content), 0o644))
+	}
+	return dir
+}
+
+const fakeEntryHelpers = `
+	window.__readEntriesCalls = 0;
+	function fileEntry(name, content, fail) {
+		return { isFile: true, isDirectory: false, name: name, file: function (ok, err) {
+			if (fail) { err({ name: 'NotReadableError' }); return; }
+			ok(new File([content], name));
+		} };
+	}
+	function dirEntry(name, batches, fail) {
+		return { isFile: false, isDirectory: true, name: name, createReader: function () {
+			var i = 0;
+			return { readEntries: function (ok, err) {
+				window.__readEntriesCalls++;
+				if (fail) { err({ name: 'NotFoundError' }); return; }
+				ok(i < batches.length ? batches[i++] : []);
+			} };
+		} };
+	}
+	function fakeTree(failAll) {
+		return [dirEntry('fake', [
+			[fileEntry('f1.txt', 'one', failAll), fileEntry('f2.txt', 'two', failAll)],
+			[fileEntry('f3.txt', 'three', true), dirEntry('bad', [], true), dirEntry('deep', [[fileEntry('f4.txt', 'four', failAll)]], false)]
+		], false)];
+	}
+	function manyBatches(n) {
+		var batches = [];
+		for (var b = 0; b < n; b++) batches.push([fileEntry('a' + b + '.txt', 'x', false), fileEntry('b' + b + '.txt', 'x', false)]);
+		return [dirEntry('big', batches, false)];
+	}
+`
+
+func TestUpload_FolderButtonVisibleWhenEnabled(t *testing.T) {
+	_, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	visible, err := page.Locator("#upload-folder-btn").IsVisible()
+	require.NoError(t, err)
+	assert.True(t, visible)
+}
+
+func TestUpload_FolderButtonHiddenWhenDisabled(t *testing.T) {
+	page := newPage(t)
+	_, err := page.Goto(baseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	count, err := page.Locator("#upload-folder-btn").Count()
+	require.NoError(t, err)
+	assert.Equal(t, 0, count)
+}
+
+func TestUpload_FolderPickerCreatesTree(t *testing.T) {
+	root, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	tree := writeTree(t, map[string]string{"a.txt": "A", "sub/b.txt": "B", "sub/deep/c.txt": "C"})
+	require.NoError(t, page.Locator("#upload-folder-input").SetInputFiles(tree))
+
+	waitVisible(t, page.Locator("#upload-toast:has-text('Uploaded 3 files')"))
+	for rel, want := range map[string]string{"tree/a.txt": "A", "tree/sub/b.txt": "B", "tree/sub/deep/c.txt": "C"} {
+		content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		require.NoError(t, err, rel)
+		assert.Equal(t, want, string(content), rel)
+	}
+	waitVisible(t, page.Locator("td:has-text('tree')"))
+}
+
+func TestUpload_FolderPickerHonorsExcludeOnFilename(t *testing.T) {
+	root, cleanup := startUploadServer(t, 18085, "--exclude=.env")
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadExcludeURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	tree := writeTree(t, map[string]string{"ok.txt": "ok", ".env": "SECRET=1"})
+	require.NoError(t, page.Locator("#upload-folder-input").SetInputFiles(tree))
+
+	waitVisible(t, page.Locator("#upload-toast:has-text('1 failed')"))
+	text, err := page.Locator("#upload-toast").TextContent()
+	require.NoError(t, err)
+	assert.Equal(t, `Uploaded 1 file, 1 failed: tree/.env (access denied to ".env")`, text)
+	_, err = os.Stat(filepath.Join(root, "tree", "ok.txt"))
+	assert.NoError(t, err)
+	_, err = os.Stat(filepath.Join(root, "tree", ".env"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestUpload_FolderPickerRefusesOverMaxFiles(t *testing.T) {
+	_, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	var requests atomic.Int32
+	require.NoError(t, page.Route("**/upload", func(route playwright.Route) {
+		requests.Add(1)
+		_ = route.Continue()
+	}))
+
+	files := make(map[string]string, 1001)
+	for i := range 1001 {
+		files[fmt.Sprintf("f%04d.txt", i)] = "x"
+	}
+	require.NoError(t, page.Locator("#upload-folder-input").SetInputFiles(writeTree(t, files)))
+
+	waitVisible(t, page.Locator("#upload-toast:has-text('limit is 1000')"))
+	text, err := page.Locator("#upload-toast").TextContent()
+	require.NoError(t, err)
+	assert.Equal(t, "More than 1000 files; the limit is 1000", text)
+	time.Sleep(500 * time.Millisecond)
+	assert.Equal(t, int32(0), requests.Load())
+}
+
+func TestUpload_WalkEntriesAlgorithm(t *testing.T) {
+	root, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	truncated, err := page.Evaluate(`async () => {` + fakeEntryHelpers + `
+		const res = await window.weblistUpload.walkEntries(manyBatches(8), 2);
+		return 'truncated=' + res.truncated + ' collected=' + res.entries.length + ' reads=' + window.__readEntriesCalls;
+	}`)
+	require.NoError(t, err)
+	assert.Equal(t, "truncated=true collected=2 reads=2", truncated, "paging must stop once the budget is exceeded")
+
+	full, err := page.Evaluate(`async () => {` + fakeEntryHelpers + `
+		const res = await window.weblistUpload.walkEntries(fakeTree(false), 1000);
+		const sel = { targetDir: '.', total: 0, done: 0, failed: [], skipped: [], refreshPending: false };
+		window.weblistUpload.selections.push(sel);
+		window.weblistUpload.enqueue(sel, res.entries, res.errors, res.truncated);
+		return {
+			truncated: res.truncated,
+			paths: res.entries.map(e => e.relativeDir + '/' + e.file.name),
+			errors: res.errors.map(e => e.relativePath + ' ' + e.reason)
+		};
+	}`)
+	require.NoError(t, err)
+	assert.Equal(t, map[string]any{
+		"truncated": false,
+		"paths":     []any{"fake/f1.txt", "fake/f2.txt", "fake/deep/f4.txt"},
+		"errors":    []any{"fake/f3.txt unreadable: NotReadableError", "fake/bad unreadable directory: NotFoundError"},
+	}, full)
+
+	waitVisible(t, page.Locator("#upload-toast:has-text('Uploaded 3 files')"))
+	text, err := page.Locator("#upload-toast").TextContent()
+	require.NoError(t, err)
+	want := "Uploaded 3 files, 2 failed: fake/f3.txt (unreadable: NotReadableError), fake/bad (unreadable directory: NotFoundError)"
+	assert.Equal(t, want, text)
+	for rel, want := range map[string]string{"fake/f1.txt": "one", "fake/f2.txt": "two", "fake/deep/f4.txt": "four"} {
+		content, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(rel)))
+		require.NoError(t, err, rel)
+		assert.Equal(t, want, string(content), rel)
+	}
+}
+
+func TestUpload_AllUnreadableSelectionSettles(t *testing.T) {
+	_, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	var requests atomic.Int32
+	require.NoError(t, page.Route("**/upload", func(route playwright.Route) {
+		requests.Add(1)
+		_ = route.Continue()
+	}))
+
+	_, err = page.Evaluate(`async () => {` + fakeEntryHelpers + `
+		const res = await window.weblistUpload.walkEntries(fakeTree(true), 1000);
+		const sel = { targetDir: '.', total: 0, done: 0, failed: [], skipped: [], refreshPending: false };
+		window.weblistUpload.selections.push(sel);
+		window.weblistUpload.enqueue(sel, res.entries, res.errors, res.truncated);
+	}`)
+	require.NoError(t, err)
+
+	waitVisible(t, page.Locator("#upload-toast:has-text('Uploaded 0 files, 5 failed')"))
+	time.Sleep(500 * time.Millisecond)
+	assert.Equal(t, int32(0), requests.Load())
+}
+
+func TestUpload_DropWithUnreadableItemsReported(t *testing.T) {
+	_, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	var requests atomic.Int32
+	require.NoError(t, page.Route("**/upload", func(route playwright.Route) {
+		requests.Add(1)
+		_ = route.Continue()
+	}))
+
+	_, err = page.Evaluate(`() => {
+		const dt = new DataTransfer();
+		dt.items.add(new File(['x'], 'synthetic.txt'));
+		dt.items.add(new File(['y'], 'other.txt'));
+		document.getElementById('file-listing').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+	}`)
+	require.NoError(t, err)
+
+	waitVisible(t, page.Locator("#upload-toast:has-text('2 failed')"))
+	text, err := page.Locator("#upload-toast").TextContent()
+	require.NoError(t, err)
+	assert.Equal(t, "Uploaded 0 files, 2 failed: item 1 (unreadable), item 2 (unreadable)", text)
+	time.Sleep(500 * time.Millisecond)
+	assert.Equal(t, int32(0), requests.Load())
 }
 
 func TestUpload_FilenamesMatchingObjectPropertiesAreUploaded(t *testing.T) {
