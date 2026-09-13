@@ -791,6 +791,128 @@ func TestUpload_DropWithUnreadableItemsReported(t *testing.T) {
 	assert.Equal(t, int32(0), requests.Load())
 }
 
+func TestUpload_NonFileDropIgnored(t *testing.T) {
+	_, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	var refreshes atomic.Int32
+	require.NoError(t, page.Route("**/partials/dir-contents*", func(route playwright.Route) {
+		if v, _ := route.Request().HeaderValue("X-Upload-Refresh"); v != "" {
+			refreshes.Add(1)
+		}
+		_ = route.Continue()
+	}))
+
+	_, err = page.Evaluate(`() => {
+		const dt = new DataTransfer();
+		dt.setData('text/plain', 'dragged text');
+		document.getElementById('file-listing').dispatchEvent(new DragEvent('drop', { dataTransfer: dt, bubbles: true, cancelable: true }));
+	}`)
+	require.NoError(t, err)
+
+	time.Sleep(500 * time.Millisecond)
+	active, err := page.Locator("#upload-toast.active").Count()
+	require.NoError(t, err)
+	assert.Equal(t, 0, active, "a text drop must not show a toast")
+	assert.Equal(t, int32(0), refreshes.Load())
+}
+
+func holdFirstRefresh(t *testing.T, page playwright.Page, release <-chan struct{}) (frozen, marked *atomic.Int32) {
+	t.Helper()
+	frozen = &atomic.Int32{}
+	marked = &atomic.Int32{}
+	require.NoError(t, page.Route("**/partials/dir-contents*", func(route playwright.Route) {
+		if v, _ := route.Request().HeaderValue("X-Upload-Refresh"); v == "" {
+			_ = route.Continue()
+			return
+		}
+		if marked.Add(1) > 1 {
+			_ = route.Continue()
+			return
+		}
+		resp, err := route.Fetch()
+		if err != nil {
+			_ = route.Abort()
+			return
+		}
+		frozen.Add(1)
+		<-release
+		_ = route.Fulfill(playwright.RouteFulfillOptions{Response: resp})
+	}))
+	return frozen, marked
+}
+
+func waitSelectionDone(t *testing.T, page playwright.Page, index int) {
+	t.Helper()
+	_, err := page.WaitForFunction(fmt.Sprintf(
+		"() => window.weblistUpload.selections[%d] && window.weblistUpload.selections[%d].done === 1 && window.weblistUpload.active === 0",
+		index, index), nil)
+	require.NoError(t, err)
+}
+
+func TestUpload_RefreshCoalescedWhileOneInFlight(t *testing.T) {
+	_, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	release := make(chan struct{})
+	frozen, marked := holdFirstRefresh(t, page, release)
+
+	pickFiles(t, page, writeTempFiles(t, []string{"first.txt"}, "1"))
+	waitVisible(t, page.Locator("#upload-toast:has-text('Uploaded 1 file')"))
+	waitCount(t, frozen, 1)
+
+	pickFiles(t, page, writeTempFiles(t, []string{"second.txt"}, "2"))
+	waitSelectionDone(t, page, 1)
+	assert.Equal(t, int32(1), marked.Load(), "no second refresh while the first is in flight")
+
+	close(release)
+	waitVisible(t, page.Locator("td:has-text('second.txt')"))
+	assert.Equal(t, int32(2), marked.Load())
+}
+
+func TestUpload_RefreshCoalescedAcrossHistoryRestore(t *testing.T) {
+	_, cleanup := startUploadServer(t, 18082)
+	defer cleanup()
+
+	page := newPage(t)
+	_, err := page.Goto(uploadBaseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+
+	release := make(chan struct{})
+	frozen, marked := holdFirstRefresh(t, page, release)
+
+	pickFiles(t, page, writeTempFiles(t, []string{"before-nav.txt"}, "1"))
+	waitVisible(t, page.Locator("#upload-toast:has-text('Uploaded 1 file')"))
+	waitCount(t, frozen, 1)
+
+	require.NoError(t, page.Locator("tr.dir-row:has-text('subdir')").Click())
+	require.NoError(t, page.WaitForURL("**/*path=subdir*"))
+	waitVisible(t, page.Locator("td:has-text('nested.txt')"))
+	_, err = page.GoBack()
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("td:has-text('sample.txt')"))
+
+	pickFiles(t, page, writeTempFiles(t, []string{"after-nav.txt"}, "2"))
+	waitSelectionDone(t, page, 1)
+	assert.Equal(t, int32(1), marked.Load(), "no second refresh while the first is in flight")
+
+	close(release)
+	waitVisible(t, page.Locator("td:has-text('after-nav.txt')"))
+	waitVisible(t, page.Locator("td:has-text('before-nav.txt')"))
+	assert.Equal(t, int32(2), marked.Load())
+}
+
 func TestUpload_FilenamesMatchingObjectPropertiesAreUploaded(t *testing.T) {
 	root, cleanup := startUploadServer(t, 18082)
 	defer cleanup()

@@ -12,6 +12,7 @@
         selections: [],
         backoffUntil: 0,
         lastSendAt: 0,
+        refreshInFlight: false,
         maxSize: 0,
         walkEntries: walkEntries,
         enqueue: enqueue
@@ -72,8 +73,10 @@
         maybeRefresh();
     }
 
+    // one refresh in flight at a time; selections settling meanwhile stay pending and are coalesced into
+    // a follow-up issued from the current DOM once the request completes, whatever replaced the page
     function maybeRefresh() {
-        if (state.active > 0 || state.queue.length > 0) return;
+        if (state.active > 0 || state.queue.length > 0 || state.refreshInFlight) return;
         var live = livePath();
         var hit = false;
         for (var i = 0; i < state.selections.length; i++) {
@@ -85,12 +88,24 @@
         if (!hit) return;
         var headers = {};
         headers[refreshHeader] = live;
-        // source keeps the in-flight class off body, where the stylesheet would dim and block the page
+        state.refreshInFlight = true;
+        // the toast is body-level, so the in-flight class never lands on an ancestor the stylesheet dims
         htmx.ajax('GET', '/partials/dir-contents?path=' + encodeURIComponent(live), {
-            source: document.getElementById('upload-controls'),
+            source: document.getElementById('upload-toast'),
             target: '#page-content',
             swap: 'innerHTML',
             headers: headers
+        });
+    }
+
+    // htmx fires its completion events on the source element, which a history restore detaches, so the
+    // flag is cleared from the request's own XHR, hooked while the source is still attached
+    function trackRefresh(evt) {
+        var cfg = evt.detail && evt.detail.requestConfig;
+        if (!cfg || !cfg.headers || !(refreshHeader in cfg.headers) || !evt.detail.xhr) return;
+        evt.detail.xhr.addEventListener('loadend', function () {
+            state.refreshInFlight = false;
+            maybeRefresh();
         });
     }
 
@@ -279,12 +294,21 @@
         return chain.then(function () { return out; });
     }
 
+    // dragged text or links produce string items only; they must not open a selection
+    function hasFileItems(dt) {
+        if (dt.files && dt.files.length > 0) return true;
+        for (var i = 0; dt.items && i < dt.items.length; i++) {
+            if (dt.items[i].kind === 'file') return true;
+        }
+        return false;
+    }
+
     // entries are captured synchronously: webkitGetAsEntry returns null once the drop handler has returned
     function onDrop(e) {
         e.preventDefault();
         var listing = document.getElementById('file-listing');
         if (listing) listing.classList.remove('drag-over');
-        if (!e.dataTransfer) return;
+        if (!e.dataTransfer || !hasFileItems(e.dataTransfer)) return;
         var sel = newSelection();
         var items = e.dataTransfer.items;
         var entries = [];
@@ -358,4 +382,5 @@
     });
     document.addEventListener('htmx:historyRestore', init);
     document.addEventListener('htmx:beforeSwap', dropStaleRefresh);
+    document.addEventListener('htmx:beforeRequest', trackRefresh);
 })();

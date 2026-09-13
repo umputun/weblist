@@ -183,9 +183,7 @@ func TestHandleUpload_OversizedFile(t *testing.T) {
 	rr := httptest.NewRecorder()
 	srv.handleUpload(rr, req)
 
-	// should get 413 or 400 (MaxBytesReader may cause parse error)
-	assert.True(t, rr.Code == http.StatusRequestEntityTooLarge || rr.Code == http.StatusBadRequest,
-		"expected 413 or 400, got %d", rr.Code)
+	assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code)
 }
 
 func TestHandleUpload_Disabled(t *testing.T) {
