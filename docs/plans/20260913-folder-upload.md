@@ -85,7 +85,7 @@ Project-specific notes for this plan:
 
 ## Testing Strategy
 - **unit tests**: required for every task. Server tests stay in `server/upload_test.go` (one test file per source file), using `t.TempDir()` and `createMultipartRequest`.
-- **e2e tests**: Playwright-based tests in `e2e/` with the `e2e` build tag. UI tasks add tests to `e2e/upload_test.go`. The folder path is exercised through the `webkitdirectory` input with `SetInputFiles` on a directory generated in a separate `t.TempDir()`, never under `e2e/testdata`, because `startUploadServer` copies that directory into the served root and the same files would then collide with 409. Timing-dependent behavior (navigation during upload, 429 retry, duplicates against queued entries) is made deterministic with `Page.Route`: intercept `/upload` or the refresh `GET`, `Route.Fetch` the real response, hold it behind a test-controlled channel, act, then `Route.Fulfill` with the saved response. Run with `make e2e`.
+- **e2e tests**: Playwright-based tests in `e2e/` with the `e2e` build tag. UI tasks add tests to `e2e/upload_test.go`. The folder path is exercised through the `webkitdirectory` input with `SetInputFiles` on a directory generated in a separate `t.TempDir()`, never under `e2e/testdata`, because `startUploadServer` copies that directory into the served root and the same files would then collide with 409. Timing-dependent behavior (navigation during upload, 429 retry, duplicates against queued entries) is made deterministic with `Page.Route`: intercept `/upload` or the refresh `GET`, hold the request behind a test-controlled channel, act, then `Route.Continue`. Holding the request rather than the response is equivalent for the client (its `fetch` is pending either way) and is the only correct choice for uploads: `Route.Fetch` re-sends the request from Playwright's own stack and Chromium does not expose file blob bytes to it, so every held upload arrived with an empty body (measured in Task 3). Run with `make e2e`.
 - the client has no unit-test harness. The directory walk is the one piece of client logic with branches a picker cannot reach (readEntries pagination, early cutoff, null items, reader errors), so the walk takes its entry list as a parameter and one Playwright test drives it with a fake entry tree built in `page.Evaluate`. That test is labelled as algorithm coverage; a real directory drop stays a manual check.
 
 ## Progress Tracking
@@ -238,17 +238,17 @@ No server change. Uploads are paced under the limit of their own bucket and 429 
 - Modify: `server/templates/index.html`
 - Modify: `e2e/upload_test.go`
 
-- [ ] update `TestUpload_ToastOnSuccessfulUpload` to assert "Uploaded 1 file" and `TestUpload_ToastOnDuplicateFile` to assert the failure entry "sample.txt (file "sample.txt" already exists)" in the summary
-- [ ] write failing e2e `TestUpload_ManyFilesComplete` (60 small files through the file input; all appear in the listing; summary reads "Uploaded 60 files")
-- [ ] write failing e2e `TestUpload_NetworkErrorNotRetried` (route aborts; summary lists the file as failed with "network error"; exactly one attempt)
-- [ ] write failing e2e `TestUpload_DuplicateAgainstQueuedEntrySkipped` (hold every upload response with `Route.Fetch`; pick six files and wait until four requests are intercepted so two sit queued; pick one of the two queued names again; release all; the second selection reports 1 skipped and the first uploads all six)
-- [ ] write failing e2e `TestUpload_OverlappingSelectionsKeepTheirTargets` (hold the responses of a selection started in the root; navigate into a subdirectory and pick a different file there; release; each file lands in the directory captured when its selection started, and each selection shows its own summary)
-- [ ] write failing e2e `TestUpload_SummaryToastListsFailures` (one oversize file among valid ones; summary names it as failed with the size reason, others uploaded)
-- [ ] write failing e2e `TestUpload_HtmlLoginResponseReportedAsFailure` (route fulfils `/upload` with a `200` HTML body; summary lists the file as failed)
-- [ ] create `upload.js` with the module state on `window.weblistUpload`, selections, `enqueue`, workers with `maxInFlight = 4`, reservations, the JSON success check, the summary toast, a single end-of-queue refresh guarded by the live path, and `init()` bound to load and `htmx:afterSwap`; no pacing, no 429 handling, no `beforeSwap` guard and no history binding yet
-- [ ] replace the inline `<script>` block in `index.html` with `#upload-controls` `data-` attributes and a `<script src="/assets/js/upload.js">` in the head under `{{ if .EnableUpload }}`
-- [ ] keep the existing e2e tests passing: single file, duplicate rejected at the API, path traversal, auth, disabled server
-- [ ] run unit and e2e tests - must pass before next task
+- [x] update `TestUpload_ToastOnSuccessfulUpload` to assert "Uploaded 1 file" and `TestUpload_ToastOnDuplicateFile` to assert the failure entry "sample.txt (file "sample.txt" already exists)" in the summary
+- [x] ➕ write failing e2e `TestUpload_FilenamesMatchingObjectPropertiesAreUploaded` (files named `constructor`, `toString`, `__proto__` reach disk; pins the reservation map being null-prototype, found in codex's Task 3 review)
+- [x] write failing e2e `TestUpload_NetworkErrorNotRetried` (route aborts; summary lists the file as failed with "network error"; exactly one attempt)
+- [x] write failing e2e `TestUpload_DuplicateAgainstQueuedEntrySkipped` (hold every upload response with `Route.Fetch`; pick six files and wait until four requests are intercepted so two sit queued; pick one of the two queued names again; release all; the second selection reports 1 skipped and the first uploads all six)
+- [x] write failing e2e `TestUpload_OverlappingSelectionsKeepTheirTargets` (hold the responses of a selection started in the root; navigate into a subdirectory and pick a different file there; release; each file lands in the directory captured when its selection started, and each selection shows its own summary)
+- [x] write failing e2e `TestUpload_SummaryToastListsFailures` (one oversize file among valid ones; summary names it as failed with the size reason, others uploaded)
+- [x] write failing e2e `TestUpload_HtmlLoginResponseReportedAsFailure` (route fulfils `/upload` with a `200` HTML body; summary lists the file as failed)
+- [x] create `upload.js` with the module state on `window.weblistUpload`, selections, `enqueue`, workers with `maxInFlight = 4`, reservations, the JSON success check, the summary toast, a single end-of-queue refresh guarded by the live path, and `init()` bound to load and `htmx:afterSwap`; no pacing, no 429 handling, no `beforeSwap` guard and no history binding yet
+- [x] replace the inline `<script>` block in `index.html` with `#upload-controls` `data-` attributes and a `<script src="/assets/js/upload.js">` in the head under `{{ if .EnableUpload }}`
+- [x] keep the existing e2e tests passing: single file, duplicate rejected at the API, path traversal, auth, disabled server
+- [x] run unit and e2e tests - must pass before next task
 
 ### Task 4: Pacing, 429 retry, refresh guard and history rebinding
 
@@ -256,6 +256,7 @@ No server change. Uploads are paced under the limit of their own bucket and 429 
 - Modify: `server/assets/js/upload.js`
 - Modify: `e2e/upload_test.go`
 
+- [ ] write failing e2e `TestUpload_ManyFilesComplete` (60 small files through the file input; all appear in the listing; summary reads "Uploaded 60 files"; moved here from Task 3 because 60 unpaced requests exhaust the limiter's burst of 50, measured: 51 uploaded and 9 refused with 429)
 - [ ] write failing e2e `TestUpload_RetriesOn429` (`Page.Route` on `/upload` answers the first two attempts with a plain-text 429, then passes through; file uploaded; attempt count is 3)
 - [ ] write failing e2e `TestUpload_StopsAfterRetryLimit` (route always answers 429; summary lists the file as failed after `max429Retries + 1` attempts)
 - [ ] write failing e2e `TestUpload_NavigationDuringUploadKeepsNewDirectory` (hold the upload response; click the real HTMX link into a subdirectory; wait for its listing; release; wait for completion; assert the subdirectory listing and URL remain)
