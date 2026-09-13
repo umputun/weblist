@@ -285,12 +285,12 @@ No server change. Uploads are paced under the limit of their own bucket and 429 
 - [x] run unit and e2e tests - must pass before next task
 
 ### Task 6: Verify acceptance criteria
-- [ ] verify all requirements from Overview are implemented
-- [ ] verify edge cases are handled: exact-size file accepted, excluded filename refused, nested exclude refused, in-root symlink accepted, symlinked ancestor outside root refused, no directory left behind on a validation-rejected request, concurrent mkdir, navigation during upload and during the refresh, Back navigation, 429 retry and exhaustion, HTML login response
-- [ ] run full test suite: `go test -race ./...`
-- [ ] run e2e tests: `make e2e`
-- [ ] run `golangci-lint run ./...`
-- [ ] verify the `server` package coverage from `go test -cover ./server/` is not below the branch-base value recorded in the progress file `/tmp/chat-plan-exec-folder-upload.txt`
+- [x] verify all requirements from Overview are implemented
+- [x] verify edge cases are handled: exact-size file accepted, excluded filename refused, nested exclude refused, in-root symlink accepted, symlinked ancestor outside root refused, no directory left behind on a validation-rejected request, concurrent mkdir, navigation during upload and during the refresh, Back navigation, 429 retry and exhaustion, HTML login response
+- [x] run full test suite: `go test -race ./...`
+- [x] run e2e tests: `make e2e`
+- [x] run `golangci-lint run ./...`
+- [x] verify the `server` package coverage from `go test -cover ./server/` is not below the branch-base value recorded in the progress file `/tmp/chat-plan-exec-folder-upload.txt`
 
 ### Task 7: [Final] Update documentation
 
@@ -299,9 +299,9 @@ No server change. Uploads are paced under the limit of their own bucket and 429 
 - Modify: `CLAUDE.md`
 - Move: `docs/plans/20260913-folder-upload.md` to `docs/plans/completed/`
 
-- [ ] README.md: folder drop and the Folder button under File Upload; state that enabling upload permits directory creation under the root; reword the path-traversal bullet now that directories are created on demand; state that excludes apply to uploaded file names and directories; describe the per-file size limit and the aggregate body ceiling for multi-part requests; note that empty directories are not recreated and the 1000-file cap per selection; update the endpoint description so `path` may name a subdirectory that will be created
-- [ ] CLAUDE.md: upload script location, per-file request model, the `data-` attribute handoff to the static script, the 429 retry and pacing rule, the 1 MB multipart buffer and `uploadOverheadBytes` in the upload architecture block; correct the "HTMX v2" line to the vendored 1.9.10
-- [ ] move this plan to `docs/plans/completed/`
+- [x] README.md: folder drop and the Folder button under File Upload; state that enabling upload permits directory creation under the root; reword the path-traversal bullet now that directories are created on demand; state that excludes apply to uploaded file names and directories; describe the per-file size limit and the aggregate body ceiling for multi-part requests; note that empty directories are not recreated and the 1000-file cap per selection; update the endpoint description so `path` may name a subdirectory that will be created
+- [x] CLAUDE.md: upload script location, per-file request model, the `data-` attribute handoff to the static script, the 429 retry and pacing rule, the 1 MB multipart buffer and `uploadOverheadBytes` in the upload architecture block; correct the "HTMX v2" line to the vendored 1.9.10
+- [x] move this plan to `docs/plans/completed/`
 
 ## Post-Completion
 *Items requiring manual intervention or external systems - no checkboxes, informational only*
