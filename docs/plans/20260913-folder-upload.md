@@ -218,18 +218,18 @@ No server change. Uploads are paced under the limit of their own bucket and 429 
 - Modify: `server/upload.go`
 - Modify: `server/upload_test.go`
 
-- [ ] write failing test `TestHandleUpload_CreatesMissingSubdirectory` (`path=new/deep`, file written at `new/deep/f.txt`, directories created with mode `0o750`)
-- [ ] write failing test `TestHandleUpload_MissingSubdirectoryUnderFile` (`path=file.txt/sub` where `file.txt` is a file → 400 "target path is not a directory")
-- [ ] write failing test `TestHandleUpload_MissingSubdirectoryExcluded` (`Exclude: [".git"]`, `path=proj/.git/objects` → 403, nothing created)
-- [ ] write failing test `TestHandleUpload_MissingSubdirectoryInvalidComponent` (a component with a backslash → 400, nothing created)
-- [ ] write failing test `TestHandleUpload_MissingSubdirectoryUnderInRootSymlink` (ancestor is a symlink to a directory inside root → 200, file written through the link)
-- [ ] write failing test `TestHandleUpload_MissingSubdirectoryUnderSymlinkOutsideRoot` (ancestor is a symlink to a directory outside root → 400, nothing created)
-- [ ] write failing test `TestHandleUpload_MissingSubdirectoryNotCreatedOnRejectedPart` (`path=new/deep` with an excluded filename → 403 and `new` does not exist afterwards)
-- [ ] write failing test `TestHandleUpload_ConcurrentCreateSameSubdirectory` (two requests into the same new dir both succeed)
-- [ ] add cases to `TestValidateUploadPath` for missing components and rewrite `TestHandleUpload_NonexistentDirectory` to the new behavior
-- [ ] add `existingAncestor` and change `validateUploadPath` to use it, keeping `shouldExclude(cleanPath)` before the walk and the symlink containment check on the ancestor
-- [ ] add `ensureUploadDir` and call it from `handleUpload` after `validateParts`, before `storeUploadedFiles`
-- [ ] run tests - must pass before next task
+- [x] write failing test `TestHandleUpload_CreatesMissingSubdirectory` (`path=new/deep`, file written at `new/deep/f.txt`, directories created with mode `0o750`)
+- [x] write failing test `TestHandleUpload_MissingSubdirectoryUnderFile` (`path=file.txt/sub` where `file.txt` is a file → 400 "target path is not a directory")
+- [x] write failing test `TestHandleUpload_MissingSubdirectoryExcluded` (`Exclude: [".git"]`, `path=proj/.git/objects` → 403, nothing created)
+- [x] write failing test `TestHandleUpload_MissingSubdirectoryInvalidComponent` (a component with a backslash → 400, nothing created)
+- [x] write failing test `TestHandleUpload_MissingSubdirectoryUnderInRootSymlink` (ancestor is a symlink to a directory inside root → 200, file written through the link)
+- [x] write failing test `TestHandleUpload_MissingSubdirectoryUnderSymlinkOutsideRoot` (ancestor is a symlink to a directory outside root → 400, nothing created)
+- [x] write failing test `TestHandleUpload_MissingSubdirectoryNotCreatedOnRejectedPart` (`path=new/deep` with an excluded filename → 403 and `new` does not exist afterwards)
+- [x] write failing test `TestHandleUpload_ConcurrentCreateSameSubdirectory` (two requests into the same new dir both succeed)
+- [x] add cases to `TestValidateUploadPath` for missing components and rewrite `TestHandleUpload_NonexistentDirectory` to the new behavior
+- [x] add `existingAncestor` and change `validateUploadPath` to use it, keeping `shouldExclude(cleanPath)` before the walk and the symlink containment check on the ancestor
+- [x] add `ensureUploadDir` and call it from `handleUpload` after `validateParts`, before `storeUploadedFiles`
+- [x] run tests - must pass before next task
 
 ### Task 3: Move the upload script to a static file with a per-file queue
 

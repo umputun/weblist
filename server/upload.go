@@ -73,6 +73,11 @@ func (wb *Web) handleUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if err := wb.ensureUploadDir(cleanPath); err != nil {
+		wb.writeUploadError(w, err, "failed to create upload directory")
+		return
+	}
+
 	uploaded, err := wb.storeUploadedFiles(cleanPath, files)
 	if err != nil {
 		wb.writeUploadError(w, err, "failed to save file")
@@ -161,21 +166,18 @@ func (wb *Web) validateUploadPath(path string) (string, error) {
 		return "", &uploadError{http.StatusForbidden, "access denied to target directory"}
 	}
 
-	// verify the target directory exists and is within RootDir
-	absTarget := filepath.Join(wb.RootDir, cleanPath)
-	absTarget = filepath.Clean(absTarget)
-
-	// check that target directory exists
-	info, err := os.Stat(absTarget)
+	ancestor, missing, err := wb.existingAncestor(cleanPath)
 	if err != nil {
-		return "", &uploadError{http.StatusBadRequest, fmt.Sprintf("target directory does not exist: %s", cleanPath)}
+		return "", err
 	}
-	if !info.IsDir() {
-		return "", &uploadError{http.StatusBadRequest, "target path is not a directory"}
+	for _, component := range missing {
+		if err := wb.validateFilename(component); err != nil {
+			return "", &uploadError{http.StatusBadRequest, fmt.Sprintf("invalid directory name %q: %v", component, err)}
+		}
 	}
 
-	// resolve symlinks and verify real path is still within RootDir
-	realTarget, err := filepath.EvalSymlinks(absTarget)
+	// resolve symlinks on the deepest existing ancestor and verify its real path is still within RootDir
+	realTarget, err := filepath.EvalSymlinks(filepath.Join(wb.RootDir, ancestor))
 	if err != nil {
 		return "", &uploadError{http.StatusBadRequest, fmt.Sprintf("cannot resolve target path: %s", cleanPath)}
 	}
@@ -190,6 +192,33 @@ func (wb *Web) validateUploadPath(path string) (string, error) {
 	}
 
 	return cleanPath, nil
+}
+
+// os.Stat rather than Lstat: a symlinked directory inside the root is a valid target today and stays one
+func (wb *Web) existingAncestor(cleanPath string) (ancestor string, missing []string, err error) {
+	current := cleanPath
+	for {
+		info, statErr := os.Stat(filepath.Join(wb.RootDir, current))
+		if statErr == nil {
+			if !info.IsDir() {
+				return "", nil, &uploadError{http.StatusBadRequest, "target path is not a directory"}
+			}
+			return current, missing, nil
+		}
+		if current == "." {
+			return ".", missing, nil
+		}
+		missing = append([]string{filepath.Base(current)}, missing...)
+		current = filepath.Dir(current)
+	}
+}
+
+// an existing directory is success: concurrent per-file requests into one new folder must not fail each other
+func (wb *Web) ensureUploadDir(cleanPath string) error {
+	if err := os.MkdirAll(filepath.Join(wb.RootDir, cleanPath), 0o750); err != nil {
+		return fmt.Errorf("failed to create upload directory %q: %w", cleanPath, err)
+	}
+	return nil
 }
 
 // validateFilename checks that a filename is safe for writing

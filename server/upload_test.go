@@ -248,7 +248,7 @@ func TestHandleUpload_NoFiles(t *testing.T) {
 	assert.Equal(t, http.StatusBadRequest, rr.Code)
 }
 
-func TestHandleUpload_NonexistentDirectory(t *testing.T) {
+func TestHandleUpload_NonexistentDirectoryCreated(t *testing.T) {
 	tmpDir := t.TempDir()
 	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20}}
 
@@ -256,7 +256,10 @@ func TestHandleUpload_NonexistentDirectory(t *testing.T) {
 	rr := httptest.NewRecorder()
 	srv.handleUpload(rr, req)
 
-	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Equal(t, http.StatusOK, rr.Code)
+	content, err := os.ReadFile(filepath.Join(tmpDir, "nonexistent", "test.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "data", string(content))
 }
 
 func TestHandleUpload_InvalidMultipartBody(t *testing.T) {
@@ -333,7 +336,11 @@ func TestValidateUploadPath(t *testing.T) {
 		{"subdirectory", "subdir", false},
 		{"traversal with dot-dot", "../escape", true},
 		{"absolute path", "/etc", true},
-		{"nonexistent dir", "nope", true},
+		{"missing dir", "nope", false},
+		{"missing nested dir", "subdir/a/b", false},
+		{"missing under file", "afile.txt/sub", true},
+		{"missing with bad component", "subdir/bad\\name/x", true},
+		{"missing excluded", "subdir/.hidden/x", true},
 		{"excluded path", ".hidden", true},
 		{"file not directory", "afile.txt", true},
 	}
@@ -472,4 +479,131 @@ func TestHandleUpload_PartsValidatedBeforeAnyWrite(t *testing.T) {
 	assert.Equal(t, http.StatusForbidden, rr.Code)
 	_, err := os.Stat(filepath.Join(tmpDir, "ok.txt"))
 	assert.True(t, os.IsNotExist(err), "first part must not be written when a later part is rejected")
+}
+
+func TestHandleUpload_CreatesMissingSubdirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20}}
+
+	req := createMultipartRequest(t, map[string]string{"f.txt": "deep"}, map[string]string{"path": "new/deep"})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	content, err := os.ReadFile(filepath.Join(tmpDir, "new", "deep", "f.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "deep", string(content))
+	require.NoError(t, os.Mkdir(filepath.Join(tmpDir, "control"), 0o750))
+	control, err := os.Stat(filepath.Join(tmpDir, "control"))
+	require.NoError(t, err)
+	for _, dir := range []string{"new", filepath.Join("new", "deep")} {
+		info, err := os.Stat(filepath.Join(tmpDir, dir))
+		require.NoError(t, err)
+		assert.Equal(t, control.Mode().Perm(), info.Mode().Perm(), dir)
+	}
+}
+
+func TestHandleUpload_MissingSubdirectoryUnderFile(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(tmpDir, "file.txt"), []byte("x"), 0o644))
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20}}
+
+	req := createMultipartRequest(t, map[string]string{"f.txt": "data"}, map[string]string{"path": "file.txt/sub"})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "target path is not a directory")
+}
+
+func TestHandleUpload_MissingSubdirectoryExcluded(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20, Exclude: []string{".git"}}}
+
+	req := createMultipartRequest(t, map[string]string{"f.txt": "data"}, map[string]string{"path": "proj/.git/objects"})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+	_, err := os.Stat(filepath.Join(tmpDir, "proj"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestHandleUpload_MissingSubdirectoryInvalidComponent(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20}}
+
+	req := createMultipartRequest(t, map[string]string{"f.txt": "data"}, map[string]string{"path": "new/bad\\name/x"})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	assert.Contains(t, rr.Body.String(), "invalid directory name")
+	_, err := os.Stat(filepath.Join(tmpDir, "new"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestHandleUpload_MissingSubdirectoryUnderInRootSymlink(t *testing.T) {
+	tmpDir := t.TempDir()
+	require.NoError(t, os.MkdirAll(filepath.Join(tmpDir, "real"), 0o755))
+	require.NoError(t, os.Symlink(filepath.Join(tmpDir, "real"), filepath.Join(tmpDir, "link")))
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20}}
+
+	req := createMultipartRequest(t, map[string]string{"f.txt": "via link"}, map[string]string{"path": "link/new"})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusOK, rr.Code)
+	content, err := os.ReadFile(filepath.Join(tmpDir, "real", "new", "f.txt"))
+	require.NoError(t, err)
+	assert.Equal(t, "via link", string(content))
+}
+
+func TestHandleUpload_MissingSubdirectoryUnderSymlinkOutsideRoot(t *testing.T) {
+	tmpDir := t.TempDir()
+	outside := t.TempDir()
+	require.NoError(t, os.Symlink(outside, filepath.Join(tmpDir, "escape")))
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20}}
+
+	req := createMultipartRequest(t, map[string]string{"f.txt": "data"}, map[string]string{"path": "escape/new"})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusBadRequest, rr.Code)
+	_, err := os.Stat(filepath.Join(outside, "new"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestHandleUpload_MissingSubdirectoryNotCreatedOnRejectedPart(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20, Exclude: []string{".env"}}}
+
+	req := createMultipartRequest(t, map[string]string{".env": "data"}, map[string]string{"path": "new/deep"})
+	rr := httptest.NewRecorder()
+	srv.handleUpload(rr, req)
+
+	assert.Equal(t, http.StatusForbidden, rr.Code)
+	_, err := os.Stat(filepath.Join(tmpDir, "new"))
+	assert.True(t, os.IsNotExist(err))
+}
+
+func TestHandleUpload_ConcurrentCreateSameSubdirectory(t *testing.T) {
+	tmpDir := t.TempDir()
+	srv := &Web{Config: Config{RootDir: tmpDir, EnableUpload: true, UploadMaxSize: 10 << 20}}
+
+	codes := make(chan int, 2)
+	for _, name := range []string{"a.txt", "b.txt"} {
+		go func() {
+			req := createMultipartRequest(t, map[string]string{name: "data"}, map[string]string{"path": "shared/new"})
+			rr := httptest.NewRecorder()
+			srv.handleUpload(rr, req)
+			codes <- rr.Code
+		}()
+	}
+	assert.Equal(t, http.StatusOK, <-codes)
+	assert.Equal(t, http.StatusOK, <-codes)
+	for _, name := range []string{"a.txt", "b.txt"} {
+		_, err := os.Stat(filepath.Join(tmpDir, "shared", "new", name))
+		assert.NoError(t, err)
+	}
 }
