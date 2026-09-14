@@ -251,7 +251,7 @@ weblist --upload.enabled --upload.overwrite
 ```
 
 When file upload is enabled:
-- "Upload" and "Folder" buttons appear in the toolbar for picking files or a whole directory
+- "Upload files" and "Upload folder" buttons appear in the toolbar for picking files or a whole directory
 - Files and folders can be dragged and dropped onto the file listing area; a dropped folder is recreated with its subdirectories under the current directory
 - Files can be pasted from the clipboard (e.g., screenshots)
 - Multiple files can be uploaded at once; each file is sent as its own request, so one failure does not stop the rest, and a summary reports what was uploaded, what failed and why

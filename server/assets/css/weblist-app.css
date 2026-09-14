@@ -722,6 +722,11 @@ pre {
 }
 
 /* Upload button in toolbar */
+.upload-button {
+  display: inline-flex;
+  gap: var(--spacing-sm);
+}
+
 .upload-button button {
   display: inline-flex;
   align-items: center;
