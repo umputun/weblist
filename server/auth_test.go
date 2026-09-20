@@ -587,3 +587,101 @@ func TestSecurityHeadersMiddleware(t *testing.T) {
 	assert.Equal(t, "none", rr.Header().Get("X-Permitted-Cross-Domain-Policies"))
 	assert.Equal(t, "noindex, nofollow", rr.Header().Get("X-Robots-Tag"))
 }
+
+func TestWeb_AuthStateHelpers(t *testing.T) {
+	srv := &Web{Config: Config{
+		Auth:          "testpassword",
+		AuthUser:      "weblist",
+		SessionSecret: "test-session-secret",
+		EnableUpload:  true,
+	}}
+
+	withCookie := func(r *http.Request) *http.Request {
+		r.AddCookie(&http.Cookie{Name: "auth", Value: srv.generateSessionToken()})
+		return r
+	}
+	withBasic := func(user, pass string) *http.Request {
+		r := httptest.NewRequest("GET", "/", http.NoBody)
+		r.SetBasicAuth(user, pass)
+		return r
+	}
+
+	tests := []struct {
+		name                                string
+		srv                                 *Web
+		req                                 *http.Request
+		authenticated, canUpload, showLogin bool
+	}{
+		{"anonymous", srv, httptest.NewRequest("GET", "/", http.NoBody), false, false, true},
+		{"valid cookie", srv, withCookie(httptest.NewRequest("GET", "/", http.NoBody)), true, true, false},
+		{"valid basic without cookie", srv, withBasic("weblist", "testpassword"), true, true, false},
+		{"wrong basic password", srv, withBasic("weblist", "nope"), false, false, true},
+		{"wrong basic user", srv, withBasic("someone", "testpassword"), false, false, true},
+		{"no password configured", &Web{Config: Config{EnableUpload: true}}, httptest.NewRequest("GET", "/", http.NoBody), false, true, false},
+		{"uploads disabled", &Web{Config: Config{Auth: "testpassword", SessionSecret: "s"}},
+			withBasic("weblist", "testpassword"), true, false, false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.authenticated, tt.srv.isAuthenticated(tt.req), "isAuthenticated")
+			assert.Equal(t, tt.canUpload, tt.srv.canUpload(tt.req), "canUpload")
+			assert.Equal(t, tt.showLogin, tt.srv.showLogin(tt.req), "showLogin")
+		})
+	}
+}
+
+func TestWeb_UploadControlsRenderForBasicAuth(t *testing.T) {
+	srv := &Web{
+		Config: Config{
+			RootDir:       "testdata",
+			Theme:         "light",
+			Auth:          "testpassword",
+			AuthUser:      "weblist",
+			SessionSecret: "test-session-secret",
+			EnableUpload:  true,
+			PublicRead:    true,
+		},
+		FS: os.DirFS("testdata"),
+	}
+	require.NoError(t, srv.initTemplates())
+
+	render := func(t *testing.T, htmx, basic bool) string {
+		t.Helper()
+		r := httptest.NewRequest("GET", "/", http.NoBody)
+		if basic {
+			r.SetBasicAuth("weblist", "testpassword")
+		}
+		w := httptest.NewRecorder()
+		if htmx {
+			r = httptest.NewRequest("GET", "/partials/dir-contents", http.NoBody)
+			if basic {
+				r.SetBasicAuth("weblist", "testpassword")
+			}
+			r.Header.Set("HX-Request", "true")
+			srv.handleDirContents(w, r)
+		} else {
+			srv.handleRoot(w, r)
+		}
+		assert.Equal(t, http.StatusOK, w.Code)
+		return w.Body.String()
+	}
+
+	t.Run("full page with basic auth shows upload controls", func(t *testing.T) {
+		assert.Contains(t, render(t, false, true), `id="upload-controls"`)
+	})
+
+	t.Run("full page anonymous shows login instead", func(t *testing.T) {
+		body := render(t, false, false)
+		assert.NotContains(t, body, `id="upload-controls"`)
+		assert.Contains(t, body, `href="/login"`)
+	})
+
+	t.Run("htmx partial with basic auth shows upload controls", func(t *testing.T) {
+		assert.Contains(t, render(t, true, true), `id="upload-controls"`)
+	})
+
+	t.Run("htmx partial anonymous hides upload controls", func(t *testing.T) {
+		assert.NotContains(t, render(t, true, false), `id="upload-controls"`)
+	})
+}

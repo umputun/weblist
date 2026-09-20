@@ -70,6 +70,7 @@ type Config struct {
 	EnableUpload             bool          // enable file upload support
 	UploadMaxSize            int64         // max upload size in bytes
 	UploadOverwrite          bool          // allow overwriting existing files on upload
+	PublicRead               bool          // auth applies to uploads only, browsing and downloads stay public
 }
 
 // Run starts the web server.
@@ -263,7 +264,7 @@ func (wb *Web) router() (http.Handler, error) {
 		}
 
 		main.Group().Route(func(auth *routegroup.Bundle) {
-			if wb.Auth != "" {
+			if wb.Auth != "" && !wb.PublicRead {
 				auth.Use(wb.authMiddleware)
 			}
 			auth.HandleFunc("GET /", wb.handleRoot)
@@ -300,11 +301,13 @@ func (wb *Web) router() (http.Handler, error) {
 
 // authMiddleware enforces authentication for protected routes.
 // It uses a multi-tiered authentication approach:
-// 1. Login page (/login) and static assets are always accessible without authentication
-// 2. Checks for a valid authentication cookie first
-// 3. Falls back to HTTP Basic Auth with the configured username and password
-// 4. On successful Basic Auth, sets a cookie for future requests to avoid repeated authentication
-// 5. Redirects unauthenticated requests to the login page
+//  1. Login page (/login) and static assets are always accessible without authentication
+//  2. Checks for a valid authentication cookie first
+//  3. Falls back to HTTP Basic Auth with the configured username and password
+//  4. On successful Basic Auth, sets a cookie for future requests to avoid repeated authentication
+//  5. Answers an unauthenticated POST /upload with a JSON 401, and redirects every other
+//     unauthenticated request to the login page
+//
 // This middleware belongs after all other middleware but before route handlers.
 func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -323,6 +326,13 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 		// check if user is authenticated via basic auth
 		if wb.tryBasicAuth(w, r) {
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		// upload is called by fetch, which follows a redirect and hands the client login HTML to parse as JSON.
+		// the method matters: GET /upload is a file named "upload" served by the download catch-all.
+		if r.Method == http.MethodPost && r.URL.Path == "/upload" {
+			wb.writeJSONError(w, http.StatusUnauthorized, "log in to upload files")
 			return
 		}
 

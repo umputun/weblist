@@ -101,6 +101,7 @@ weblist [options]
 - `-f, --hide-footer`: Hide footer - env: `HIDE_FOOTER`
 - `-a, --auth`: Enable authentication with the specified password - env: `AUTH`
 - `--auth-user`: Username for HTTP Basic Auth (default: `weblist`) - env: `AUTH_USER`
+- `--auth.public-read`: Keep browsing and downloads public, require authentication for uploads only - env: `AUTH_PUBLIC_READ`
 - `--session-secret`: Secret key for session tokens (auto-generated if not set) - env: `SESSION_SECRET`
 - `--session-ttl`: Session timeout duration (default: `24h`) - env: `SESSION_TTL`
 - `--insecure-cookies`: Allow cookies without secure flag - env: `INSECURE_COOKIES`
@@ -109,7 +110,13 @@ weblist [options]
 - `--syntax-highlight`: Enable syntax highlighting for code files - env: `SYNTAX_HIGHLIGHT`
 - `--custom-footer`: Custom footer text (can contain HTML) - env: `CUSTOM_FOOTER`
 - `--multi`: Enable multi-file selection and download - env: `MULTI_SELECT`
+- `--recursive-mtime`: Calculate directory mtime from newest nested file - env: `RECURSIVE_MTIME`
 - `--title`: Custom title for the site (used in browser title and home) - env: `TITLE`
+
+Upload Options (with `--upload` prefix):
+- `--upload.enabled`: Enable file upload - env: `UPLOAD_ENABLED`
+- `--upload.max-size`: Max upload size in MB (default: `64`) - env: `UPLOAD_MAX_SIZE`
+- `--upload.overwrite`: Allow overwriting existing files - env: `UPLOAD_OVERWRITE`
 
 SFTP Options (with `--sftp` prefix):
 - `--sftp.enabled`: Enable SFTP server - env: `SFTP_ENABLED`
@@ -153,6 +160,19 @@ When authentication is enabled:
 - A logout button appears in the top right corner when logged in
 
 Authentication is completely optional and only activated when the `--auth` parameter is provided.
+
+### Public downloads with authenticated uploads
+
+By default `--auth` protects everything: listings, downloads and uploads. With `--auth.public-read` the
+password applies to uploads only, so the server works as a public download site that only you can write to.
+
+```bash
+weblist --auth your_password --upload.enabled --auth.public-read
+```
+
+Anonymous visitors get the full listing, downloads, file previews and the JSON API, and see a Login link
+instead of the upload buttons. The flag refuses to start without `--auth`, and it only affects HTTP:
+SFTP still requires the password or an authorized_keys file.
 
 ## SFTP Access
 
@@ -203,9 +223,42 @@ When multi-file selection is enabled:
 - A "Download Selected" button appears when at least one item is selected
 - Clicking the button downloads all selected items as a single ZIP archive
 - Entire directories with their contents can be selected and downloaded
-- The feature works seamlessly in both light and dark themes
+- The feature works in both light and dark themes
+
+On a server running `--auth.public-read`, a selection is limited to 1000 archive entries once directories
+are expanded, counting files and nested directories, and a larger one is rejected rather than partly
+archived. Every other server has no such limit.
 
 Multi-file selection is disabled by default for a cleaner interface and can be enabled with the `--multi` flag.
+
+## File Upload
+
+Weblist can optionally accept uploads into the directory being browsed:
+
+```bash
+# Enable file upload
+weblist --upload.enabled
+
+# Raise the per-file size limit (default is 64MB)
+weblist --upload.enabled --upload.max-size 256
+
+# Allow replacing files that already exist
+weblist --upload.enabled --upload.overwrite
+```
+
+When upload is enabled:
+
+- Upload buttons appear in the header for picking files or a whole folder
+- Files can be dragged onto the listing or pasted from the clipboard
+- Each file is sent as its own request, so one failure does not stop the rest
+- A summary reports what was uploaded, what failed and why
+- A target subdirectory that does not exist yet is created once every file has passed validation
+- Exclude patterns (`--exclude`) apply to uploaded names, so an excluded name such as `.env` cannot be written
+- Duplicate filenames are rejected unless `--upload.overwrite` is set
+- Upload paths are checked against the root, so traversal outside it is blocked
+- With `--auth` set, uploading requires logging in
+
+File upload is disabled by default and can be enabled with the `--upload.enabled` flag.
 
 ## Custom Branding
 

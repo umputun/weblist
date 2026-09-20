@@ -1940,7 +1940,7 @@ func TestExcludeMultiSegmentPathAccess(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "docs", "private2", "public.txt"), []byte("public"), 0o600))
 
 	wb := &Web{
-		Config: Config{RootDir: tempDir, Theme: "light", Exclude: []string{"docs/private"}},
+		Config: Config{RootDir: tempDir, Theme: "light", Exclude: []string{"docs/private"}, EnableMultiSelect: true},
 		FS:     os.DirFS(tempDir),
 	}
 	require.NoError(t, wb.initTemplates())

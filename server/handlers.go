@@ -82,11 +82,6 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// prepare data with struct directly in this function
-	isAuthenticated := false
-	if wb.Auth != "" {
-		isAuthenticated = wb.isAuthenticatedByCookie(r)
-	}
-
 	data := struct {
 		Files             []FileInfo
 		Path              string
@@ -101,7 +96,8 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		BrandColor        string
 		CustomFooter      string
 		EnableMultiSelect bool
-		EnableUpload      bool
+		CanUpload         bool
+		ShowLogin         bool
 		UploadMaxSize     int64
 	}{
 		Files:             fileList,
@@ -114,10 +110,11 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 		BrandName:         wb.BrandName,
 		BrandColor:        wb.BrandColor,
 		Title:             wb.Title,
-		IsAuthenticated:   isAuthenticated,
+		IsAuthenticated:   wb.isAuthenticated(r),
 		CustomFooter:      wb.CustomFooter,
 		EnableMultiSelect: wb.EnableMultiSelect,
-		EnableUpload:      wb.EnableUpload,
+		CanUpload:         wb.canUpload(r),
+		ShowLogin:         wb.showLogin(r),
 		UploadMaxSize:     wb.UploadMaxSize,
 	}
 
@@ -385,6 +382,11 @@ func (wb *Web) handleFileModal(w http.ResponseWriter, r *http.Request) {
 // handleSelectionStatus processes selection status updates from checkboxes
 // and returns the partial HTML for the selection status component
 func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
+	if !wb.EnableMultiSelect {
+		http.Error(w, "Multi-select is disabled", http.StatusForbidden)
+		return
+	}
+
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
@@ -422,8 +424,76 @@ func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// maxZipEntries bounds an archive on a server that opted into public reads. It is an entry preflight,
+// not a resource bound: one large file still costs its own bytes. The count runs before any ZIP header,
+// since after that an oversized request could only be answered with a truncated archive that reads as a
+// complete one.
+const maxZipEntries = 1000
+
+// countZipEntries reports how many archive entries dirPath expands to, stopping as soon as the running
+// total passes limit so it does not descend further. One directory is still read in full by fs.ReadDir.
+func (wb *Web) countZipEntries(dirPath string, limit int) int {
+	entries, err := fs.ReadDir(wb.FS, dirPath)
+	if err != nil {
+		return 0
+	}
+
+	count := 0
+	for _, entry := range entries {
+		entryPath := filepath.Join(dirPath, entry.Name())
+		if wb.shouldExclude(entryPath) {
+			continue
+		}
+
+		count++
+		if count > limit {
+			return count
+		}
+		if entry.IsDir() {
+			count += wb.countZipEntries(entryPath, limit-count)
+			if count > limit {
+				return count
+			}
+		}
+	}
+	return count
+}
+
+// selectionZipEntries reports how many archive entries the selected paths expand to, stopping once the
+// total passes limit. Unreadable and excluded paths are skipped the same way the archive writer skips them.
+func (wb *Web) selectionZipEntries(paths []string, limit int) int {
+	total := 0
+	for _, path := range paths {
+		path = filepath.ToSlash(filepath.Clean(path))
+		if wb.shouldExclude(path) {
+			continue
+		}
+
+		info, err := fs.Stat(wb.FS, path)
+		if err != nil {
+			continue
+		}
+
+		// a selected directory gets no entry of its own, the writer emits only what is inside it
+		if info.IsDir() {
+			total += wb.countZipEntries(path, limit-total)
+		} else {
+			total++
+		}
+		if total > limit {
+			return total
+		}
+	}
+	return total
+}
+
 // handleDownloadSelected creates a zip file of selected files and sends it to the client
 func (wb *Web) handleDownloadSelected(w http.ResponseWriter, r *http.Request) {
+	if !wb.EnableMultiSelect {
+		http.Error(w, "Multi-select is disabled", http.StatusForbidden)
+		return
+	}
+
 	if err := r.ParseForm(); err != nil {
 		http.Error(w, "Failed to parse form", http.StatusBadRequest)
 		return
@@ -434,6 +504,15 @@ func (wb *Web) handleDownloadSelected(w http.ResponseWriter, r *http.Request) {
 	if len(selectedFiles) == 0 {
 		http.Error(w, "No files selected", http.StatusBadRequest)
 		return
+	}
+
+	// only deployments that opted into public reads are bounded, every other server keeps the behavior
+	// its operator already relies on
+	if wb.PublicRead {
+		if n := wb.selectionZipEntries(selectedFiles, maxZipEntries); n > maxZipEntries {
+			http.Error(w, fmt.Sprintf("Selection expands to more than %d files", maxZipEntries), http.StatusBadRequest)
+			return
+		}
 	}
 
 	// set up response headers for the ZIP file

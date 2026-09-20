@@ -37,6 +37,10 @@ type options struct {
 	InsecureCookies bool          `long:"insecure-cookies" env:"INSECURE_COOKIES" description:"allow cookies without secure flag"`
 	SessionTTL      time.Duration `long:"session-ttl" env:"SESSION_TTL" default:"24h" description:"session timeout"`
 
+	AuthOpts struct {
+		PublicRead bool `long:"public-read" env:"PUBLIC_READ" description:"keep browsing and downloads public, require auth for uploads"`
+	} `group:"Auth options" namespace:"auth" env-namespace:"AUTH"`
+
 	SFTP struct {
 		Enabled    bool   `long:"enabled" env:"ENABLED" description:"enable SFTP server"`
 		User       string `long:"user" env:"USER" default:"weblist" description:"username for SFTP access"`
@@ -87,21 +91,60 @@ func main() {
 		opts.Theme = "light"
 	}
 
-	defer func() {
-		if x := recover(); x != nil {
-			log.Printf("[WARN] run time panic:\n%v", x)
-			panic(x)
-		}
-	}()
+	// os.Exit skips deferred calls, so everything with cleanup runs inside here and main holds none
+	failed := func() bool {
+		defer func() {
+			if x := recover(); x != nil {
+				log.Printf("[WARN] run time panic:\n%v", x)
+				panic(x)
+			}
+		}()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-	if err := runServer(ctx, &opts); err != nil {
-		log.Printf("[FATAL] run server error: %v", err)
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+		if err := runServer(ctx, &opts); err != nil {
+			log.Printf("[FATAL] run server error: %v", err)
+			return true
+		}
+		return false
+	}()
+	if failed {
+		os.Exit(1)
 	}
 }
 
+// checkPublicRead rejects a public-read setup that protects nothing and reports the resulting HTTP policy,
+// which is otherwise invisible in the logs.
+func (o *options) checkPublicRead() error {
+	if !o.AuthOpts.PublicRead {
+		return nil
+	}
+
+	// without a password the flag promises a distinction that cannot exist, and uploads would accept anonymous writes
+	if o.Auth == "" {
+		return fmt.Errorf("--auth.public-read requires a password set with -a/--auth")
+	}
+
+	if o.Upload.Enabled {
+		log.Printf("[INFO] auth.public-read enabled, HTTP browsing and downloads are public, uploads require login")
+		return nil
+	}
+
+	// with uploads off the password protects no HTTP route at all, and SFTP only when that listener runs
+	if o.SFTP.Enabled && o.SFTP.User != "" {
+		log.Printf("[WARN] auth.public-read without --upload.enabled, every HTTP route is public and the password guards SFTP only")
+		return nil
+	}
+	log.Printf("[WARN] auth.public-read without --upload.enabled or --sftp.enabled, every HTTP route is public " +
+		"and the password protects nothing")
+	return nil
+}
+
 func runServer(ctx context.Context, opts *options) error {
+	if err := opts.checkPublicRead(); err != nil {
+		return err
+	}
+
 	// get the absolute path for root directory
 	absRootDir, err := filepath.Abs(opts.RootDir)
 	if err != nil {
@@ -148,6 +191,7 @@ func runServer(ctx context.Context, opts *options) error {
 		EnableUpload:             opts.Upload.Enabled,
 		UploadMaxSize:            opts.Upload.MaxSize * 1024 * 1024, // convert MB to bytes
 		UploadOverwrite:          opts.Upload.Overwrite,
+		PublicRead:               opts.AuthOpts.PublicRead,
 	}
 
 	// create HTTP server

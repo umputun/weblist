@@ -106,6 +106,7 @@ weblist [options]
 - `-f, --hide-footer`: Hide footer - env: `HIDE_FOOTER`
 - `-a, --auth`: Enable authentication with the specified password - env: `AUTH`
 - `--auth-user`: Username for HTTP Basic Auth (default: `weblist`) - env: `AUTH_USER`
+- `--auth.public-read`: Keep browsing and downloads public, require authentication for uploads only - env: `AUTH_PUBLIC_READ`
 - `--session-secret`: Secret key for session tokens (auto-generated if not set) - env: `SESSION_SECRET`
 - `--session-ttl`: Session timeout duration (default: `24h`) - env: `SESSION_TTL`
 - `--insecure-cookies`: Allow cookies without secure flag - env: `INSECURE_COOKIES`
@@ -182,6 +183,22 @@ When authentication is enabled:
 
 Authentication is completely optional and only activated when the `--auth` parameter is provided.
 
+### Public downloads with authenticated uploads
+
+By default `--auth` protects everything: listings, downloads and uploads. With `--auth.public-read` the
+password applies to uploads only, so the server works as a public download site that only you can write to.
+
+```
+weblist --auth your_password --upload.enabled --auth.public-read
+```
+
+Anonymous visitors get the full listing, downloads, file previews and the JSON API, and see a Login link
+instead of the upload buttons. After logging in the upload buttons appear and the link becomes Logout.
+
+The flag refuses to start without `--auth`, since without a password there is nothing to require and
+uploads would accept anonymous writes. It only affects HTTP: SFTP still requires the password or an
+authorized_keys file.
+
 ## SFTP Access
 
 Weblist can also provide SFTP access to the same files:
@@ -231,7 +248,11 @@ When multi-file selection is enabled:
 - A "Download Selected" button appears when at least one item is selected
 - Clicking the button downloads all selected items as a single ZIP archive
 - Entire directories with their contents can be selected and downloaded
-- The feature works seamlessly in both light and dark themes
+- The feature works in both light and dark themes
+
+On a server running `--auth.public-read`, a selection is limited to 1000 archive entries once directories
+are expanded, counting files and nested directories, and a larger one is rejected rather than partly
+archived. Every other server has no such limit.
 
 Multi-file selection is disabled by default for a cleaner interface and can be enabled with the `--multi` flag.
 
@@ -261,7 +282,7 @@ When file upload is enabled:
 - File size is validated per file, client-side and server-side; a request carrying several files is additionally bounded at the max size plus a small overhead
 - Duplicate filenames are rejected by default (configurable with `--upload.overwrite`)
 - Path traversal attacks are blocked — upload paths are checked against the root after resolving existing directory symlinks
-- Upload is protected by authentication when auth is enabled
+- Upload is protected by authentication when auth is enabled, including under `--auth.public-read`, where it is the only thing that is
 
 The upload endpoint accepts `POST /upload` with `multipart/form-data` containing a `path` field (target directory, which may name a subdirectory that does not exist yet and will be created) and one or more `file` fields.
 
@@ -433,6 +454,7 @@ services:
       - EXCLUDE=.git,.env
       - AUTH=your_password  # Optional: Enable password authentication
       - AUTH_USER=admin  # Optional: HTTP Basic Auth username (default: weblist)
+      - AUTH_PUBLIC_READ=true  # Optional: public browsing and downloads, auth for uploads only
       - SESSION_SECRET=your_secure_key  # Optional: Secret for signing session tokens
       - SESSION_TTL=24h  # Optional: Session timeout duration
       - BRAND_NAME=My Company  # Optional: Display company name in navbar

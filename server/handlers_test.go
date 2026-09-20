@@ -4,6 +4,7 @@ import (
 	"archive/zip"
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -984,8 +985,9 @@ func TestAPIList_ErrorCases(t *testing.T) {
 func TestHandleSelectionStatus(t *testing.T) {
 	web := &Web{
 		Config: Config{
-			RootDir: "testdata",
-			Theme:   "light",
+			RootDir:           "testdata",
+			Theme:             "light",
+			EnableMultiSelect: true,
 		},
 		FS: os.DirFS("testdata"),
 	}
@@ -1082,7 +1084,8 @@ func TestHandleDownloadSelected(t *testing.T) {
 	// create test web server with testdata
 	web := &Web{
 		Config: Config{
-			RootDir: "testdata",
+			RootDir:           "testdata",
+			EnableMultiSelect: true,
 		},
 		FS: os.DirFS("testdata"),
 	}
@@ -1255,4 +1258,92 @@ func TestWeb_handleDownloadEscapesSpecialCharsInDirRedirect(t *testing.T) {
 	require.NoError(t, err)
 	// unescaped, the & would end the path parameter and "q" alone would be requested
 	assert.Equal(t, "q&a", u.Query().Get("path"), "location %q lost the directory name", loc)
+}
+
+func TestMultiSelectHandlersRequireTheFlag(t *testing.T) {
+	web := &Web{Config: Config{RootDir: "testdata"}, FS: os.DirFS("testdata")}
+	require.NoError(t, web.initTemplates())
+
+	form := url.Values{"selected-files": {"test.txt"}}
+
+	t.Run("selection status", func(t *testing.T) {
+		r := httptest.NewRequest("POST", "/partials/selection-status", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		web.handleSelectionStatus(w, r)
+		assert.Equal(t, http.StatusForbidden, w.Code)
+	})
+
+	t.Run("download selected", func(t *testing.T) {
+		r := httptest.NewRequest("POST", "/download-selected", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		web.handleDownloadSelected(w, r)
+		assert.Equal(t, http.StatusForbidden, w.Code)
+	})
+}
+
+func TestHandleDownloadSelected_EntryCap(t *testing.T) {
+	tempDir := t.TempDir()
+	writeFiles := func(dir string, n int) {
+		require.NoError(t, os.MkdirAll(filepath.Join(tempDir, dir), 0o755))
+		for i := range n {
+			name := filepath.Join(tempDir, dir, fmt.Sprintf("f%04d.txt", i))
+			require.NoError(t, os.WriteFile(name, []byte("x"), 0o600))
+		}
+	}
+	writeFiles("exact", maxZipEntries)
+	writeFiles("over", maxZipEntries+1)
+	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "small.txt"), []byte("ok"), 0o600))
+
+	web := &Web{Config: Config{RootDir: tempDir, EnableMultiSelect: true, PublicRead: true}, FS: os.DirFS(tempDir)}
+
+	post := func(t *testing.T, selected ...string) *httptest.ResponseRecorder {
+		t.Helper()
+		form := url.Values{"selected-files": selected}
+		r := httptest.NewRequest("POST", "/download-selected", strings.NewReader(form.Encode()))
+		r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+		w := httptest.NewRecorder()
+		web.handleDownloadSelected(w, r)
+		return w
+	}
+
+	t.Run("directory expanding past the cap is rejected whole", func(t *testing.T) {
+		w := post(t, "over")
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Contains(t, w.Body.String(), "more than 1000 files")
+		assert.NotEqual(t, "application/zip", w.Header().Get("Content-Type"), "no archive should be started")
+	})
+
+	// the selected directory is not itself an archive entry, so exactly maxZipEntries files must pass
+	t.Run("directory holding exactly the cap is accepted", func(t *testing.T) {
+		w := post(t, "exact")
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
+	})
+
+	t.Run("selection under the cap still works", func(t *testing.T) {
+		w := post(t, "small.txt")
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
+	})
+
+	// only a server that opted into public reads is bounded, every other one keeps its old behavior
+	t.Run("password-protected server is not capped", func(t *testing.T) {
+		web.Auth, web.PublicRead = "secret", false
+		defer func() { web.Auth, web.PublicRead = "", true }()
+
+		w := post(t, "over")
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
+	})
+
+	t.Run("server without a password is not capped", func(t *testing.T) {
+		web.PublicRead = false
+		defer func() { web.PublicRead = true }()
+
+		w := post(t, "over")
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
+	})
 }

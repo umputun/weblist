@@ -150,12 +150,6 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		displayPath = ""
 	}
 
-	// check if user is authenticated (for showing logout button)
-	isAuthenticated := false
-	if wb.Auth != "" {
-		isAuthenticated = wb.isAuthenticatedByCookie(r)
-	}
-
 	data := struct {
 		Files             []FileInfo
 		Path              string
@@ -172,6 +166,8 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		CustomFooter      string
 		EnableMultiSelect bool
 		EnableUpload      bool
+		CanUpload         bool
+		ShowLogin         bool
 		UploadMaxSize     int64
 	}{
 		Files:             fileList,
@@ -182,13 +178,15 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		PathParts:         wb.getPathParts(path, sortBy, sortDir),
 		Theme:             wb.Theme,
 		HideFooter:        wb.HideFooter,
-		IsAuthenticated:   isAuthenticated,
+		IsAuthenticated:   wb.isAuthenticated(r),
 		Title:             wb.Title,
 		BrandName:         wb.BrandName,
 		BrandColor:        wb.BrandColor,
 		CustomFooter:      wb.CustomFooter,
 		EnableMultiSelect: wb.EnableMultiSelect,
 		EnableUpload:      wb.EnableUpload,
+		CanUpload:         wb.canUpload(r),
+		ShowLogin:         wb.showLogin(r),
 		UploadMaxSize:     wb.UploadMaxSize,
 	}
 

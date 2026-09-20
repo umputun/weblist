@@ -117,21 +117,43 @@ func (wb *Web) isAuthenticatedByCookie(r *http.Request) bool {
 	return wb.validateSessionToken(cookie.Value)
 }
 
-// tryBasicAuth checks if the user is authenticated via basic auth
-// and sets a cookie on success
-func (wb *Web) tryBasicAuth(w http.ResponseWriter, r *http.Request) bool {
-	username, password, ok := r.BasicAuth()
+// isAuthenticated reports whether the request carries valid credentials, by session cookie or basic auth.
+// Always false without a password configured, so callers can treat it as "this visitor logged in".
+func (wb *Web) isAuthenticated(r *http.Request) bool {
+	if wb.Auth == "" {
+		return false
+	}
+	return wb.isAuthenticatedByCookie(r) || wb.checkBasicAuth(r)
+}
 
-	// if basic auth is not provided or invalid
+// canUpload reports whether the request should be offered upload controls. Without a password uploads are
+// open to everyone, so the controls cannot be gated on authentication alone.
+func (wb *Web) canUpload(r *http.Request) bool {
+	return wb.EnableUpload && (wb.Auth == "" || wb.isAuthenticated(r))
+}
+
+// showLogin reports whether to offer a login link. Only reachable under PublicRead, where an anonymous
+// visitor sees pages and is never redirected to the login form.
+func (wb *Web) showLogin(r *http.Request) bool {
+	return wb.Auth != "" && !wb.isAuthenticated(r)
+}
+
+// checkBasicAuth validates basic auth credentials without touching the response.
+func (wb *Web) checkBasicAuth(r *http.Request) bool {
+	username, password, ok := r.BasicAuth()
 	if !ok {
 		return false
 	}
 
 	usernameCorrect := subtle.ConstantTimeCompare([]byte(username), []byte(wb.getAuthUser())) == 1
 	passwordCorrect := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) == 1
+	return usernameCorrect && passwordCorrect
+}
 
-	// if credentials don't match
-	if !usernameCorrect || !passwordCorrect {
+// tryBasicAuth checks if the user is authenticated via basic auth
+// and sets a cookie on success
+func (wb *Web) tryBasicAuth(w http.ResponseWriter, r *http.Request) bool {
+	if !wb.checkBasicAuth(r) {
 		return false
 	}
 

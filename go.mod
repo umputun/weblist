@@ -16,7 +16,6 @@ require (
 	github.com/mxschmitt/playwright-go v0.6201.1
 	github.com/pkg/sftp v1.13.11
 	github.com/stretchr/testify v1.12.0
-	github.com/umputun/go-flags v1.5.1
 	github.com/yuin/goldmark v1.8.5
 	github.com/yuin/goldmark-highlighting/v2 v2.0.0-20230729083705-37449abec8cc
 	golang.org/x/crypto v0.55.0
