@@ -424,10 +424,10 @@ func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// maxZipEntries bounds how many entries a multi-file download may expand to when anyone can reach the
-// endpoint, so an anonymous request cannot make the server walk and stream an arbitrary tree. The count
-// is taken before any ZIP header goes out, since after that an oversized request could only be answered
-// with a truncated archive that reads as a complete one.
+// maxZipEntries bounds an archive requested through a publicly reachable endpoint. It is an entry
+// preflight, not a resource bound: one large file still costs its own bytes. The count runs before any
+// ZIP header, since after that an oversized request could only be answered with a truncated archive
+// that reads as a complete one.
 const maxZipEntries = 1000
 
 // countZipEntries reports how many archive entries dirPath expands to, stopping as soon as the running

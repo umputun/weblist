@@ -1101,6 +1101,18 @@ func createMultipartUpload(t *testing.T, path string, files map[string]string) (
 	return &buf, writer.FormDataContentType()
 }
 
+// regression: a rejected config logged [FATAL] and returned, so supervisors saw a clean exit
+func TestPublicRead_RejectedConfigExitsNonZero(t *testing.T) {
+	cmd := exec.Command("/tmp/weblist-e2e", "--listen=:18087", "--root="+t.TempDir(), "--auth.public-read")
+	out, err := cmd.CombinedOutput()
+
+	require.Error(t, err, "weblist should refuse --auth.public-read without --auth")
+	var exitErr *exec.ExitError
+	require.ErrorAs(t, err, &exitErr)
+	assert.Equal(t, 1, exitErr.ExitCode())
+	assert.Contains(t, string(out), "--auth.public-read requires a password")
+}
+
 func TestUpload_PublicRead(t *testing.T) {
 	_, cleanup := startUploadServer(t, 18086, "--auth=testpass123", "--auth.public-read", "--insecure-cookies")
 	defer cleanup()
@@ -1166,7 +1178,7 @@ func TestUpload_PublicRead(t *testing.T) {
 		assert.Equal(t, true, wired, "upload script and toast must be present wherever the controls render")
 	})
 
-	// the script tag lives outside the htmx-swapped region, so it must not depend on request auth state
+	// regression: gating the script per request let an htmx swap render controls with no listener bound
 	t.Run("controls arriving by htmx swap after login are wired", func(t *testing.T) {
 		page := newPage(t)
 		_, err := page.Goto(publicReadURL + "/")
@@ -1177,8 +1189,34 @@ func TestUpload_PublicRead(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, anonControls, "anonymous visitor should have no upload controls")
 
-		scriptLoaded, err := page.Evaluate(`() => !!(window.weblistUpload && window.weblistUpload.enqueue)`)
+		other, err := page.Context().NewPage()
 		require.NoError(t, err)
-		assert.Equal(t, true, scriptLoaded, "upload.js must load for anonymous visitors too, the swap can bring controls in")
+		_, err = other.Goto(publicReadURL + "/login")
+		require.NoError(t, err)
+		waitVisible(t, other.Locator("input[name='password']"))
+		require.NoError(t, other.Locator("input[name='password']").Fill("testpass123"))
+		require.NoError(t, other.Locator("button[type='submit']").Click())
+		require.NoError(t, other.WaitForURL(publicReadURL+"/"))
+		require.NoError(t, other.Close())
+
+		require.NoError(t, page.Locator("tr.dir-row:has-text('subdir')").Click())
+		waitVisible(t, page.Locator("#upload-controls"))
+
+		toastPresent, err := page.Locator("#upload-toast").Count()
+		require.NoError(t, err)
+		assert.Equal(t, 1, toastPresent, "toast container must exist or upload failures report nowhere")
+
+		name := "swap-wired.txt"
+		require.NoError(t, page.Locator("#upload-file-input").SetInputFiles([]playwright.InputFile{{
+			Name:     name,
+			MimeType: "text/plain",
+			Buffer:   []byte("uploaded through controls that arrived by swap"),
+		}}))
+
+		uploaded := page.Locator("tr:has-text('" + name + "')")
+		require.NoError(t, uploaded.WaitFor(playwright.LocatorWaitForOptions{
+			State:   playwright.WaitForSelectorStateVisible,
+			Timeout: playwright.Float(10000),
+		}), "upload through swapped-in controls must reach the server and refresh the listing")
 	})
 }
