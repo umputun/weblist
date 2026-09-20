@@ -424,9 +424,10 @@ func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// maxZipEntries bounds how many entries a multi-file download may expand to, matching the client-side
-// upload cap in upload.js. The count is taken before any ZIP header goes out, since after that an
-// oversized request could only be answered with a truncated archive that reads as a complete one.
+// maxZipEntries bounds how many entries a multi-file download may expand to when anyone can reach the
+// endpoint, so an anonymous request cannot make the server walk and stream an arbitrary tree. The count
+// is taken before any ZIP header goes out, since after that an oversized request could only be answered
+// with a truncated archive that reads as a complete one.
 const maxZipEntries = 1000
 
 // countZipEntries reports how many archive entries dirPath expands to, stopping as soon as the running
@@ -505,9 +506,13 @@ func (wb *Web) handleDownloadSelected(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if n := wb.selectionZipEntries(selectedFiles, maxZipEntries); n > maxZipEntries {
-		http.Error(w, fmt.Sprintf("Selection expands to more than %d files", maxZipEntries), http.StatusBadRequest)
-		return
+	// only bound the archive where the endpoint is reachable without a password, a protected server
+	// keeps the unlimited behavior its operator already relies on
+	if wb.Auth == "" || wb.PublicRead {
+		if n := wb.selectionZipEntries(selectedFiles, maxZipEntries); n > maxZipEntries {
+			http.Error(w, fmt.Sprintf("Selection expands to more than %d files", maxZipEntries), http.StatusBadRequest)
+			return
+		}
 	}
 
 	// set up response headers for the ZIP file

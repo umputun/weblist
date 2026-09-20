@@ -223,7 +223,11 @@ When multi-file selection is enabled:
 - A "Download Selected" button appears when at least one item is selected
 - Clicking the button downloads all selected items as a single ZIP archive
 - Entire directories with their contents can be selected and downloaded
-- The feature works seamlessly in both light and dark themes
+- The feature works in both light and dark themes
+
+When anyone can reach the listing without a password, meaning no `--auth` is set or `--auth.public-read` is on,
+a selection is limited to 1000 files once directories are expanded, and a larger one is rejected rather than
+partly archived. A server protected by `--auth` has no such limit.
 
 Multi-file selection is disabled by default for a cleaner interface and can be enabled with the `--multi` flag.
 

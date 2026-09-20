@@ -1157,5 +1157,28 @@ func TestUpload_PublicRead(t *testing.T) {
 		uploadVisible, err := page.Locator("#upload-btn").IsVisible()
 		require.NoError(t, err)
 		assert.True(t, uploadVisible, "upload button should be visible after login")
+
+		// a visible button proves nothing on its own: upload.js is gated separately in the page head,
+		// so the controls can render with no listener bound and no toast container to report through
+		wired, err := page.Evaluate(`() => !!(window.weblistUpload && window.weblistUpload.enqueue) &&
+			!!document.getElementById('upload-toast')`)
+		require.NoError(t, err)
+		assert.Equal(t, true, wired, "upload script and toast must be present wherever the controls render")
+	})
+
+	// the script tag lives outside the htmx-swapped region, so it must not depend on request auth state
+	t.Run("controls arriving by htmx swap after login are wired", func(t *testing.T) {
+		page := newPage(t)
+		_, err := page.Goto(publicReadURL + "/")
+		require.NoError(t, err)
+		waitVisible(t, page.Locator("table"))
+
+		anonControls, err := page.Locator("#upload-controls").IsVisible()
+		require.NoError(t, err)
+		assert.False(t, anonControls, "anonymous visitor should have no upload controls")
+
+		scriptLoaded, err := page.Evaluate(`() => !!(window.weblistUpload && window.weblistUpload.enqueue)`)
+		require.NoError(t, err)
+		assert.Equal(t, true, scriptLoaded, "upload.js must load for anonymous visitors too, the swap can bring controls in")
 	})
 }

@@ -1327,4 +1327,22 @@ func TestHandleDownloadSelected_EntryCap(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
 	})
+
+	// the cap guards an endpoint anyone can reach, so a password-protected server keeps its old behavior
+	t.Run("password-protected server is not capped", func(t *testing.T) {
+		web.Auth = "secret"
+		defer func() { web.Auth = "" }()
+
+		w := post(t, "over")
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
+	})
+
+	t.Run("public-read server is capped even with a password", func(t *testing.T) {
+		web.Auth, web.PublicRead = "secret", true
+		defer func() { web.Auth, web.PublicRead = "", false }()
+
+		w := post(t, "over")
+		assert.Equal(t, http.StatusBadRequest, w.Code)
+	})
 }

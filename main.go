@@ -91,17 +91,25 @@ func main() {
 		opts.Theme = "light"
 	}
 
-	defer func() {
-		if x := recover(); x != nil {
-			log.Printf("[WARN] run time panic:\n%v", x)
-			panic(x)
-		}
-	}()
+	// os.Exit skips deferred calls, so everything with cleanup runs inside here and main holds none
+	failed := func() bool {
+		defer func() {
+			if x := recover(); x != nil {
+				log.Printf("[WARN] run time panic:\n%v", x)
+				panic(x)
+			}
+		}()
 
-	ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
-	defer cancel()
-	if err := runServer(ctx, &opts); err != nil {
-		log.Printf("[FATAL] run server error: %v", err)
+		ctx, cancel := signal.NotifyContext(context.Background(), os.Interrupt)
+		defer cancel()
+		if err := runServer(ctx, &opts); err != nil {
+			log.Printf("[FATAL] run server error: %v", err)
+			return true
+		}
+		return false
+	}()
+	if failed {
+		os.Exit(1)
 	}
 }
 
@@ -117,11 +125,18 @@ func (o *options) checkPublicRead() error {
 		return fmt.Errorf("--auth.public-read requires a password set with -a/--auth")
 	}
 
-	if !o.Upload.Enabled {
-		log.Printf("[WARN] auth.public-read without --upload.enabled, every HTTP listing and download is public, " +
-			"the password guards SFTP only")
+	if o.Upload.Enabled {
+		log.Printf("[INFO] auth.public-read enabled, HTTP browsing and downloads are public, uploads require login")
+		return nil
 	}
-	log.Printf("[INFO] auth.public-read enabled, HTTP browsing and downloads are public, uploads require login")
+
+	// with uploads off the password protects no HTTP route at all, and SFTP only when that listener runs
+	if o.SFTP.Enabled && o.SFTP.User != "" {
+		log.Printf("[WARN] auth.public-read without --upload.enabled, every HTTP route is public and the password guards SFTP only")
+		return nil
+	}
+	log.Printf("[WARN] auth.public-read without --upload.enabled or --sftp.enabled, every HTTP route is public " +
+		"and the password protects nothing")
 	return nil
 }
 

@@ -165,6 +165,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		BrandColor        string
 		CustomFooter      string
 		EnableMultiSelect bool
+		EnableUpload      bool
 		CanUpload         bool
 		ShowLogin         bool
 		UploadMaxSize     int64
@@ -183,6 +184,7 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 		BrandColor:        wb.BrandColor,
 		CustomFooter:      wb.CustomFooter,
 		EnableMultiSelect: wb.EnableMultiSelect,
+		EnableUpload:      wb.EnableUpload,
 		CanUpload:         wb.canUpload(r),
 		ShowLogin:         wb.showLogin(r),
 		UploadMaxSize:     wb.UploadMaxSize,

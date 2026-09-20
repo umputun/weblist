@@ -9,7 +9,7 @@
     <link rel="stylesheet" href="/assets/css/custom.css">
     <link rel="stylesheet" href="/assets/css/weblist-app.css">
     <script src="/assets/js/htmx.min.js"></script>
-    {{ if .CanUpload }}<script src="/assets/js/upload.js"></script>{{ end }}
+    {{ if .EnableUpload }}<script src="/assets/js/upload.js"></script>{{ end }}
 </head>
 <body hx-on:keydown="if(event.key === 'Escape') { document.body.style.overflow = ''; document.getElementById('modal-container').innerHTML = ''; }"
       hx-on:update-checkboxes="document.querySelectorAll('.file-checkbox').forEach(function(cb) { cb.checked = document.getElementById('select-all').checked; })">
@@ -33,7 +33,7 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
         {{ template "page-content" . }}
     </div>
 </main>
-{{ if .CanUpload }}
+{{ if .EnableUpload }}
 <div id="upload-toast" class="upload-toast"></div>
 {{ end }}
 <div id="modal-container" hx-on:click="if(event.target === this) { document.body.style.overflow = ''; this.innerHTML = ''; }"></div>
