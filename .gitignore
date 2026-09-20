@@ -23,3 +23,6 @@ weblist_rsa
 .playwright-mcp
 # ralphex progress logs
 progress*.txt
+
+# revmux review archive, run output rather than configuration
+.revmux/tasks/
