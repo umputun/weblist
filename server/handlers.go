@@ -424,10 +424,10 @@ func (wb *Web) handleSelectionStatus(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// maxZipEntries bounds an archive requested through a publicly reachable endpoint. It is an entry
-// preflight, not a resource bound: one large file still costs its own bytes. The count runs before any
-// ZIP header, since after that an oversized request could only be answered with a truncated archive
-// that reads as a complete one.
+// maxZipEntries bounds an archive on a server that opted into public reads. It is an entry preflight,
+// not a resource bound: one large file still costs its own bytes. The count runs before any ZIP header,
+// since after that an oversized request could only be answered with a truncated archive that reads as a
+// complete one.
 const maxZipEntries = 1000
 
 // countZipEntries reports how many archive entries dirPath expands to, stopping as soon as the running
@@ -506,9 +506,9 @@ func (wb *Web) handleDownloadSelected(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// only bound the archive where the endpoint is reachable without a password, a protected server
-	// keeps the unlimited behavior its operator already relies on
-	if wb.Auth == "" || wb.PublicRead {
+	// only deployments that opted into public reads are bounded, every other server keeps the behavior
+	// its operator already relies on
+	if wb.PublicRead {
 		if n := wb.selectionZipEntries(selectedFiles, maxZipEntries); n > maxZipEntries {
 			http.Error(w, fmt.Sprintf("Selection expands to more than %d files", maxZipEntries), http.StatusBadRequest)
 			return

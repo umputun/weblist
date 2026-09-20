@@ -1296,7 +1296,7 @@ func TestHandleDownloadSelected_EntryCap(t *testing.T) {
 	writeFiles("over", maxZipEntries+1)
 	require.NoError(t, os.WriteFile(filepath.Join(tempDir, "small.txt"), []byte("ok"), 0o600))
 
-	web := &Web{Config: Config{RootDir: tempDir, EnableMultiSelect: true}, FS: os.DirFS(tempDir)}
+	web := &Web{Config: Config{RootDir: tempDir, EnableMultiSelect: true, PublicRead: true}, FS: os.DirFS(tempDir)}
 
 	post := func(t *testing.T, selected ...string) *httptest.ResponseRecorder {
 		t.Helper()
@@ -1328,21 +1328,22 @@ func TestHandleDownloadSelected_EntryCap(t *testing.T) {
 		assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
 	})
 
-	// the cap guards an endpoint anyone can reach, so a password-protected server keeps its old behavior
+	// only a server that opted into public reads is bounded, every other one keeps its old behavior
 	t.Run("password-protected server is not capped", func(t *testing.T) {
-		web.Auth = "secret"
-		defer func() { web.Auth = "" }()
+		web.Auth, web.PublicRead = "secret", false
+		defer func() { web.Auth, web.PublicRead = "", true }()
 
 		w := post(t, "over")
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
 	})
 
-	t.Run("public-read server is capped even with a password", func(t *testing.T) {
-		web.Auth, web.PublicRead = "secret", true
-		defer func() { web.Auth, web.PublicRead = "", false }()
+	t.Run("server without a password is not capped", func(t *testing.T) {
+		web.PublicRead = false
+		defer func() { web.PublicRead = true }()
 
 		w := post(t, "over")
-		assert.Equal(t, http.StatusBadRequest, w.Code)
+		assert.Equal(t, http.StatusOK, w.Code)
+		assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
 	})
 }

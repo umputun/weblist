@@ -225,10 +225,9 @@ When multi-file selection is enabled:
 - Entire directories with their contents can be selected and downloaded
 - The feature works in both light and dark themes
 
-When anyone can reach the listing without a password, meaning no `--auth` is set or `--auth.public-read` is on,
-a selection is limited to 1000 archive entries once directories are expanded, counting files and nested
-directories, and a larger one is rejected rather than partly archived. With `--auth` and without
-`--auth.public-read`, this limit does not apply.
+On a server running `--auth.public-read`, a selection is limited to 1000 archive entries once directories
+are expanded, counting files and nested directories, and a larger one is rejected rather than partly
+archived. Every other server has no such limit.
 
 Multi-file selection is disabled by default for a cleaner interface and can be enabled with the `--multi` flag.
 
