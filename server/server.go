@@ -70,6 +70,7 @@ type Config struct {
 	EnableUpload             bool          // enable file upload support
 	UploadMaxSize            int64         // max upload size in bytes
 	UploadOverwrite          bool          // allow overwriting existing files on upload
+	PublicRead               bool          // auth applies to uploads only, browsing and downloads stay public
 }
 
 // Run starts the web server.
@@ -263,7 +264,7 @@ func (wb *Web) router() (http.Handler, error) {
 		}
 
 		main.Group().Route(func(auth *routegroup.Bundle) {
-			if wb.Auth != "" {
+			if wb.Auth != "" && !wb.PublicRead {
 				auth.Use(wb.authMiddleware)
 			}
 			auth.HandleFunc("GET /", wb.handleRoot)
@@ -323,6 +324,13 @@ func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 		// check if user is authenticated via basic auth
 		if wb.tryBasicAuth(w, r) {
 			next.ServeHTTP(w, r)
+			return
+		}
+
+		// upload is called by fetch, which follows a redirect and hands the client login HTML to parse as JSON.
+		// the method matters: GET /upload is a file named "upload" served by the download catch-all.
+		if r.Method == http.MethodPost && r.URL.Path == "/upload" {
+			wb.writeJSONError(w, http.StatusUnauthorized, "log in to upload files")
 			return
 		}
 

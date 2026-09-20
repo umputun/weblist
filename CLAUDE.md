@@ -72,6 +72,11 @@
 ### Server Configuration
 - Server validates that ListenAddr is not empty before starting (empty address causes hang)
 - Authentication is optional - controlled by --auth flag
+  - `--auth.public-read` (`Config.PublicRead`) drops authMiddleware from the read group only, leaving `POST /upload` protected; it is rejected at startup without `--auth` and warns without `--upload.enabled`
+  - Upload UI is keyed on `canUpload(r)`, not `EnableUpload`: uploads are open when no password is set, so a bare `IsAuthenticated` gate would break existing anonymous-upload deployments
+  - `isAuthenticated(r)` accepts a session cookie or valid Basic Auth credentials via `checkBasicAuth`; `tryBasicAuth` only sets the response cookie, so a producer reading the request cookie alone renders a Basic Auth client as anonymous
+  - `authMiddleware` answers `POST /upload` with a JSON 401 rather than the 303 page routes get, since `fetch` follows a redirect and hands the client login HTML; `GET /upload` is a real file path through the download catch-all and keeps the redirect
+  - Multi-select handlers (`handleSelectionStatus`, `handleDownloadSelected`) check `EnableMultiSelect` themselves; the template gate alone left them reachable on every deployment
 - Static assets served from embedded filesystem (assets/*)
 - Templates stored in templates/* and embedded at compile time
 - Upload is optional - controlled by --upload.enabled flag

@@ -27,6 +27,7 @@ const (
 	uploadAuthURL    = "http://localhost:18083"
 	uploadNoAuthURL  = "http://localhost:18084" // upload disabled server for visibility test
 	uploadExcludeURL = "http://localhost:18085"
+	publicReadURL    = "http://localhost:18086"
 )
 
 // startUploadServer starts a server with upload enabled
@@ -277,7 +278,7 @@ func TestUpload_WithAuthEnabled(t *testing.T) {
 	require.NoError(t, err)
 	_ = resp.Body.Close()
 
-	assert.Equal(t, http.StatusSeeOther, resp.StatusCode, "upload without auth should redirect to login")
+	assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "upload without auth should be rejected as json")
 
 	// login via browser to get auth cookie, then upload via API
 	page := newPage(t)
@@ -1098,4 +1099,63 @@ func createMultipartUpload(t *testing.T, path string, files map[string]string) (
 
 	require.NoError(t, writer.Close())
 	return &buf, writer.FormDataContentType()
+}
+
+func TestUpload_PublicRead(t *testing.T) {
+	_, cleanup := startUploadServer(t, 18086, "--auth=testpass123", "--auth.public-read", "--insecure-cookies")
+	defer cleanup()
+
+	noRedirectClient := &http.Client{
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+
+	t.Run("listing and api are readable without login", func(t *testing.T) {
+		for _, path := range []string{"/", "/api/list"} {
+			resp, err := noRedirectClient.Get(publicReadURL + path) //nolint:gosec // test url
+			require.NoError(t, err)
+			_ = resp.Body.Close()
+			assert.Equal(t, http.StatusOK, resp.StatusCode, "%s should be public", path)
+		}
+	})
+
+	t.Run("upload is rejected without login", func(t *testing.T) {
+		body, contentType := createMultipartUpload(t, ".", map[string]string{"nope.txt": "content"})
+		resp, err := noRedirectClient.Post(publicReadURL+"/upload", contentType, body) //nolint:gosec // test url
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+		assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+	})
+
+	t.Run("anonymous visitor is offered login instead of upload", func(t *testing.T) {
+		page := newPage(t)
+		_, err := page.Goto(publicReadURL + "/")
+		require.NoError(t, err)
+		waitVisible(t, page.Locator("table"))
+
+		uploadVisible, err := page.Locator("#upload-btn").IsVisible()
+		require.NoError(t, err)
+		assert.False(t, uploadVisible, "upload button should be hidden from anonymous visitors")
+
+		loginVisible, err := page.Locator("a[href='/login']").IsVisible()
+		require.NoError(t, err)
+		assert.True(t, loginVisible, "anonymous visitor needs a way to reach the login page")
+	})
+
+	t.Run("upload controls appear after login", func(t *testing.T) {
+		page := newPage(t)
+		_, err := page.Goto(publicReadURL + "/login")
+		require.NoError(t, err)
+		waitVisible(t, page.Locator("input[name='password']"))
+		require.NoError(t, page.Locator("input[name='password']").Fill("testpass123"))
+		require.NoError(t, page.Locator("button[type='submit']").Click())
+		require.NoError(t, page.WaitForURL(publicReadURL+"/"))
+
+		waitVisible(t, page.Locator("table"))
+		uploadVisible, err := page.Locator("#upload-btn").IsVisible()
+		require.NoError(t, err)
+		assert.True(t, uploadVisible, "upload button should be visible after login")
+	})
 }

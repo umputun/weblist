@@ -221,6 +221,9 @@
     }
 
     function onPaste(e) {
+        // the listener lives on document and survives swaps, so an htmx response that removed the controls
+        // (session expired, or a public-read visitor logged out) must not leave paste-to-upload working
+        if (!document.getElementById('upload-controls')) return;
         if (!e.clipboardData || !e.clipboardData.files || e.clipboardData.files.length === 0) return;
         e.preventDefault();
         // browsers name pasted files generically ("image.png"), so a timestamp keeps them from colliding

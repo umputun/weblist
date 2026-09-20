@@ -552,11 +552,86 @@ func TestRouter(t *testing.T) {
 			return http.ErrUseLastResponse
 		}}
 
-		// POST /upload without auth should redirect to login
+		// POST /upload answers json so fetch does not follow a redirect and parse login html
 		resp, err := client.Post(ts.URL+"/upload", "multipart/form-data", nil)
 		require.NoError(t, err)
 		defer resp.Body.Close()
-		assert.Equal(t, http.StatusSeeOther, resp.StatusCode, "upload route should require auth")
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode, "upload route should require auth")
+		assert.Equal(t, "application/json", resp.Header.Get("Content-Type"))
+		body, err := io.ReadAll(resp.Body)
+		require.NoError(t, err)
+		assert.JSONEq(t, `{"error":"log in to upload files"}`, string(body))
+	})
+}
+
+func TestRouter_PublicRead(t *testing.T) {
+	newSrv := func() *Web {
+		return &Web{
+			Config: Config{
+				RootDir:      "testdata",
+				Theme:        "light",
+				Auth:         "testpassword",
+				EnableUpload: true,
+				PublicRead:   true,
+			},
+			FS: os.DirFS("testdata"),
+		}
+	}
+	noRedirect := &http.Client{CheckRedirect: func(req *http.Request, via []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+
+	t.Run("browsing and downloads are open", func(t *testing.T) {
+		router, err := newSrv().router()
+		require.NoError(t, err)
+		ts := httptest.NewServer(router)
+		defer ts.Close()
+
+		for _, path := range []string{"/", "/api/list"} {
+			resp, err := noRedirect.Get(ts.URL + path)
+			require.NoError(t, err)
+			assert.Equal(t, http.StatusOK, resp.StatusCode, "%s should be public", path)
+			require.NoError(t, resp.Body.Close())
+		}
+	})
+
+	t.Run("upload still requires auth", func(t *testing.T) {
+		router, err := newSrv().router()
+		require.NoError(t, err)
+		ts := httptest.NewServer(router)
+		defer ts.Close()
+
+		resp, err := noRedirect.Post(ts.URL+"/upload", "multipart/form-data", nil)
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusUnauthorized, resp.StatusCode)
+	})
+
+	t.Run("login page stays reachable", func(t *testing.T) {
+		router, err := newSrv().router()
+		require.NoError(t, err)
+		ts := httptest.NewServer(router)
+		defer ts.Close()
+
+		resp, err := noRedirect.Get(ts.URL + "/login")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusOK, resp.StatusCode)
+	})
+
+	t.Run("get of a file named upload keeps the login redirect when not public", func(t *testing.T) {
+		srv := newSrv()
+		srv.PublicRead = false
+
+		router, err := srv.router()
+		require.NoError(t, err)
+		ts := httptest.NewServer(router)
+		defer ts.Close()
+
+		resp, err := noRedirect.Get(ts.URL + "/upload")
+		require.NoError(t, err)
+		defer resp.Body.Close()
+		assert.Equal(t, http.StatusSeeOther, resp.StatusCode)
 		assert.Equal(t, "/login", resp.Header.Get("Location"))
 	})
 }

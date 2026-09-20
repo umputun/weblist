@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/jessevdk/go-flags"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"github.com/umputun/go-flags"
 
 	"github.com/umputun/weblist/server"
 )
@@ -1051,4 +1051,24 @@ func TestIntegrationWithAuth(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Server did not shut down within expected time")
 	}
+}
+
+func TestRunServerPublicReadValidation(t *testing.T) {
+	t.Run("rejects public read without a password", func(t *testing.T) {
+		opts := &options{RootDir: t.TempDir(), Listen: ":0"}
+		opts.AuthOpts.PublicRead = true
+
+		err := runServer(context.Background(), opts)
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "--auth.public-read requires a password")
+	})
+
+	t.Run("parses the flag alongside the auth password", func(t *testing.T) {
+		var opts options
+		p := flags.NewParser(&opts, flags.Default)
+		_, err := p.ParseArgs([]string{"--auth=secret", "--auth.public-read"})
+		require.NoError(t, err)
+		assert.Equal(t, "secret", opts.Auth)
+		assert.True(t, opts.AuthOpts.PublicRead)
+	})
 }
