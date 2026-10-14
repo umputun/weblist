@@ -2,8 +2,10 @@
 
 {{/* file-view is used for direct viewing when accessing /view/path */}}
 {{ define "file-view" }}
+{{/* the scheme is inline so it holds before the stylesheets load: a dark parent page with a
+     scheme-less iframe makes the browser paint the iframe white */}}
 <!DOCTYPE html>
-<html lang="en" data-theme="{{ .Theme }}">
+<html lang="en" data-theme="{{ .Theme }}"{{ if eq .Theme "dark" }} style="color-scheme: dark"{{ end }}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

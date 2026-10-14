@@ -277,6 +277,20 @@ func TestTheme_DefaultIsLight(t *testing.T) {
 	assert.Equal(t, "light", theme)
 }
 
+func TestTheme_DarkViewPageDeclaresSchemeBeforeStylesheets(t *testing.T) {
+	// regression: the dark preview iframe painted white until its stylesheets loaded
+	page := newPage(t)
+	require.NoError(t, page.Route("**/assets/css/*", func(route playwright.Route) {
+		_ = route.Abort()
+	}))
+	_, err := page.Goto(baseURL + "/view/sample.txt?theme=dark")
+	require.NoError(t, err)
+
+	scheme, err := page.Evaluate(`() => getComputedStyle(document.documentElement).colorScheme`)
+	require.NoError(t, err)
+	assert.Equal(t, "dark", scheme)
+}
+
 func TestTheme_ViewPageUsesServerDefault(t *testing.T) {
 	page := newPage(t)
 	_, err := page.Goto(baseURL + "/view/sample.txt")
