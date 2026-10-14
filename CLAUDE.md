@@ -90,6 +90,15 @@
   - The client sends one `POST /upload` per file through a FIFO queue with 4 workers, 25 ms between request starts, and retries only 429 (the global tollbooth limiter answers before the handler runs); the post-upload refresh carries an `X-Upload-Refresh` header and is dropped in `htmx:beforeSwap` when the user has navigated away
   - `window.weblistUpload` exposes `walkEntries` and `enqueue` as the e2e test seam for the directory walk
 
+### Page Layout and Styles
+- `.breadcrumbs` is the single sticky header bar inside `page-content`: an optional `.brand-name` block, `.path-parts`, then `.actions-container` with selection status, upload controls and Login/Logout
+- `--brand.color` fills the `.brand-name` block, which renders only when `--brand.name` is set; a color without a name becomes a 3px top border on the bar, on the listing and the login page alike
+- `--title` is the home breadcrumb label, pinned by `TestTitleFunctionality`; it never moves into the brand block
+- `custom.css` holds the design tokens and base element styles, `weblist-app.css` the page rules; listing table rules are scoped under `#file-listing` because `/view` loads both stylesheets and renders Markdown and CSV tables
+- `FileInfo.Kind()` picks the row icon from the name (`#i-<kind>` symbols in the sprite at the top of `index.html`, outside the swapped area); it has no say in preview eligibility
+- The modal close link uses a plain `onclick`, not `hx-on:click`: htmx attaches `hx-on` handlers about 20 ms after the swap, and a click inside that window does nothing
+- `TestHome_MultiSelectCheckboxIsContained` pins the select checkbox at 16px, centered in its cell
+
 ### File Type Detection
 - File viewability determined by extension + content detection (`server/fileinfo.go`)
 - `commonTextExtensions` map defines which extensions are viewable as text

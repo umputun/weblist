@@ -13,6 +13,17 @@
 </head>
 <body hx-on:keydown="if(event.key === 'Escape') { document.body.style.overflow = ''; document.getElementById('modal-container').innerHTML = ''; }"
       hx-on:update-checkboxes="document.querySelectorAll('.file-checkbox').forEach(function(cb) { cb.checked = document.getElementById('select-all').checked; })">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+    <defs>
+        <symbol id="i-dir" viewBox="0 0 16 16"><path d="M1.5 4.2c0-.7.5-1.2 1.2-1.2h3.1l1.5 1.6h6c.7 0 1.2.5 1.2 1.2v6c0 .7-.5 1.2-1.2 1.2H2.7c-.7 0-1.2-.5-1.2-1.2z" fill="currentColor" fill-opacity=".22" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></symbol>
+        <symbol id="i-up" viewBox="0 0 16 16"><path d="M6 3 2.5 6.5 6 10M3 6.5h6.5a3.5 3.5 0 0 1 3.5 3.5v2.5" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="i-file" viewBox="0 0 16 16"><path d="M4 1.5h5.5l3 3V14a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2a.5.5 0 0 1 .5-.5z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M9.5 1.5v3h3" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></symbol>
+        <symbol id="i-text" viewBox="0 0 16 16"><path d="M4 1.5h5.5l3 3V14a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2a.5.5 0 0 1 .5-.5z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M5.5 7.5h5M5.5 9.5h5M5.5 11.5h3" stroke="currentColor" stroke-width="1" stroke-linecap="round"/></symbol>
+        <symbol id="i-code" viewBox="0 0 16 16"><path d="M4 1.5h5.5l3 3V14a.5.5 0 0 1-.5.5H4a.5.5 0 0 1-.5-.5V2a.5.5 0 0 1 .5-.5z" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/><path d="M7 7.5 5.5 9.5 7 11.5M9 7.5l1.5 2-1.5 2" fill="none" stroke="currentColor" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+        <symbol id="i-image" viewBox="0 0 16 16"><rect x="2" y="3" width="12" height="10" rx="1.2" fill="none" stroke="currentColor" stroke-width="1.1"/><circle cx="5.6" cy="6.4" r="1.1" fill="currentColor"/><path d="m2.5 11.5 3.2-3 2.3 2 2-1.8 3.5 3" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linejoin="round"/></symbol>
+        <symbol id="i-archive" viewBox="0 0 16 16"><rect x="2" y="2.5" width="12" height="3" rx=".8" fill="currentColor" fill-opacity=".22" stroke="currentColor" stroke-width="1.1"/><path d="M3 5.5v7a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1v-7M6.5 8.5h3" fill="none" stroke="currentColor" stroke-width="1.1" stroke-linecap="round"/></symbol>
+    </defs>
+</svg>
 <div id="htmx-error" class="htmx-error-container"></div>
 <script>
 document.body.addEventListener('htmx:responseError', function(evt) {
@@ -45,7 +56,7 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
         {{ else }}
         <span class="footer-item">
             <a href="https://weblist.umputun.dev" class="footer-link">
-                <img src="/assets/favicon.png" class="footer-icon" width="14" height="14" alt="weblist" style="filter: brightness(0) invert(1);"/>
+                <img src="/assets/favicon.png" class="footer-icon" width="14" height="14" alt="weblist"/>
                 weblist
             </a>
         </span>
@@ -75,12 +86,9 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
 </html>
 
 {{ define "page-content" }}
-<div class="breadcrumbs"{{ if .BrandColor }} style="background-color: {{ .BrandColor }}"{{ end }}>
+<div class="breadcrumbs"{{ if and .BrandColor (not .BrandName) }} style="border-top: 3px solid {{ .BrandColor }}"{{ end }}>
+    {{ if .BrandName }}<span class="brand-name"{{ if .BrandColor }} style="background-color: {{ .BrandColor }}"{{ end }}>{{ .BrandName }}</span>{{ end }}
     <div class="path-parts">
-        {{ if .BrandName }}
-        <span class="brand-name">{{ .BrandName }}</span>
-        <span class="brand-separator">|</span>
-        {{ end }}
         <a href="#"
            hx-get="/partials/dir-contents"
            hx-vals='{"path": ".", "sort": "{{$.SortBy}}", "dir": "{{$.SortDir}}"}'
@@ -95,7 +103,7 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
         <span class="nav-spinner"></span>
         {{ if .PathParts }}
         {{ range .PathParts }}
-        <span>/</span>
+        <span class="path-separator">/</span>
         <a href="#"
            hx-get="/partials/dir-contents"
            hx-vals='{"path": "{{.Path}}", "sort": "{{$.SortBy}}", "dir": "{{$.SortDir}}"}'
@@ -227,9 +235,7 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
             <td class="name-cell">
                 <!-- Directory entry with icon -->
                 <div class="dir-entry">
-                    <svg class="icon dir-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                        <path d="M.54 3.87.5 3a2 2 0 0 1 2-2h3.672a2 2 0 0 1 1.414.586l.828.828A2 2 0 0 0 9.828 3h3.982a2 2 0 0 1 1.992 2.181l-.637 7A2 2 0 0 1 13.174 14H2.826a2 2 0 0 1-1.991-1.819l-.637-7a1.99 1.99 0 0 1 .342-1.31zM2.19 4a1 1 0 0 0-.996 1.09l.637 7a1 1 0 0 0 .995.91h10.348a1 1 0 0 0 .995-.91l.637-7A1 1 0 0 0 13.81 4H2.19zm4.69-1.707A1 1 0 0 0 6.172 2H2.5a1 1 0 0 0-1 .981l.006.139C1.72 3.042 1.95 3 2.19 3h5.396l-.707-.707z"/>
-                    </svg>
+                    <svg class="icon dir-icon" width="16" height="16"><use href="#i-{{ if eq .Name ".." }}up{{ else }}dir{{ end }}"/></svg>
                     {{.Name}}
                 </div>
             </td>
@@ -256,11 +262,7 @@ document.body.addEventListener('htmx:afterSwap', function(evt) {
                 <div class="file-entry">
                     <!-- File: Link to download handler -->
                     <a href="/{{ .Path }}" class="file-link">
-                        <!-- File icon -->
-                        <svg class="icon file-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
-                            <path d="M5 4a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm-.5 2.5A.5.5 0 0 1 5 6h6a.5.5 0 0 1 0 1H5a.5.5 0 0 1-.5-.5zM5 8a.5.5 0 0 0 0 1h6a.5.5 0 0 0 0-1H5zm0 2a.5.5 0 0 0 0 1h3a.5.5 0 0 0 0-1H5z"/>
-                            <path d="M2 2a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V2zm10-1H4a1 1 0 0 0-1 1v12a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1V2a1 1 0 0 0-1-1z"/>
-                        </svg>
+                        <svg class="icon file-icon kind-{{ .Kind }}" width="16" height="16"><use href="#i-{{ .Kind }}"/></svg>
                         {{ .Name }}
                     </a>
                     <!-- View Icon (only for viewable files) -->
