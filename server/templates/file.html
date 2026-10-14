@@ -375,11 +375,11 @@
         {{ else if .IsHTML }}
             <!-- For HTML files, use iframe to show rendered content -->
             <div class="loading-spinner"></div>
-            <iframe src="/view/{{ .FilePath }}?theme={{ .Theme }}" class="text-preview" sandbox="allow-same-origin allow-scripts allow-forms" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';"></iframe>
+            <iframe src="/view/{{ .FilePath }}?theme={{ .Theme }}" class="text-preview" sandbox="allow-same-origin allow-scripts allow-forms" style="opacity: 0; transition: opacity 0.2s;" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';"></iframe>
         {{ else if .IsText }}
             <!-- For text files, use iframe to show content with theme -->
             <div class="loading-spinner"></div>
-            <iframe src="/view/{{ .FilePath }}?theme={{ .Theme }}" class="text-preview" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';"></iframe>
+            <iframe src="/view/{{ .FilePath }}?theme={{ .Theme }}" class="text-preview" style="opacity: 0; transition: opacity 0.2s;" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';"></iframe>
         {{ else }}
             <!-- For unsupported file types -->
             <div class="unsupported-file">This file type cannot be previewed. <a href="/{{ .FilePath }}" download>Download</a> the file to view it.</div>

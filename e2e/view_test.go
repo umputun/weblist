@@ -3,6 +3,10 @@
 package e2e
 
 import (
+	"bytes"
+	"image/png"
+	"os"
+	"sync"
 	"testing"
 	"time"
 
@@ -275,6 +279,52 @@ func TestTheme_DefaultIsLight(t *testing.T) {
 	theme, err := page.Locator("html").GetAttribute("data-theme")
 	require.NoError(t, err)
 	assert.Equal(t, "light", theme)
+}
+
+func TestView_DarkModalTextPreviewIsNotWhiteWhileLoading(t *testing.T) {
+	// regression: in the dark theme WebKit painted the text preview iframe white until /view responded
+	wk, err := pw.WebKit.Launch(playwright.BrowserTypeLaunchOptions{Headless: new(os.Getenv("E2E_HEADLESS") != "false")})
+	require.NoError(t, err)
+	t.Cleanup(func() { _ = wk.Close() })
+	page, err := wk.NewPage()
+	require.NoError(t, err)
+	_, err = page.Goto(baseURL)
+	require.NoError(t, err)
+	waitVisible(t, page.Locator("table"))
+	_, err = page.Evaluate(`() => document.documentElement.setAttribute('data-theme', 'dark')`)
+	require.NoError(t, err)
+
+	release := make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	t.Cleanup(unblock)
+	require.NoError(t, page.Route("**/view/**", func(route playwright.Route) {
+		go func() {
+			<-release
+			_ = route.Continue()
+		}()
+	}))
+
+	require.NoError(t, page.Locator("tr:has-text('sample.txt') .view-icon").Click())
+	frame := page.Locator("#modal-container iframe.text-preview")
+	require.NoError(t, frame.WaitFor(playwright.LocatorWaitForOptions{State: playwright.WaitForSelectorStateAttached}))
+	time.Sleep(300 * time.Millisecond)
+	shot, err := frame.Screenshot()
+	require.NoError(t, err)
+	unblock()
+
+	img, err := png.Decode(bytes.NewReader(shot))
+	require.NoError(t, err)
+	var sum, n float64
+	b := img.Bounds()
+	for y := b.Min.Y; y < b.Max.Y; y += 4 {
+		for x := b.Min.X; x < b.Max.X; x += 4 {
+			r, g, bl, _ := img.At(x, y).RGBA()
+			sum += (0.299*float64(r) + 0.587*float64(g) + 0.114*float64(bl)) / 257
+			n++
+		}
+	}
+	assert.Less(t, sum/n, 128.0, "preview area should stay dark while the iframe loads")
 }
 
 func TestTheme_DarkViewPageDeclaresSchemeBeforeStylesheets(t *testing.T) {

@@ -130,4 +130,5 @@
 - Tests in `e2e/` directory, organized by feature: `e2e_test.go` (setup + basic), `auth_test.go`, `nav_test.go`, `sort_test.go`, `view_test.go`, `api_test.go`, `upload_test.go`
 - Main server on port 18080 (no auth), auth tests on port 18081 (with auth) to avoid rate limiter conflicts
 - Run with `make e2e` (headless) or `make e2e-ui` (visible browser for debugging)
-- Setup browsers once with `make e2e-setup`
+- Setup browsers once with `make e2e-setup` (Chromium for the suite, WebKit for `TestView_DarkModalTextPreviewIsNotWhiteWhileLoading`, which holds `/view` pending and checks the iframe's initial blank document; WebKit paints that document white under a dark page, Chromium does not)
+- Previews in the modal (`<img>`, `<embed>`, both `<iframe>`s) start at `opacity: 0` and show on load, so the iframe's initial document is never displayed before `/view` responds

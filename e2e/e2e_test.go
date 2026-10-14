@@ -80,7 +80,7 @@ func TestMain(m *testing.M) {
 
 	// install playwright browsers
 	if err := playwright.Install(&playwright.RunOptions{
-		Browsers: []string{"chromium"},
+		Browsers: []string{"chromium", "webkit"},
 	}); err != nil {
 		fmt.Printf("failed to install playwright: %v\n", err)
 		_ = serverCmd.Process.Kill()
