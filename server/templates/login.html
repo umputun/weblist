@@ -14,12 +14,9 @@
 <body>
 
 <main class="container">
-    <div class="breadcrumbs"{{ if .BrandColor }} style="background-color: {{ .BrandColor }}"{{ end }}>
+    <div class="breadcrumbs"{{ if and .BrandColor (not .BrandName) }} style="border-top: 3px solid {{ .BrandColor }}"{{ end }}>
+        {{ if .BrandName }}<span class="brand-name"{{ if .BrandColor }} style="background-color: {{ .BrandColor }}"{{ end }}>{{ .BrandName }}</span>{{ end }}
         <div class="path-parts">
-            {{ if .BrandName }}
-            <span class="brand-name">{{ .BrandName }}</span>
-            <span class="brand-separator">|</span>
-            {{ end }}
             <a href="/">
                 <svg class="icon dir-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">
                     <path d="M8.707 1.5a1 1 0 0 0-1.414 0L.646 8.146a.5.5 0 0 0 .708.708L8 2.207l6.646 6.647a.5.5 0 0 0 .708-.708L13 5.793V2.5a.5.5 0 0 0-.5-.5h-1a.5.5 0 0 0-.5.5v1.293L8.707 1.5Z"/>
@@ -55,7 +52,7 @@
         {{ else }}
         <span class="footer-item">
             <a href="https://weblist.umputun.dev" class="footer-link">
-                <img src="/assets/favicon.png" class="footer-icon" width="14" height="14" alt="weblist" style="filter: brightness(0) invert(1);"/>
+                <img src="/assets/favicon.png" class="footer-icon" width="14" height="14" alt="weblist"/>
                 weblist
             </a>
         </span>

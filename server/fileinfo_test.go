@@ -429,3 +429,32 @@ func TestExtensionlessFileIntegration(t *testing.T) {
 		})
 	}
 }
+
+func TestFileInfo_Kind(t *testing.T) {
+	tests := []struct {
+		name string
+		file FileInfo
+		want string
+	}{
+		{name: "directory", file: FileInfo{Name: "src", IsDir: true}, want: "dir"},
+		{name: "directory with image extension", file: FileInfo{Name: "shots.png", IsDir: true}, want: "dir"},
+		{name: "image", file: FileInfo{Name: "screen.png"}, want: "image"},
+		{name: "uppercase image extension", file: FileInfo{Name: "PHOTO.JPG"}, want: "image"},
+		{name: "svg is an image", file: FileInfo{Name: "logo.svg"}, want: "image"},
+		{name: "archive", file: FileInfo{Name: "backup.zip"}, want: "archive"},
+		{name: "compressed tarball", file: FileInfo{Name: "weblist_1.4.0_linux_amd64.tar.gz"}, want: "archive"},
+		{name: "markdown", file: FileInfo{Name: "README.md"}, want: "text"},
+		{name: "plain text", file: FileInfo{Name: "notes.txt"}, want: "text"},
+		{name: "known extensionless name", file: FileInfo{Name: "LICENSE"}, want: "text"},
+		{name: "go source", file: FileInfo{Name: "main.go"}, want: "code"},
+		{name: "yaml config", file: FileInfo{Name: "config.example.yml"}, want: "code"},
+		{name: "unknown extension", file: FileInfo{Name: "data.bin"}, want: "file"},
+		{name: "unknown extensionless name", file: FileInfo{Name: "weblist"}, want: "file"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assert.Equal(t, tt.want, tt.file.Kind())
+		})
+	}
+}

@@ -60,6 +60,45 @@ func (f FileInfo) TimeStringShort() string {
 	return f.LastModified.Format("02-Jan-06")
 }
 
+// Kind returns the listing's icon category without determining preview eligibility.
+func (f FileInfo) Kind() string {
+	if f.IsDir {
+		return "dir"
+	}
+	ext := strings.ToLower(filepath.Ext(f.Name))
+	switch {
+	case ext == "":
+		if knownTextFilenames[f.Name] {
+			return "text"
+		}
+		return "file"
+	case imageExtensions[ext]:
+		return "image"
+	case archiveExtensions[ext]:
+		return "archive"
+	case proseExtensions[ext]:
+		return "text"
+	case commonTextExtensions[ext]:
+		return "code"
+	}
+	return "file"
+}
+
+var imageExtensions = map[string]bool{
+	".png": true, ".jpg": true, ".jpeg": true, ".gif": true, ".webp": true, ".bmp": true, ".ico": true,
+	".tif": true, ".tiff": true, ".avif": true, ".heic": true, ".svg": true,
+}
+
+var archiveExtensions = map[string]bool{
+	".zip": true, ".tar": true, ".gz": true, ".tgz": true, ".bz2": true, ".xz": true, ".zst": true, ".7z": true,
+	".rar": true, ".jar": true, ".deb": true, ".rpm": true, ".dmg": true, ".iso": true,
+}
+
+var proseExtensions = map[string]bool{
+	".txt": true, ".text": true, ".log": true, ".md": true, ".markdown": true, ".rst": true, ".adoc": true,
+	".asciidoc": true, ".rtf": true, ".csv": true, ".diff": true, ".patch": true,
+}
+
 // isTextLikeMIME returns true if the MIME type represents text-like content that can be displayed.
 func isTextLikeMIME(mimeType string) bool {
 	return strings.HasPrefix(mimeType, "text/") ||

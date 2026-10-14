@@ -1,71 +1,72 @@
-/* CSS Variables for theming */
+/* design tokens and base element styles; page-specific rules live in weblist-app.css */
 :root {
-  /* Light theme (default) */
   --color-background: #ffffff;
-  --color-surface: #f8f9fa;
-  --color-hover: #f0f1f3; /* Slightly lighter than surface for hover */
-  --color-primary: #005b99;
-  --color-primary-hover: #004275;
-  --color-text: #333333;
-  --color-text-muted: #6c757d;
-  --color-border: #e0e0e0;
-  --color-border-muted: #eaeaea;
-  --color-error: #dc3545;
-  --color-error-background: #f8d7da;
-  
-  /* UI Colors */
+  --color-page: #f4f5f7;
+  --color-surface: #fafbfc;
+  --color-hover: #f3f6fa;
+  --color-selected: #e8f1fc;
+  --color-primary: #0b4f8a;
+  --color-primary-hover: #0a416f;
+  --color-primary-text: #0b5cad;
+  --color-text: #1c2128;
+  --color-text-muted: #667085;
+  --color-border: #e2e5ea;
+  --color-border-muted: #eceef1;
+  --color-error: #c9303f;
+  --color-error-background: #fbe9eb;
+
   --color-white: #ffffff;
   --color-white-semi: rgba(255, 255, 255, 0.9);
   --color-white-muted: rgba(255, 255, 255, 0.6);
-  --color-white-overlay: rgba(255, 255, 255, 0.2);
-  --color-white-overlay-hover: rgba(255, 255, 255, 0.3);
-  --color-shadow: rgba(0, 0, 0, 0.1);
-  --color-modal-backdrop: rgba(0, 0, 0, 0.5);
-  --color-modal-shadow: rgba(0, 0, 0, 0.15);
-  
-  /* Spacing */
+  --color-white-overlay: rgba(255, 255, 255, 0.14);
+  --color-white-overlay-hover: rgba(255, 255, 255, 0.24);
+  --color-shadow: rgba(16, 24, 40, 0.06);
+  --color-modal-backdrop: rgba(15, 19, 24, 0.55);
+  --color-modal-shadow: rgba(0, 0, 0, 0.25);
+
+  --color-kind-code: #8a63d2;
+  --color-kind-image: #1f9d6b;
+  --color-kind-archive: #c2780c;
+
   --spacing-xs: 0.25rem;
   --spacing-sm: 0.5rem;
   --spacing-md: 1rem;
   --spacing-lg: 2rem;
   --spacing-xl: 3rem;
-  
-  /* Border radius */
-  --border-radius-sm: 4px;
-  --border-radius-md: 6px;
-  --border-radius-lg: 8px;
+
+  --border-radius-sm: 6px;
+  --border-radius-md: 8px;
+  --border-radius-lg: 10px;
   --border-radius-full: 50%;
-  
-  /* Shadows */
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.1);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.1);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.1);
+
+  --shadow-sm: 0 1px 2px rgba(16, 24, 40, 0.05);
+  --shadow-md: 0 4px 12px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 12px 32px rgba(16, 24, 40, 0.14);
 }
 
-/* Dark theme */
 [data-theme="dark"] {
-  --color-background: #1a1a1a;
-  --color-surface: #282828;
-  --color-hover: #333333; /* Slightly lighter than surface for hover effects */
-  --color-primary: #235a8c; /* Darker blue for dark theme */
+  color-scheme: dark;
+  --color-background: #171c23;
+  --color-page: #0f1318;
+  --color-surface: #1b212a;
+  --color-hover: #1e2530;
+  --color-selected: #17304e;
+  --color-primary: #1f5f9e;
   --color-primary-hover: #99c5f1;
-  --color-primary-text: #4dabff; /* Light blue for text links on dark backgrounds */
-  --color-primary-semi: rgba(35, 90, 140, 0.8); /* Semi-transparent primary for overlays */
-  --color-text: #e6e6e6;
-  --color-text-muted: #b0b0b0;
-  --color-border: #444444;
-  --color-border-muted: #333333;
+  --color-primary-text: #5aa9f0;
+  --color-primary-semi: rgba(31, 95, 158, 0.8);
+  --color-text: #e4e8ee;
+  --color-text-muted: #8b95a5;
+  --color-border: #272e38;
+  --color-border-muted: #222932;
   --color-error: #f16174;
   --color-error-background: #33181c;
-  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.3);
-  --shadow-md: 0 4px 6px rgba(0, 0, 0, 0.3);
-  --shadow-lg: 0 10px 15px rgba(0, 0, 0, 0.3);
-  
-  /* UI colors stay the same for white elements */
   --color-shadow: rgba(0, 0, 0, 0.3);
+  --shadow-sm: none;
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.35);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
 }
 
-/* Reset */
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -77,16 +78,14 @@ body {
   font-size: 1rem;
   line-height: 1.5;
   color: var(--color-text);
-  background-color: var(--color-background);
+  background-color: var(--color-page);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   min-height: 100vh;
-  padding-bottom: 50px; /* Space for footer */
   display: flex;
   flex-direction: column;
 }
 
-/* Typography */
 h1, h2, h3, h4, h5, h6 {
   margin-top: 0;
   margin-bottom: var(--spacing-md);
@@ -120,44 +119,15 @@ svg {
   vertical-align: middle;
 }
 
-/* Tables */
 table {
-  width: 100%;
-  margin-bottom: var(--spacing-md);
   border-collapse: collapse;
-  table-layout: fixed;
-}
-
-thead {
-  border-bottom: 2px solid var(--color-border);
 }
 
 th {
-  padding: var(--spacing-sm) var(--spacing-sm);
   text-align: left;
   font-weight: 600;
-  color: var(--color-text-muted);
-  cursor: pointer;
 }
 
-th:hover {
-  color: var(--color-primary);
-}
-
-td {
-  padding: var(--spacing-sm) var(--spacing-sm);
-  border-bottom: 1px solid var(--color-border-muted);
-}
-
-tr:hover td {
-  background-color: var(--color-hover);
-}
-
-table[role="grid"] {
-  margin-bottom: 0;
-}
-
-/* Forms */
 form {
   margin-bottom: var(--spacing-md);
 }
@@ -171,7 +141,7 @@ label {
 input, select, textarea {
   display: block;
   width: 100%;
-  padding: var(--spacing-sm) var(--spacing-md);
+  padding: var(--spacing-sm) 0.75rem;
   margin-bottom: var(--spacing-md);
   font-size: 1rem;
   line-height: 1.5;
@@ -180,25 +150,28 @@ input, select, textarea {
   border: 1px solid var(--color-border);
   border-radius: var(--border-radius-sm);
   transition: border-color 0.15s ease-in-out, box-shadow 0.15s ease-in-out;
-  min-width: 300px; /* Ensure minimum width for password fields */
 }
 
 input:focus, select:focus, textarea:focus {
   outline: 0;
-  border-color: var(--color-primary);
-  box-shadow: 0 0 0 3px rgba(0, 91, 153, 0.2);
+  border-color: var(--color-primary-text);
+  box-shadow: 0 0 0 3px rgba(11, 92, 173, 0.18);
 }
 
 [data-theme="dark"] input:focus,
 [data-theme="dark"] select:focus,
 [data-theme="dark"] textarea:focus {
-  box-shadow: 0 0 0 3px rgba(59, 156, 255, 0.2);
+  box-shadow: 0 0 0 3px rgba(90, 169, 240, 0.22);
 }
 
-/* Buttons */
+input[type="checkbox"] {
+  accent-color: var(--color-primary-text);
+}
+
 button, .button {
   display: inline-block;
-  font-weight: 500;
+  font-family: inherit;
+  font-weight: 550;
   text-align: center;
   vertical-align: middle;
   cursor: pointer;
@@ -209,7 +182,7 @@ button, .button {
   color: #fff;
   background-color: var(--color-primary);
   border: 1px solid var(--color-primary);
-  transition: all 0.15s ease-in-out;
+  transition: background-color 0.15s ease-in-out, border-color 0.15s ease-in-out;
 }
 
 button:hover, .button:hover {
@@ -218,18 +191,10 @@ button:hover, .button:hover {
   text-decoration: none;
 }
 
-button.contrast, .button.contrast {
-  color: var(--color-primary);
-  background-color: transparent;
-  border-color: var(--color-primary);
+[data-theme="dark"] button:hover, [data-theme="dark"] .button:hover {
+  color: #08121d;
 }
 
-button.contrast:hover, .button.contrast:hover {
-  color: white;
-  background-color: var(--color-primary);
-}
-
-/* Containers */
 .container {
   width: 100%;
   max-width: 1200px;
@@ -239,76 +204,19 @@ button.contrast:hover, .button.contrast:hover {
   padding-left: var(--spacing-md);
 }
 
-/* Removing .container-fluid as it's not used */
-
-/* Article (container for content) */
 article {
-  padding: var(--spacing-md);
-  background-color: var(--color-surface);
-  border-radius: var(--border-radius-md);
+  background-color: var(--color-background);
+  border: 1px solid var(--color-border);
+  border-radius: var(--border-radius-lg);
   box-shadow: var(--shadow-sm);
-  margin-bottom: var(--spacing-md);
-  border: 1px solid var(--color-border-muted);
 }
-
-/* Removing utilities as they're not used in our templates */
 
 .error-message {
   background-color: var(--color-error-background);
   color: var(--color-error);
-  padding: var(--spacing-md);
+  padding: 0.6rem 0.8rem;
   border-radius: var(--border-radius-sm);
   margin-bottom: var(--spacing-md);
-  border-left: 4px solid var(--color-error);
+  border-left: 3px solid var(--color-error);
+  font-size: 0.9rem;
 }
-
-/* Specific styles for the application layout */
-main.container {
-  padding: var(--spacing-md) var(--spacing-xl) var(--spacing-xl) var(--spacing-xl);
-  margin: 0;
-  max-width: 100%;
-}
-
-/* Import existing styles converted to use our new variables */
-/* @import 'weblist-app.css'; */
-
-.centered-login-box {
-  max-width: 400px;
-  margin: 8rem auto 0;
-  padding: 2rem;
-  border-radius: var(--border-radius-lg);
-  box-shadow: var(--shadow-md);
-  background-color: var(--color-surface);
-}
-
-.centered-login-box form {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: var(--spacing-md);
-  margin-bottom: 0;
-}
-
-.centered-login-box input[type="password"] {
-  margin-bottom: 0;
-}
-
-.centered-login-box button {
-  width: auto;
-  min-width: 120px;
-  margin-top: var(--spacing-md);
-  color: var(--color-white);
-  background-color: var(--color-primary);
-  border: 1px solid var(--color-primary);
-}
-
-.centered-login-box button:hover {
-  background-color: var(--color-primary-hover);
-  border-color: var(--color-primary-hover);
-}
-
-.centered-login-box h3 {
-  text-align: center;
-  margin-bottom: var(--spacing-lg);
-  color: var(--color-text);
-} 
