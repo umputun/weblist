@@ -67,6 +67,24 @@
   --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.5);
 }
 
+/* unsupported color-mix() in a token does not fall back to its earlier value */
+@supports (color: color-mix(in srgb, red, blue)) {
+  [data-brand] {
+    --color-primary: color-mix(in srgb, var(--brand) 85%, black);
+    --color-primary-hover: color-mix(in srgb, var(--brand) 70%, black);
+    --color-primary-text: color-mix(in srgb, var(--brand) 85%, black);
+    --color-selected: color-mix(in srgb, var(--brand) 12%, var(--color-background));
+    --color-hover: color-mix(in srgb, var(--brand) 6%, var(--color-background));
+  }
+
+  [data-theme="dark"][data-brand] {
+    --color-primary-hover: color-mix(in srgb, var(--brand) 55%, white);
+    --color-primary-text: color-mix(in srgb, var(--brand) 65%, white);
+    --color-selected: color-mix(in srgb, var(--brand) 24%, var(--color-background));
+    --color-hover: color-mix(in srgb, var(--brand) 10%, var(--color-background));
+  }
+}
+
 *, *::before, *::after {
   box-sizing: border-box;
 }
@@ -162,6 +180,12 @@ input:focus, select:focus, textarea:focus {
 [data-theme="dark"] select:focus,
 [data-theme="dark"] textarea:focus {
   box-shadow: 0 0 0 3px rgba(90, 169, 240, 0.22);
+}
+
+@supports (color: color-mix(in srgb, red, blue)) {
+  [data-brand] input:focus, [data-brand] select:focus, [data-brand] textarea:focus {
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--color-primary-text) 22%, transparent);
+  }
 }
 
 input[type="checkbox"] {

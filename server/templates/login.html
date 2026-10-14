@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="{{ .Theme }}">
+<html lang="en" data-theme="{{ .Theme }}"{{ if .BrandColor }} data-brand style="--brand: {{ .BrandColor }}"{{ end }}>
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">

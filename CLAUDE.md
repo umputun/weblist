@@ -93,6 +93,7 @@
 ### Page Layout and Styles
 - `.breadcrumbs` is the single sticky header bar inside `page-content`: an optional `.brand-name` block, `.path-parts`, then `.actions-container` with selection status, upload controls and Login/Logout
 - `--brand.color` fills the `.brand-name` block (a chevron cut with `clip-path`, its right padding reserving the point), which renders only when `--brand.name` is set; a color without a name becomes a 3px top border on the bar, on the listing and the login page alike
+- A set `--brand.color` also puts `data-brand` and `--brand` on `<html>`; `custom.css` derives the accent tokens (`--color-primary*`, `--color-selected`, `--color-hover`) from it inside `@supports (color: color-mix(...))`, since unsupported `color-mix()` values invalidate the consuming CSS properties rather than preserving the existing palette. The `/view` page gets no brand data and keeps the default accent
 - `--title` is the home breadcrumb label, pinned by `TestTitleFunctionality`; it never moves into the brand block
 - `custom.css` holds the design tokens and base element styles, `weblist-app.css` the page rules; listing table rules are scoped under `#file-listing` because `/view` loads both stylesheets and renders Markdown and CSV tables
 - `FileInfo.Kind()` picks the row icon from the name (`#i-<kind>` symbols in the sprite at the top of `index.html`, outside the swapped area); it has no say in preview eligibility

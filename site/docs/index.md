@@ -324,6 +324,7 @@ weblist --brand.name "My Company" --brand.color "#3498db" --custom-footer "© 20
 When branding is enabled:
 - Your organization name appears in a block at the left end of the navigation bar
 - The specified color fills that block; a color given without a name shows as a thin accent line along the top of the bar
+- The color also tints the accents: links, folder icons, checkboxes, selected and hovered rows, focus rings and the login button, in a shade adjusted for the light or dark theme
 - Custom footer text replaces the default footer links (allows HTML links)
 - The branding is consistently displayed across all pages
 - These settings can be combined with all other Weblist options
