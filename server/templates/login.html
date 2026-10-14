@@ -15,7 +15,7 @@
 
 <main class="container">
     <div class="breadcrumbs"{{ if and .BrandColor (not .BrandName) }} style="border-top: 3px solid {{ .BrandColor }}"{{ end }}>
-        {{ if .BrandName }}<span class="brand-name"{{ if .BrandColor }} style="background-color: {{ .BrandColor }}"{{ end }}>{{ .BrandName }}</span>{{ end }}
+        {{ if .BrandName }}<span class="brand-name"{{ if .BrandColor }} style="background-color: {{ .BrandColor }}"{{ end }}><span>{{ .BrandName }}</span></span>{{ end }}
         <div class="path-parts">
             <a href="/">
                 <svg class="icon dir-icon" xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16">

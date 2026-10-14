@@ -25,14 +25,22 @@ main.container {
   display: flex;
   align-items: center;
   max-width: 40%;
-  padding: 0 1.25rem;
+  padding: 0 2.25rem 0 1.25rem;
   background-color: var(--color-primary);
+  /* the right padding is the point's clearance: clip-path cuts the box, it does not shrink it */
+  clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%);
   color: var(--color-white);
   font-size: 0.95rem;
   font-weight: 650;
   letter-spacing: -0.01em;
   white-space: nowrap;
   overflow: hidden;
+}
+
+.brand-name > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .path-parts {
@@ -664,7 +672,7 @@ pre {
   }
 
   .brand-name {
-    padding: 0 0.9rem;
+    padding: 0 1.9rem 0 0.9rem;
   }
 
   .path-parts {
