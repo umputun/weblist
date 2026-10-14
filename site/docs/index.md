@@ -18,8 +18,10 @@ A modern, elegant file browser for the web. Weblist provides a clean and intuiti
 - **Dark Mode**: Easy on the eyes with both light and dark themes
 - **Optional Authentication**: Password-protect your file listings when needed
 - **Multi-file Selection**: Select and download multiple files as a ZIP archive (optional)
+- **File Upload**: Upload files and folders through pickers or drag-and-drop, and paste files from the clipboard (optional)
 - **SFTP Support**: Access the same files via SFTP for more advanced operations
 - **Syntax Highlighting**: Beautiful code highlighting for various programming languages (optional)
+- **Markdown Rendering**: Markdown files (.md, .markdown) are rendered as formatted HTML with headings, tables, code blocks, and more
 - **JSON API**: Programmatic access to file listings via a simple JSON API
 
 <details markdown>
@@ -62,6 +64,9 @@ weblist --syntax-highlight
 
 # Enable multi-file selection and download
 weblist --multi
+
+# Enable file upload
+weblist --upload.enabled
 
 # Set a custom title for your file server
 weblist --title "My Files"
@@ -129,6 +134,23 @@ Branding Options (with `--brand` prefix):
 - `--brand.name`: Company or organization name to display in navbar - env: `BRAND_NAME`
 - `--brand.color`: Color for navbar (e.g. `3498db` or `#3498db`) - env: `BRAND_COLOR`
 
+### Exclusions
+
+`--exclude` takes a path made of one or more components, matched against whole path components
+relative to the root directory. A pattern matches wherever its components appear as a consecutive
+run in a path, and everything below a match is excluded as well:
+
+```bash
+# hide every .git directory anywhere in the tree, along with its content
+weblist --exclude .git
+
+# hide the docs/private directory and everything beneath it, leaving docs/private2 visible
+weblist --exclude docs/private
+```
+
+Excluded paths are hidden from listings and rejected for download, preview, archive selection and
+SFTP access. Matching is on whole components, so `--exclude vendor` does not affect `vendors`.
+
 ## Authentication
 
 Weblist provides optional password protection for your file listings:
@@ -166,13 +188,16 @@ Authentication is completely optional and only activated when the `--auth` param
 By default `--auth` protects everything: listings, downloads and uploads. With `--auth.public-read` the
 password applies to uploads only, so the server works as a public download site that only you can write to.
 
-```bash
+```
 weblist --auth your_password --upload.enabled --auth.public-read
 ```
 
 Anonymous visitors get the full listing, downloads, file previews and the JSON API, and see a Login link
-instead of the upload buttons. The flag refuses to start without `--auth`, and it only affects HTTP:
-SFTP still requires the password or an authorized_keys file.
+instead of the upload buttons. After logging in the upload buttons appear and the link becomes Logout.
+
+The flag refuses to start without `--auth`, since without a password there is nothing to require and
+uploads would accept anonymous writes. It only affects HTTP: SFTP still requires the password or an
+authorized_keys file.
 
 ## SFTP Access
 
@@ -233,32 +258,48 @@ Multi-file selection is disabled by default for a cleaner interface and can be e
 
 ## File Upload
 
-Weblist can optionally accept uploads into the directory being browsed:
+Weblist can optionally allow users to upload files to the currently viewed directory:
 
 ```bash
 # Enable file upload
 weblist --upload.enabled
 
-# Raise the per-file size limit (default is 64MB)
-weblist --upload.enabled --upload.max-size 256
+# Set max upload size (default: 64MB)
+weblist --upload.enabled --upload.max-size 128
 
-# Allow replacing files that already exist
+# Allow overwriting existing files (default: reject duplicates)
 weblist --upload.enabled --upload.overwrite
 ```
 
-When upload is enabled:
+When file upload is enabled:
+- "Upload files" and "Upload folder" buttons appear in the toolbar for picking files or a whole directory
+- Files and folders can be dragged and dropped onto the file listing area; a dropped folder is recreated with its subdirectories under the current directory
+- Files can be pasted from the clipboard (e.g., screenshots)
+- Multiple files can be uploaded at once; each file is sent as its own request, so one failure does not stop the rest, and a summary reports what was uploaded, what failed and why
+- A selection is limited to 1000 files; empty directories inside a dropped folder are not recreated
+- Enabling upload also permits creating directories under the root: a target subdirectory that does not exist yet is created, after every file in the request has passed validation
+- Exclude patterns (`--exclude`) apply to uploaded directories and file names, so an excluded name such as `.env` cannot be written
+- File size is validated per file, client-side and server-side; a request carrying several files is additionally bounded at the max size plus a small overhead
+- Duplicate filenames are rejected by default (configurable with `--upload.overwrite`)
+- Path traversal attacks are blocked — upload paths are checked against the root after resolving existing directory symlinks
+- Upload is protected by authentication when auth is enabled, including under `--auth.public-read`, where it is the only thing that is
 
-- Upload buttons appear in the header for picking files or a whole folder
-- Files can be dragged onto the listing or pasted from the clipboard
-- Each file is sent as its own request, so one failure does not stop the rest
-- A summary reports what was uploaded, what failed and why
-- A target subdirectory that does not exist yet is created once every file has passed validation
-- Exclude patterns (`--exclude`) apply to uploaded names, so an excluded name such as `.env` cannot be written
-- Duplicate filenames are rejected unless `--upload.overwrite` is set
-- Upload paths are checked against the root, so traversal outside it is blocked
-- With `--auth` set, uploading requires logging in
+The upload endpoint accepts `POST /upload` with `multipart/form-data` containing a `path` field (target directory, which may name a subdirectory that does not exist yet and will be created) and one or more `file` fields.
 
 File upload is disabled by default and can be enabled with the `--upload.enabled` flag.
+
+## Recursive Directory Modification Time
+
+By default, when sorting by date, directories show their own modification time - which only updates when files are added, removed, or renamed directly within that directory. Modifying a file inside a subdirectory does not change the parent directory's timestamp.
+
+With `--recursive-mtime` enabled, weblist calculates directory modification time by scanning all nested files and using the newest file's timestamp. This is useful when you want directories sorted by when their content was last updated, regardless of nesting depth.
+
+```bash
+# Enable recursive modification time calculation
+weblist --recursive-mtime
+```
+
+**Tradeoff:** This feature walks the entire directory tree to find the newest file, which can be slow on large directory structures with many nested files. Use with caution on directories containing thousands of files.
 
 ## Custom Branding
 
@@ -380,6 +421,8 @@ For viewing text files or code in the browser with syntax highlighting (when ena
 GET /view/{path/to/file}
 ```
 
+Markdown files (`.md`, `.markdown`) are automatically rendered as formatted HTML with support for GFM (GitHub Flavored Markdown) — headings, tables, task lists, fenced code blocks with syntax highlighting, and more. This happens automatically without any configuration.
+
 All file access respects the same authentication and exclusion rules as the web interface.
 
 ## Docker
@@ -403,7 +446,7 @@ services:
       - "8080:8080"
       - "2022:2022"  # SFTP port
     volumes:
-      - /path/to/files:/data:ro
+      - /path/to/files:/data:ro  # use /path/to/files:/data (without :ro) if upload is enabled
     environment:
       - LISTEN=:8080
       - THEME=light
@@ -411,6 +454,7 @@ services:
       - EXCLUDE=.git,.env
       - AUTH=your_password  # Optional: Enable password authentication
       - AUTH_USER=admin  # Optional: HTTP Basic Auth username (default: weblist)
+      - AUTH_PUBLIC_READ=true  # Optional: public browsing and downloads, auth for uploads only
       - SESSION_SECRET=your_secure_key  # Optional: Secret for signing session tokens
       - SESSION_TTL=24h  # Optional: Session timeout duration
       - BRAND_NAME=My Company  # Optional: Display company name in navbar
@@ -423,5 +467,9 @@ services:
       - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth
       - SYNTAX_HIGHLIGHT=true  # Optional: Enable syntax highlighting for code files
       - MULTI_SELECT=true  # Optional: Enable multi-file selection and download
+      - UPLOAD_ENABLED=true  # Optional: Enable file upload
+      - UPLOAD_MAX_SIZE=64  # Optional: Max upload size in MB (default: 64)
+      - UPLOAD_OVERWRITE=false  # Optional: Allow overwriting existing files
+      - RECURSIVE_MTIME=true  # Optional: Calculate directory mtime from newest nested file
       - TITLE=My File Server  # Optional: Custom title for the site
 ```
