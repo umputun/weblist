@@ -191,7 +191,8 @@ button:hover, .button:hover {
   text-decoration: none;
 }
 
-[data-theme="dark"] button:hover, [data-theme="dark"] .button:hover {
+/* :where keeps this below any component's own hover rule; only the generic primary button gets it */
+:where([data-theme="dark"]) button:hover, :where([data-theme="dark"]) .button:hover {
   color: #08121d;
 }
 
