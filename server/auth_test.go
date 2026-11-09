@@ -95,6 +95,54 @@ func TestLoginOversizedRequest(t *testing.T) {
 	assert.Equal(t, http.StatusRequestEntityTooLarge, rr.Code, "oversized login POST should be rejected with 413")
 }
 
+func TestRouter_AuthPublicRoutesAndEncodedSlash(t *testing.T) {
+	// regression: an encoded slash after /assets skipped the auth check and reached the download catch-all
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "secret.txt"), []byte("secret"), 0o600))
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "assets"), 0o750))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "assets", "private.txt"), []byte("private"), 0o600))
+
+	srv := &Web{
+		Config: Config{RootDir: root, Auth: "testpassword", SessionTTL: time.Hour},
+		FS:     os.DirFS(root),
+	}
+	router, err := srv.router()
+	require.NoError(t, err)
+
+	tests := []struct {
+		name, target string
+		auth         bool
+		code         int
+		location     string
+		body         string
+	}{
+		{name: "login page", target: "/login", code: http.StatusOK},
+		{name: "embedded css", target: "/assets/css/custom.css", code: http.StatusOK},
+		{name: "favicon", target: "/favicon.ico", code: http.StatusOK},
+		{name: "served file", target: "/secret.txt", code: http.StatusSeeOther, location: "/login"},
+		{name: "encoded slash traversal", target: "/assets%2F..%2Fsecret.txt", code: http.StatusSeeOther, location: "/login"},
+		{name: "encoded slash into served assets", target: "/assets%2Fprivate.txt", code: http.StatusSeeOther, location: "/login"},
+		{name: "traversal target with auth", target: "/assets%2F..%2Fsecret.txt", auth: true, code: http.StatusOK, body: "secret"},
+		{name: "served assets target with auth", target: "/assets%2Fprivate.txt", auth: true, code: http.StatusOK, body: "private"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodGet, tc.target, http.NoBody)
+			if tc.auth {
+				req.SetBasicAuth("weblist", "testpassword")
+			}
+			rr := httptest.NewRecorder()
+			router.ServeHTTP(rr, req)
+
+			assert.Equal(t, tc.code, rr.Code)
+			assert.Equal(t, tc.location, rr.Header().Get("Location"))
+			if tc.body != "" {
+				assert.Equal(t, tc.body, rr.Body.String())
+			}
+		})
+	}
+}
+
 func TestAuthentication(t *testing.T) {
 	// create a server with authentication
 	srv := &Web{
@@ -193,36 +241,6 @@ func TestAuthentication(t *testing.T) {
 
 		assert.Equal(t, http.StatusSeeOther, rr.Code)
 		assert.Equal(t, "/login", rr.Header().Get("Location"))
-	})
-
-	t.Run("login page accessible without auth", func(t *testing.T) {
-		req, err := http.NewRequest("GET", "/login", nil)
-		require.NoError(t, err)
-
-		rr := httptest.NewRecorder()
-		handler := srv.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("login page"))
-		}))
-		handler.ServeHTTP(rr, req)
-
-		assert.Equal(t, http.StatusOK, rr.Code)
-		assert.Equal(t, "login page", rr.Body.String())
-	})
-
-	t.Run("assets accessible without auth", func(t *testing.T) {
-		req, err := http.NewRequest("GET", "/assets/css/custom.css", nil)
-		require.NoError(t, err)
-
-		rr := httptest.NewRecorder()
-		handler := srv.authMiddleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			w.WriteHeader(http.StatusOK)
-			w.Write([]byte("css content"))
-		}))
-		handler.ServeHTTP(rr, req)
-
-		assert.Equal(t, http.StatusOK, rr.Code)
-		assert.Equal(t, "css content", rr.Body.String())
 	})
 
 	t.Run("logout clears auth cookie", func(t *testing.T) {

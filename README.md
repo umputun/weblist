@@ -127,7 +127,7 @@ SFTP Options (with `--sftp` prefix):
 - `--sftp.enabled`: Enable SFTP server - env: `SFTP_ENABLED`
 - `--sftp.user`: Username for SFTP access - env: `SFTP_USER`
 - `--sftp.address`: Address for SFTP server (default: `:2022`) - env: `SFTP_ADDRESS`
-- `--sftp.key`: SSH private key file (default: `weblist_rsa`) - env: `SFTP_KEY`
+- `--sftp.key`: SSH private key file, must be outside `--root` (default: `weblist_rsa`) - env: `SFTP_KEY`
 - `--sftp.authorized`: Path to OpenSSH authorized_keys file for public key authentication - env: `SFTP_AUTHORIZED`
 
 Branding Options (with `--brand` prefix):
@@ -205,16 +205,16 @@ Weblist can also provide SFTP access to the same files:
 
 ```bash
 # Enable SFTP with password authentication
-weblist --auth your_password --sftp.enabled --sftp.user sftp_user
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.key /path/outside/root/ssh_key
 
 # Use a custom SFTP port
-weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.address :2222
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.key /path/outside/root/ssh_key --sftp.address :2222
 
-# Specify a custom SSH host key file
-weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.key /path/to/ssh_key
+# Use the default key file name in the current directory, serving another directory
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user --root /path/to/files
 
 # Enable SFTP with public key authentication (no password needed)
-weblist --sftp.enabled --sftp.user sftp_user --sftp.authorized /path/to/authorized_keys
+weblist --sftp.enabled --sftp.user sftp_user --sftp.key /path/outside/root/ssh_key --sftp.authorized /path/to/authorized_keys
 ```
 
 When SFTP is enabled:
@@ -226,8 +226,9 @@ When SFTP is enabled:
 - The username for SFTP is specified with the `--sftp.user` parameter
 - SFTP access is read-only for security reasons
 - SSH host keys are stored to prevent client warnings about changing keys
-  - By default, the key is stored as `weblist_rsa` in the current directory
+  - By default, the key is stored as `weblist_rsa` in the current directory, which works only when `--root` points to another directory
   - You can specify a custom key file with `--sftp.key`
+  - The key must be outside the served root, otherwise weblist refuses to start, since HTTP and SFTP would serve the private key as an ordinary file. It also refuses a key path containing `..` or passing through a symlink to a missing target. To keep the existing host identity, move the old key file out of the root (do not copy it, the copy left behind stays downloadable) and point `--sftp.key` at the new location
 
 SFTP support is optional and only enabled when both `--sftp.enabled` and `--sftp.user` parameters are provided. Either the `--auth` or `--sftp.authorized` parameter is required when enabling SFTP.
 
@@ -448,6 +449,7 @@ services:
       - "2022:2022"  # SFTP port
     volumes:
       - /path/to/files:/data:ro  # use /path/to/files:/data (without :ro) if upload is enabled
+      - /path/to/keys:/keys  # Optional: SFTP host key storage, must be outside /data
     environment:
       - LISTEN=:8080
       - THEME=light
@@ -464,7 +466,7 @@ services:
       - SFTP_ENABLED=true   # Optional: Enable SFTP server
       - SFTP_USER=sftp_user # Optional: Username for SFTP access
       - SFTP_ADDRESS=:2022  # Optional: SFTP port
-      - SFTP_KEY=/data/ssh_key  # Optional: Path to SSH host key
+      - SFTP_KEY=/keys/ssh_key  # Optional: Path to SSH host key, must be outside ROOT_DIR
       - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth
       - SYNTAX_HIGHLIGHT=true  # Optional: Enable syntax highlighting for code files
       - MULTI_SELECT=true  # Optional: Enable multi-file selection and download

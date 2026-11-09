@@ -301,22 +301,16 @@ func (wb *Web) router() (http.Handler, error) {
 
 // authMiddleware enforces authentication for protected routes.
 // It uses a multi-tiered authentication approach:
-//  1. Login page (/login) and static assets are always accessible without authentication
-//  2. Checks for a valid authentication cookie first
-//  3. Falls back to HTTP Basic Auth with the configured username and password
-//  4. On successful Basic Auth, sets a cookie for future requests to avoid repeated authentication
-//  5. Answers an unauthenticated POST /upload with a JSON 401, and redirects every other
+//  1. Checks for a valid authentication cookie first
+//  2. Falls back to HTTP Basic Auth with the configured username and password
+//  3. On successful Basic Auth, sets a cookie for future requests to avoid repeated authentication
+//  4. Answers an unauthenticated POST /upload with a JSON 401, and redirects every other
 //     unauthenticated request to the login page
 //
-// This middleware belongs after all other middleware but before route handlers.
+// Public routes are registered outside the groups it wraps, so it exempts no path; the decoded
+// r.URL.Path must not exempt a request, as "/assets%2F..." routes to the file catch-all.
 func (wb *Web) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// skip authentication for login page and assets
-		if r.URL.Path == "/login" || strings.HasPrefix(r.URL.Path, "/assets/") {
-			next.ServeHTTP(w, r)
-			return
-		}
-
 		// check if user is authenticated via cookie
 		if wb.isAuthenticatedByCookie(r) {
 			next.ServeHTTP(w, r)
