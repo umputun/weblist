@@ -1112,7 +1112,9 @@ func TestCheckSFTPKey(t *testing.T) {
 	rootLink := filepath.Join(base, "data-link")
 	require.NoError(t, os.Symlink(root, rootLink))
 	require.NoError(t, os.Symlink(filepath.Join(root, "new_rsa"), filepath.Join(outside, "dangling_rsa")))
-	const inRoot, dangling = "inside the served root", "symlink to a missing target"
+	require.NoError(t, os.MkdirAll(filepath.Join(root, "sub"), 0o750))
+	require.NoError(t, os.Symlink(filepath.Join(root, "sub"), filepath.Join(outside, "sub-link")))
+	const inRoot, dangling, dotDot = "inside the served root", "symlink to a missing target", `contains ".."`
 
 	tests := []struct {
 		name, root, key string
@@ -1124,6 +1126,9 @@ func TestCheckSFTPKey(t *testing.T) {
 		{name: "missing key in missing subdir inside root", root: root, key: filepath.Join(root, "a", "b", "k"), enabled: true, wantErr: inRoot},
 		{name: "outside symlink to key inside root", root: root, key: filepath.Join(outside, "link_rsa"), enabled: true, wantErr: inRoot},
 		{name: "outside dangling symlink into root", root: root, key: filepath.Join(outside, "dangling_rsa"), enabled: true, wantErr: dangling},
+		{name: "dot-dot via link into root, missing", root: root, key: outside + "/sub-link/../host_rsa", enabled: true, wantErr: dotDot},
+		{name: "dot-dot via link into root, existing", root: root, key: outside + "/sub-link/../existing_rsa", enabled: true, wantErr: dotDot},
+		{name: "dot-dot outside root", root: root, key: outside + "/../keys/weblist_rsa", enabled: true, wantErr: dotDot},
 		{name: "root given as symlink", root: rootLink, key: filepath.Join(root, "weblist_rsa"), enabled: true, wantErr: inRoot},
 		{name: "key given through root symlink", root: root, key: filepath.Join(rootLink, "weblist_rsa"), enabled: true, wantErr: inRoot},
 		{name: "missing key outside root", root: root, key: filepath.Join(outside, "weblist_rsa"), enabled: true},
@@ -1174,14 +1179,25 @@ func TestCheckSFTPKey(t *testing.T) {
 	})
 
 	t.Run("runServer refuses before starting listeners", func(t *testing.T) {
-		for _, key := range []string{filepath.Join(root, "weblist_rsa"), filepath.Join(outside, "dangling_rsa")} {
+		keys := []struct{ key, wantErr string }{
+			{key: filepath.Join(root, "weblist_rsa"), wantErr: inRoot},
+			{key: filepath.Join(outside, "dangling_rsa"), wantErr: dangling},
+			{key: outside + "/sub-link/../host_rsa", wantErr: dotDot},
+		}
+		for _, k := range keys {
 			opts := &options{RootDir: root, Listen: "127.0.0.1:0", Auth: "secret"}
 			opts.SFTP.Enabled = true
 			opts.SFTP.User = "weblist"
-			opts.SFTP.KeyFile = key
-			require.Error(t, runServer(context.Background(), opts), key)
+			opts.SFTP.Address = "127.0.0.1:0"
+			opts.SFTP.KeyFile = k.key
+			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+			err := runServer(ctx, opts)
+			cancel()
+			require.Error(t, err, k.key)
+			assert.Contains(t, err.Error(), k.wantErr)
 		}
 		assert.NoFileExists(t, filepath.Join(root, "weblist_rsa"))
 		assert.NoFileExists(t, filepath.Join(root, "new_rsa"))
+		assert.NoFileExists(t, filepath.Join(root, "host_rsa"))
 	})
 }

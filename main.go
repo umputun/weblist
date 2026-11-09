@@ -9,6 +9,8 @@ import (
 	"os/signal"
 	"path/filepath"
 	"runtime/debug"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/fatih/color"
@@ -141,10 +143,17 @@ func (o *options) checkPublicRead() error {
 }
 
 // checkSFTPKey rejects an SFTP host key path inside the served root, where HTTP and SFTP would serve
-// the private key as a file, and a path through a dangling symlink, which key generation would follow.
+// the private key as a file, a path through a dangling symlink, which key generation would follow,
+// and a path containing "..".
 func (o *options) checkSFTPKey() error {
 	if !o.SFTP.Enabled || o.SFTP.User == "" {
 		return nil
+	}
+
+	// filepath.Abs collapses ".." before symlinks resolve while the OS does the reverse,
+	// so link/../key would be checked at one place and written at another
+	if slices.Contains(strings.Split(filepath.ToSlash(o.SFTP.KeyFile), "/"), "..") {
+		return fmt.Errorf("SFTP host key path %s contains \"..\", set --sftp.key to a path without it", o.SFTP.KeyFile)
 	}
 
 	rootInfo, err := os.Stat(o.RootDir)

@@ -205,16 +205,16 @@ Weblist can also provide SFTP access to the same files:
 
 ```bash
 # Enable SFTP with password authentication
-weblist --auth your_password --sftp.enabled --sftp.user sftp_user
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.key /path/outside/root/ssh_key
 
 # Use a custom SFTP port
-weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.address :2222
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.key /path/outside/root/ssh_key --sftp.address :2222
 
-# Specify a custom SSH host key file
-weblist --auth your_password --sftp.enabled --sftp.user sftp_user --sftp.key /path/to/ssh_key
+# Use the default key file name in the current directory, serving another directory
+weblist --auth your_password --sftp.enabled --sftp.user sftp_user --root /path/to/files
 
 # Enable SFTP with public key authentication (no password needed)
-weblist --sftp.enabled --sftp.user sftp_user --sftp.authorized /path/to/authorized_keys
+weblist --sftp.enabled --sftp.user sftp_user --sftp.key /path/outside/root/ssh_key --sftp.authorized /path/to/authorized_keys
 ```
 
 When SFTP is enabled:
@@ -226,9 +226,9 @@ When SFTP is enabled:
 - The username for SFTP is specified with the `--sftp.user` parameter
 - SFTP access is read-only for security reasons
 - SSH host keys are stored to prevent client warnings about changing keys
-  - By default, the key is stored as `weblist_rsa` in the current directory
+  - By default, the key is stored as `weblist_rsa` in the current directory, which works only when `--root` points to another directory
   - You can specify a custom key file with `--sftp.key`
-  - The key must be outside the served root, otherwise weblist refuses to start, since HTTP and SFTP would serve the private key as an ordinary file. This includes the default when `--root` is the current directory. To keep the existing host identity, move the old key file out of the root (do not copy it, the copy left behind stays downloadable) and point `--sftp.key` at the new location
+  - The key must be outside the served root, otherwise weblist refuses to start, since HTTP and SFTP would serve the private key as an ordinary file. It also refuses a key path containing `..` or passing through a symlink to a missing target. To keep the existing host identity, move the old key file out of the root (do not copy it, the copy left behind stays downloadable) and point `--sftp.key` at the new location
 
 SFTP support is optional and only enabled when both `--sftp.enabled` and `--sftp.user` parameters are provided. Either the `--auth` or `--sftp.authorized` parameter is required when enabling SFTP.
 
