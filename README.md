@@ -127,7 +127,7 @@ SFTP Options (with `--sftp` prefix):
 - `--sftp.enabled`: Enable SFTP server - env: `SFTP_ENABLED`
 - `--sftp.user`: Username for SFTP access - env: `SFTP_USER`
 - `--sftp.address`: Address for SFTP server (default: `:2022`) - env: `SFTP_ADDRESS`
-- `--sftp.key`: SSH private key file (default: `weblist_rsa`) - env: `SFTP_KEY`
+- `--sftp.key`: SSH private key file, must be outside `--root` (default: `weblist_rsa`) - env: `SFTP_KEY`
 - `--sftp.authorized`: Path to OpenSSH authorized_keys file for public key authentication - env: `SFTP_AUTHORIZED`
 
 Branding Options (with `--brand` prefix):
@@ -228,6 +228,7 @@ When SFTP is enabled:
 - SSH host keys are stored to prevent client warnings about changing keys
   - By default, the key is stored as `weblist_rsa` in the current directory
   - You can specify a custom key file with `--sftp.key`
+  - The key must be outside the served root, otherwise weblist refuses to start, since HTTP and SFTP would serve the private key as an ordinary file. This includes the default when `--root` is the current directory. To keep the existing host identity, move the old key file out of the root (do not copy it, the copy left behind stays downloadable) and point `--sftp.key` at the new location
 
 SFTP support is optional and only enabled when both `--sftp.enabled` and `--sftp.user` parameters are provided. Either the `--auth` or `--sftp.authorized` parameter is required when enabling SFTP.
 
@@ -448,6 +449,7 @@ services:
       - "2022:2022"  # SFTP port
     volumes:
       - /path/to/files:/data:ro  # use /path/to/files:/data (without :ro) if upload is enabled
+      - /path/to/keys:/keys  # Optional: SFTP host key storage, must be outside /data
     environment:
       - LISTEN=:8080
       - THEME=light
@@ -464,7 +466,7 @@ services:
       - SFTP_ENABLED=true   # Optional: Enable SFTP server
       - SFTP_USER=sftp_user # Optional: Username for SFTP access
       - SFTP_ADDRESS=:2022  # Optional: SFTP port
-      - SFTP_KEY=/data/ssh_key  # Optional: Path to SSH host key
+      - SFTP_KEY=/keys/ssh_key  # Optional: Path to SSH host key, must be outside ROOT_DIR
       - SFTP_AUTHORIZED=/data/authorized_keys  # Optional: Path to authorized_keys file for public key auth
       - SYNTAX_HIGHLIGHT=true  # Optional: Enable syntax highlighting for code files
       - MULTI_SELECT=true  # Optional: Enable multi-file selection and download

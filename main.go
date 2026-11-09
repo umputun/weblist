@@ -140,6 +140,51 @@ func (o *options) checkPublicRead() error {
 	return nil
 }
 
+// checkSFTPKey rejects an SFTP host key path inside the served root, where HTTP and SFTP would serve
+// the private key as a file, and a path through a dangling symlink, which key generation would follow.
+func (o *options) checkSFTPKey() error {
+	if !o.SFTP.Enabled || o.SFTP.User == "" {
+		return nil
+	}
+
+	rootInfo, err := os.Stat(o.RootDir)
+	if err != nil {
+		return fmt.Errorf("failed to stat root directory: %w", err)
+	}
+	key, err := filepath.Abs(o.SFTP.KeyFile)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for SFTP key: %w", err)
+	}
+
+	existing := key
+	for {
+		resolved, err := filepath.EvalSymlinks(existing)
+		if err == nil {
+			existing = resolved
+			break
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("failed to resolve SFTP key path: %w", err)
+		}
+		if _, err := os.Lstat(existing); err == nil {
+			return fmt.Errorf("SFTP host key path %s is a symlink to a missing target, "+
+				"set --sftp.key to a real path outside the root", existing)
+		}
+		existing = filepath.Dir(existing)
+	}
+
+	// identity, not path spelling: on a case-insensitive volume /data and /DATA are the same directory
+	for dir := existing; ; dir = filepath.Dir(dir) {
+		if info, err := os.Stat(dir); err == nil && os.SameFile(info, rootInfo) {
+			return fmt.Errorf("SFTP host key %s is inside the served root %s and would be downloadable, "+
+				"move it outside the root and set --sftp.key to the new path", key, o.RootDir)
+		}
+		if filepath.Dir(dir) == dir {
+			return nil
+		}
+	}
+}
+
 func runServer(ctx context.Context, opts *options) error {
 	if err := opts.checkPublicRead(); err != nil {
 		return err
@@ -151,6 +196,10 @@ func runServer(ctx context.Context, opts *options) error {
 		return fmt.Errorf("failed to get absolute path for root directory: %w", err)
 	}
 	opts.RootDir = absRootDir
+
+	if err := opts.checkSFTPKey(); err != nil {
+		return err
+	}
 
 	// ensure temp directory exists for multipart uploads in minimal containers (e.g., scratch).
 	// tries the system temp dir first, then .tmp under root dir.

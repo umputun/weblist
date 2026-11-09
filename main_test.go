@@ -1097,3 +1097,91 @@ func TestRunServerPublicReadValidation(t *testing.T) {
 		assert.True(t, opts.AuthOpts.PublicRead)
 	})
 }
+
+func TestCheckSFTPKey(t *testing.T) {
+	base := t.TempDir()
+	root := filepath.Join(base, "data")
+	outside := filepath.Join(base, "keys")
+	sibling := filepath.Join(base, "data2")
+	for _, d := range []string{root, outside, sibling} {
+		require.NoError(t, os.MkdirAll(d, 0o750))
+	}
+	require.NoError(t, os.WriteFile(filepath.Join(root, "existing_rsa"), []byte("key"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(outside, "existing_rsa"), []byte("key"), 0o600))
+	require.NoError(t, os.Symlink(filepath.Join(root, "existing_rsa"), filepath.Join(outside, "link_rsa")))
+	rootLink := filepath.Join(base, "data-link")
+	require.NoError(t, os.Symlink(root, rootLink))
+	require.NoError(t, os.Symlink(filepath.Join(root, "new_rsa"), filepath.Join(outside, "dangling_rsa")))
+	const inRoot, dangling = "inside the served root", "symlink to a missing target"
+
+	tests := []struct {
+		name, root, key string
+		enabled         bool
+		wantErr         string
+	}{
+		{name: "missing key inside root", root: root, key: filepath.Join(root, "weblist_rsa"), enabled: true, wantErr: inRoot},
+		{name: "existing key inside root", root: root, key: filepath.Join(root, "existing_rsa"), enabled: true, wantErr: inRoot},
+		{name: "missing key in missing subdir inside root", root: root, key: filepath.Join(root, "a", "b", "k"), enabled: true, wantErr: inRoot},
+		{name: "outside symlink to key inside root", root: root, key: filepath.Join(outside, "link_rsa"), enabled: true, wantErr: inRoot},
+		{name: "outside dangling symlink into root", root: root, key: filepath.Join(outside, "dangling_rsa"), enabled: true, wantErr: dangling},
+		{name: "root given as symlink", root: rootLink, key: filepath.Join(root, "weblist_rsa"), enabled: true, wantErr: inRoot},
+		{name: "key given through root symlink", root: root, key: filepath.Join(rootLink, "weblist_rsa"), enabled: true, wantErr: inRoot},
+		{name: "missing key outside root", root: root, key: filepath.Join(outside, "weblist_rsa"), enabled: true},
+		{name: "existing key outside root", root: root, key: filepath.Join(outside, "existing_rsa"), enabled: true},
+		{name: "key in sibling dir sharing the root prefix", root: root, key: filepath.Join(sibling, "weblist_rsa"), enabled: true},
+		{name: "sftp disabled", root: root, key: filepath.Join(root, "existing_rsa"), enabled: false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var opts options
+			opts.RootDir = tc.root
+			opts.SFTP.Enabled = tc.enabled
+			opts.SFTP.User = "weblist"
+			opts.SFTP.KeyFile = tc.key
+			err := opts.checkSFTPKey()
+			if tc.wantErr == "" {
+				assert.NoError(t, err)
+				return
+			}
+			require.Error(t, err)
+			assert.Contains(t, err.Error(), tc.wantErr)
+		})
+	}
+
+	t.Run("key spelled in another case on a case-insensitive volume", func(t *testing.T) {
+		upper := filepath.Join(base, "DATA")
+		if _, err := os.Stat(upper); err != nil {
+			t.Skip("test volume is case-sensitive")
+		}
+		for _, key := range []string{filepath.Join(upper, "weblist_rsa"), filepath.Join(upper, "existing_rsa")} {
+			var opts options
+			opts.RootDir = root
+			opts.SFTP.Enabled = true
+			opts.SFTP.User = "weblist"
+			opts.SFTP.KeyFile = key
+			err := opts.checkSFTPKey()
+			require.Error(t, err, key)
+			assert.Contains(t, err.Error(), inRoot)
+		}
+	})
+
+	t.Run("default relative key with root at the working dir", func(t *testing.T) {
+		t.Chdir(root)
+		var opts options
+		_, err := flags.NewParser(&opts, flags.Default).ParseArgs([]string{"--sftp.enabled", "--root=" + root})
+		require.NoError(t, err)
+		require.Error(t, opts.checkSFTPKey())
+	})
+
+	t.Run("runServer refuses before starting listeners", func(t *testing.T) {
+		for _, key := range []string{filepath.Join(root, "weblist_rsa"), filepath.Join(outside, "dangling_rsa")} {
+			opts := &options{RootDir: root, Listen: "127.0.0.1:0", Auth: "secret"}
+			opts.SFTP.Enabled = true
+			opts.SFTP.User = "weblist"
+			opts.SFTP.KeyFile = key
+			require.Error(t, runServer(context.Background(), opts), key)
+		}
+		assert.NoFileExists(t, filepath.Join(root, "weblist_rsa"))
+		assert.NoFileExists(t, filepath.Join(root, "new_rsa"))
+	})
+}
