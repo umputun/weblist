@@ -205,28 +205,19 @@ func (wb *Web) normalizeBrandColor(color string) string {
 // generateSessionToken creates a secure session token based on a random value
 // and the current timestamp, signed with a secret key
 func (wb *Web) generateSessionToken() string {
-	// create a unique random ID
 	tokenID := uuid.NewString()
-
-	// use SessionSecret as the signing key
-	secret := []byte(wb.SessionSecret)
-
-	// create HMAC using the secret key
-	h := hmac.New(sha256.New, secret)
-
-	// add the token ID to the HMAC
-	h.Write([]byte(tokenID))
-
-	// add timestamp to prevent reuse if secret changes and for expiration validation
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-	h.Write([]byte(timestamp))
+	return tokenID + "." + timestamp + "." + base64.StdEncoding.EncodeToString(wb.sessionSignature(tokenID, timestamp))
+}
 
-	// get the signature
-	signature := h.Sum(nil)
-
-	// combine the token ID, timestamp and signature
-	token := tokenID + "." + timestamp + "." + base64.StdEncoding.EncodeToString(signature)
-	return token
+// sessionSignature signs a token's id and issue time with SessionSecret. The password is part of the
+// signed input, so changing it ends existing sessions.
+func (wb *Web) sessionSignature(tokenID, timestamp string) []byte {
+	h := hmac.New(sha256.New, []byte(wb.SessionSecret))
+	// the dots keep the fields apart: without them a digit moved from the id to the timestamp
+	// signs the same bytes. Neither id nor timestamp can hold a dot, validateSessionToken splits on it
+	h.Write([]byte(tokenID + "." + timestamp + "." + wb.Auth))
+	return h.Sum(nil)
 }
 
 // validateSessionToken validates the session token
@@ -240,13 +231,7 @@ func (wb *Web) validateSessionToken(token string) bool {
 	timestamp := parts[1]
 	signatureB64 := parts[2]
 
-	// recreate the HMAC signature using the session secret initialized at startup
-	secret := []byte(wb.SessionSecret)
-
-	h := hmac.New(sha256.New, secret)
-	h.Write([]byte(tokenID))
-	h.Write([]byte(timestamp))
-	expectedSignature := h.Sum(nil)
+	expectedSignature := wb.sessionSignature(tokenID, timestamp)
 
 	// decode the provided signature
 	signature, err := base64.StdEncoding.DecodeString(signatureB64)
@@ -271,9 +256,9 @@ func (wb *Web) validateSessionToken(token string) bool {
 		maxAge = 24 * time.Hour
 	}
 
-	// check if token has expired
-	tokenTime := time.Unix(timestampInt, 0)
-	return time.Since(tokenTime) <= maxAge
+	// a timestamp ahead of the clock never expires; allow only small skew
+	age := time.Since(time.Unix(timestampInt, 0))
+	return age >= -time.Minute && age <= maxAge
 }
 
 // isRequestSecure checks if the request is secure by examining TLS status and common proxy headers

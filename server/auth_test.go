@@ -345,6 +345,38 @@ func TestSessionTokens(t *testing.T) {
 		tamperedToken = parts[0] + "." + parts[1] + ".AAAA"
 		assert.False(t, srv.validateSessionToken(tamperedToken), "Tampered signature should not validate")
 	})
+
+	t.Run("moving a digit across the separator does not validate", func(t *testing.T) {
+		// regression: the signature covered id and timestamp with no separator, so shifting the
+		// last id digit into the timestamp kept it valid and moved the expiry centuries ahead
+		var id, ts, sig string
+		for range 100 {
+			parts := strings.Split(srv.generateSessionToken(), ".")
+			if last := parts[0][len(parts[0])-1]; last >= '1' && last <= '9' {
+				id, ts, sig = parts[0], parts[1], parts[2]
+				break
+			}
+		}
+		require.NotEmpty(t, id, "no token id ending in 1-9 within 100 tries")
+		shifted := id[:len(id)-1] + "." + id[len(id)-1:] + ts + "." + sig
+		assert.False(t, srv.validateSessionToken(shifted))
+	})
+
+	t.Run("future timestamp does not validate", func(t *testing.T) {
+		ts := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+		token := "some-id." + ts + "." + base64.StdEncoding.EncodeToString(srv.sessionSignature("some-id", ts))
+		assert.False(t, srv.validateSessionToken(token))
+
+		ts = strconv.FormatInt(time.Now().Add(30*time.Second).Unix(), 10)
+		token = "some-id." + ts + "." + base64.StdEncoding.EncodeToString(srv.sessionSignature("some-id", ts))
+		assert.True(t, srv.validateSessionToken(token), "small clock skew should be tolerated")
+	})
+
+	t.Run("password change invalidates existing tokens", func(t *testing.T) {
+		token := srv.generateSessionToken()
+		rotated := &Web{Config: Config{Auth: "new-password", SessionSecret: "test-session-secret"}}
+		assert.False(t, rotated.validateSessionToken(token))
+	})
 }
 
 func TestHandleLoginSubmit(t *testing.T) {
