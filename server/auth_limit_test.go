@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -8,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"testing/synctest"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -25,6 +28,34 @@ func TestAuthFailures(t *testing.T) {
 
 	af.reset("198.51.100.1")
 	assert.False(t, af.blocked("198.51.100.1"))
+}
+
+func TestAuthFailures_ExpireAfterWindow(t *testing.T) {
+	// regression: the cache returns an expired entry's value, so a lockout never ended
+	synctest.Test(t, func(t *testing.T) {
+		var af authFailures
+		for range maxAuthFailures {
+			af.fail("198.51.100.1")
+		}
+		require.True(t, af.blocked("198.51.100.1"))
+
+		time.Sleep(authFailureWindow + time.Second)
+		assert.False(t, af.blocked("198.51.100.1"), "lockout ends after the window")
+
+		for range maxAuthFailures - 1 {
+			af.fail("198.51.100.1")
+		}
+		assert.False(t, af.blocked("198.51.100.1"), "counting restarts from zero after expiry")
+	})
+}
+
+func TestAuthFailures_IPv6SharesSlash64(t *testing.T) {
+	var af authFailures
+	for i := range maxAuthFailures {
+		af.fail(fmt.Sprintf("2001:db8:1:2::%x", i+1))
+	}
+	assert.True(t, af.blocked("2001:db8:1:2:ffff::1"), "addresses in one /64 share a counter")
+	assert.False(t, af.blocked("2001:db8:1:3::1"), "another /64 is unaffected")
 }
 
 func newLimitTestServer(t *testing.T) http.Handler {

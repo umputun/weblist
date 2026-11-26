@@ -2,6 +2,7 @@ package server
 
 import (
 	"net/http"
+	"net/netip"
 	"sync"
 	"time"
 
@@ -23,21 +24,39 @@ type authFailures struct {
 func (a *authFailures) blocked(ip string) bool {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	n, _ := a.cache().Get(ip)
-	return n >= maxAuthFailures
+	return a.count(ip) >= maxAuthFailures
 }
 
 func (a *authFailures) fail(ip string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	n, _ := a.cache().Get(ip)
-	a.cache().Set(ip, n+1, 0)
+	a.cache().Set(a.key(ip), a.count(ip)+1, 0)
 }
 
 func (a *authFailures) reset(ip string) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	a.cache().Remove(ip)
+	a.cache().Remove(a.key(ip))
+}
+
+// count returns the live failure count; callers hold mu. The cache hands back an expired entry's
+// value with ok false, which must read as zero.
+func (a *authFailures) count(ip string) int {
+	n, ok := a.cache().Get(a.key(ip))
+	if !ok {
+		return 0
+	}
+	return n
+}
+
+// key groups IPv6 addresses by /64, the block one subscriber usually holds, so rotating through it
+// does not reset the count. IPv4 and unparsable values are used as they are.
+func (a *authFailures) key(ip string) string {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil || !addr.Is6() {
+		return ip
+	}
+	return netip.PrefixFrom(addr, 64).Masked().String()
 }
 
 // cache returns the counter store, creating it on first use; callers hold mu
