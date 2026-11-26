@@ -110,6 +110,7 @@ weblist [options]
 - `--session-secret`: Secret key for session tokens (auto-generated if not set) - env: `SESSION_SECRET`
 - `--session-ttl`: Session timeout duration (default: `24h`) - env: `SESSION_TTL`
 - `--insecure-cookies`: Allow cookies without secure flag - env: `INSECURE_COOKIES`
+- `--trusted-proxy`: Proxy IP or CIDR whose `X-Forwarded-For` and `X-Real-IP` headers name the client, can be repeated (default: loopback and private networks) - env: `TRUSTED_PROXY` (comma-separated)
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
 - `--syntax-highlight`: Enable syntax highlighting for code files - env: `SYNTAX_HIGHLIGHT`
@@ -178,8 +179,25 @@ When authentication is enabled:
 - The password is whatever you specify with the `--auth` parameter
 - Sessions are secured with HMAC-SHA256 signed tokens
 - Session secrets are automatically generated if not explicitly provided
-- Sessions expire after the specified timeout (default: 24 hours)
+- Sessions expire after the specified timeout (default: 24 hours); changing the password ends existing sessions
 - A logout button appears in the top right corner when logged in
+- After 5 wrong passwords from one address, through the login form or HTTP Basic Auth, that address is locked out for 10 minutes; requests with the right credentials are never counted
+
+### Client addresses behind a proxy
+
+Rate limits and the login lockout apply per client address. weblist takes that address from the connection,
+or from the `X-Forwarded-For` (rightmost address that is not a trusted proxy) or `X-Real-IP` header when the
+connection comes from a trusted proxy. By default loopback and private networks are trusted, which covers a
+reverse proxy on the same host or a Docker network. A proxy elsewhere needs `--trusted-proxy`; an untrusted
+proxy makes every client share one address, and so one rate limit and one lockout.
+
+When weblist is reachable without a proxy through an address it sees as private, for example Docker Desktop
+port publishing, where every visitor appears as the Docker gateway, restrict trust to loopback so visitors
+cannot set their own address:
+
+```bash
+weblist --auth your_password --trusted-proxy 127.0.0.1/32
+```
 
 Authentication is completely optional and only activated when the `--auth` parameter is provided.
 

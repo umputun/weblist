@@ -11,6 +11,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/netip"
 	"strings"
 	"time"
 
@@ -41,36 +42,38 @@ type Web struct {
 	}
 
 	binaryCache lcw.LoadingCache[bool] // caches binary detection results by path+mtime
+	authFails   authFailures           // failed password attempts per client address
 }
 
 // Config represents server configuration.
 type Config struct {
-	ListenAddr               string        // address to listen on for HTTP server
-	Theme                    string        // UI theme (light/dark)
-	HideFooter               bool          // whether to hide the footer in the UI
-	RootDir                  string        // root directory to serve files from
-	Version                  string        // version information to display in UI
-	Exclude                  []string      // patterns of files/directories to exclude
-	Auth                     string        // password for basic authentication
-	AuthUser                 string        // username for basic authentication (defaults to "weblist")
-	SessionSecret            string        // secret key for signing session tokens
-	Title                    string        // custom title for the site
-	SFTPUser                 string        // username for SFTP authentication
-	SFTPAddress              string        // address to listen for SFTP connections
-	SFTPKeyFile              string        // path to SSH private key file
-	SFTPAuthorized           string        // path to authorized_keys file for public key authentication
-	BrandName                string        // company or organization name for branding
-	BrandColor               string        // color for navbar
-	EnableSyntaxHighlighting bool          // whether to enable syntax highlighting for code files
-	CustomFooter             string        // custom footer text (can contain HTML)
-	InsecureCookies          bool          // allow cookies without secure flag
-	SessionTTL               time.Duration // session timeout duration
-	EnableMultiSelect        bool          // enable multi-file selection and download
-	RecursiveMtime           bool          // calculate directory mtime from newest nested file
-	EnableUpload             bool          // enable file upload support
-	UploadMaxSize            int64         // max upload size in bytes
-	UploadOverwrite          bool          // allow overwriting existing files on upload
-	PublicRead               bool          // auth applies to uploads only, browsing and downloads stay public
+	ListenAddr               string         // address to listen on for HTTP server
+	Theme                    string         // UI theme (light/dark)
+	HideFooter               bool           // whether to hide the footer in the UI
+	RootDir                  string         // root directory to serve files from
+	Version                  string         // version information to display in UI
+	Exclude                  []string       // patterns of files/directories to exclude
+	Auth                     string         // password for basic authentication
+	AuthUser                 string         // username for basic authentication (defaults to "weblist")
+	SessionSecret            string         // secret key for signing session tokens
+	Title                    string         // custom title for the site
+	SFTPUser                 string         // username for SFTP authentication
+	SFTPAddress              string         // address to listen for SFTP connections
+	SFTPKeyFile              string         // path to SSH private key file
+	SFTPAuthorized           string         // path to authorized_keys file for public key authentication
+	BrandName                string         // company or organization name for branding
+	BrandColor               string         // color for navbar
+	EnableSyntaxHighlighting bool           // whether to enable syntax highlighting for code files
+	CustomFooter             string         // custom footer text (can contain HTML)
+	InsecureCookies          bool           // allow cookies without secure flag
+	SessionTTL               time.Duration  // session timeout duration
+	EnableMultiSelect        bool           // enable multi-file selection and download
+	RecursiveMtime           bool           // calculate directory mtime from newest nested file
+	EnableUpload             bool           // enable file upload support
+	UploadMaxSize            int64          // max upload size in bytes
+	UploadOverwrite          bool           // allow overwriting existing files on upload
+	PublicRead               bool           // auth applies to uploads only, browsing and downloads stay public
+	TrustedProxies           []netip.Prefix // peers whose X-Forwarded-For and X-Real-IP name the client
 }
 
 // Run starts the web server.
@@ -212,23 +215,22 @@ func (wb *Web) router() (http.Handler, error) {
 	mux := http.NewServeMux()
 	router := routegroup.New(mux)
 
-	router.Use(rest.Trace, rest.RealIP, rest.Recoverer(lgr.Default()))
+	router.Use(rest.Trace, wb.clientIPMiddleware, rest.Recoverer(lgr.Default()))
 	router.Use(rest.Throttle(1000))
 	router.Use(http.NewCrossOriginProtection().Handler)
 
-	// global rate limiter - 50 requests per second
-	router.Use(tollbooth.HTTPMiddleware(tollbooth.NewLimiter(50, nil)))
-
-	// create a more restrictive rate limiter for authentication endpoints
-	authLimiter := tollbooth.NewLimiter(5, nil)
-	authLimiter.SetIPLookup(limiter.IPLookup{Name: "RemoteAddr"})
-	authLimiter.SetBurst(5) // allow burst of 5 requests
-	authLimiter.SetMessage("Too many login attempts, please try again later")
-	authLimiter.SetTokenBucketExpirationTTL(10 * time.Minute) // reset after 10 minutes
+	// 50 requests per second per client address; the path stays out of the key, or every new URL
+	// would get a fresh bucket
+	globalLimiter := tollbooth.NewLimiter(50, &limiter.ExpirableOptions{DefaultExpirationTTL: 10 * time.Minute})
+	globalLimiter.SetIgnoreURL(true)
+	router.Use(tollbooth.HTTPMiddleware(globalLimiter))
 
 	router.Use(logger.New(logger.Log(lgr.Default()), logger.Prefix("[DEBUG]")).Handler)
 	router.Use(rest.AppInfo("weblist", "umputun", wb.Version), rest.Ping)
 	router.Use(wb.securityHeadersMiddleware) // add security headers to all responses
+	if wb.Auth != "" {
+		router.Use(wb.basicAuthLimitMiddleware)
+	}
 
 	// serve static assets from embedded filesystem
 	assetsFS, err := fs.Sub(content, "assets")
@@ -253,13 +255,7 @@ func (wb *Web) router() (http.Handler, error) {
 		// add authentication routes if Auth is set
 		if wb.Auth != "" {
 			main.HandleFunc("GET /login", wb.handleLoginPage)
-
-			// apply the stricter rate limiter to login submission endpoint
-			loginHandler := tollbooth.LimitFuncHandler(authLimiter, wb.handleLoginSubmit)
-			main.HandleFunc("POST /login", func(w http.ResponseWriter, r *http.Request) {
-				loginHandler.ServeHTTP(w, r)
-			})
-
+			main.HandleFunc("POST /login", wb.handleLoginSubmit)
 			main.HandleFunc("GET /logout", wb.handleLogout)
 		}
 

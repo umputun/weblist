@@ -50,14 +50,22 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if wb.authFails.blocked(r.RemoteAddr) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		wb.renderLoginError(w, "Too many login attempts, please try again later")
+		return
+	}
+
 	password := r.FormValue("password")
 
 	passwordCorrect := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) == 1
 
 	if !passwordCorrect {
+		wb.authFails.fail(r.RemoteAddr)
 		wb.renderLoginError(w, "Invalid password")
 		return
 	}
+	wb.authFails.reset(r.RemoteAddr)
 
 	http.SetCookie(w, &http.Cookie{ //nolint:gosec // G124: Secure follows the transport, plain HTTP is a supported deployment
 		Name:     "auth",
