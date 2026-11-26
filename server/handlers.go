@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/dustin/go-humanize"
 )
 
 // handleRoot displays the root directory listing
@@ -130,6 +132,11 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 const viewCSP = "default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
 	"font-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
 
+const (
+	maxPreviewSize   = 10 << 20 // text files above this are not previewed, rendering holds several copies in memory
+	maxHighlightSize = 1 << 20  // text files above this preview without syntax highlighting, which costs far more per byte
+)
+
 // viewFileData holds template data for the file view page
 type viewFileData struct {
 	FileName    string
@@ -162,7 +169,7 @@ func (wb *Web) renderViewContent(data *viewFileData, ctInfo ContentTypeInfo, raw
 			data.Content = rendered
 			data.IsCSV = true
 		}
-	case !ctInfo.IsHTML && wb.EnableSyntaxHighlighting:
+	case !ctInfo.IsHTML && wb.EnableSyntaxHighlighting && len(rawContent) <= maxHighlightSize:
 		highlighted, err := wb.highlightCode(string(rawContent), data.FileName, data.Theme)
 		if err != nil {
 			log.Printf("[WARN] failed to highlight code: %v", err)
@@ -222,12 +229,15 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 
 	// from here, we're only handling text files
 
-	// read file content
-	fileContent, err := io.ReadAll(file)
-	if err != nil {
-		http.Error(w, "error reading file", http.StatusInternalServerError)
-		return
+	// the limited read catches a file that grew after the stat
+	var fileContent []byte
+	if fileInfo.Size() <= maxPreviewSize {
+		if fileContent, err = io.ReadAll(io.LimitReader(file, maxPreviewSize+1)); err != nil {
+			http.Error(w, "error reading file", http.StatusInternalServerError)
+			return
+		}
 	}
+	tooLarge := fileInfo.Size() > maxPreviewSize || len(fileContent) > maxPreviewSize
 
 	// use template for viewing
 	w.Header().Set("Content-Type", "text/html")
@@ -238,19 +248,16 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 		theme = wb.Theme
 	}
 
-	// parse templates
-
-	// prepare data for the template
-	data := viewFileData{
-		FileName:   fileInfo.Name(),
-		Content:    string(fileContent),
-		Theme:      theme,
-		IsHTML:     ctInfo.IsHTML,
-		IsMarkdown: ctInfo.IsMarkdown,
+	data := viewFileData{FileName: fileInfo.Name(), Theme: theme}
+	if tooLarge {
+		data.Content = fmt.Sprintf("%s is too large to preview (over %s), download it instead.",
+			fileInfo.Name(), humanize.Bytes(maxPreviewSize))
+	} else {
+		data.Content = string(fileContent)
+		data.IsHTML = ctInfo.IsHTML
+		data.IsMarkdown = ctInfo.IsMarkdown
+		wb.renderViewContent(&data, ctInfo, fileContent)
 	}
-
-	// render content based on type
-	wb.renderViewContent(&data, ctInfo, fileContent)
 
 	// execute the file-view template
 	if err := wb.templates.fileTemplate.ExecuteTemplate(w, "file-view", data); err != nil {

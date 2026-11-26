@@ -1298,6 +1298,35 @@ func TestHandleViewFile_HighlightWrapperPrefixIsEscaped(t *testing.T) {
 	}
 }
 
+func TestHandleViewFile_LargeTextFiles(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "huge.log"), bytes.Repeat([]byte("a"), maxPreviewSize+1), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "edge.log"), bytes.Repeat([]byte("b"), maxPreviewSize), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "big.go"), bytes.Repeat([]byte("var x = 1\n"), maxHighlightSize/10+1), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "small.go"), []byte("var x = 1\n"), 0o600))
+	wb := &Web{Config: Config{RootDir: root, EnableSyntaxHighlighting: true}, FS: os.DirFS(root)}
+	require.NoError(t, wb.initTemplates())
+
+	view := func(name string) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		wb.handleViewFile(rr, httptest.NewRequest(http.MethodGet, "/view/"+name, http.NoBody))
+		return rr
+	}
+
+	rr := view("huge.log")
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Less(t, rr.Body.Len(), 64*1024, "content must not be sent")
+	assert.True(t, strings.Contains(rr.Body.String(), "too large to preview"))
+
+	rr = view("edge.log")
+	assert.Greater(t, rr.Body.Len(), maxPreviewSize)
+	assert.False(t, strings.Contains(rr.Body.String(), "too large to preview"))
+
+	highlighted := `<div class="highlight-wrapper">`
+	assert.False(t, strings.Contains(view("big.go").Body.String(), highlighted), "highlighting is skipped above the limit")
+	assert.True(t, strings.Contains(view("small.go").Body.String(), highlighted))
+}
+
 func TestWeb_handleDownloadEscapesSpecialCharsInDirRedirect(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "q&a"), 0o750))
