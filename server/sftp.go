@@ -17,10 +17,17 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
+)
+
+const (
+	maxSFTPConns         = 100              // connections served at once; each holds a goroutine and a descriptor
+	sftpHandshakeTimeout = 30 * time.Second // to finish the SSH handshake and authenticate
+	sftpIdleTimeout      = 10 * time.Minute // without traffic after login
 )
 
 // SFTP represents the SFTP server.
@@ -64,6 +71,7 @@ func (s *SFTP) Run(ctx context.Context) error {
 
 	// channel for connection errors
 	errorCh := make(chan error, 1)
+	slots := make(chan struct{}, maxSFTPConns)
 
 	// handle connections in a separate goroutine
 	go func() {
@@ -86,8 +94,17 @@ func (s *SFTP) Run(ctx context.Context) error {
 				return
 			}
 
-			// handle connection in a goroutine
-			go s.handleConnection(conn, config)
+			// never block the accept loop on a full semaphore, or shutdown waits on it
+			select {
+			case slots <- struct{}{}:
+				go func() {
+					defer func() { <-slots }()
+					s.handleConnection(conn, config)
+				}()
+			default:
+				log.Printf("[WARN] SFTP connection limit of %d reached, refusing %s", maxSFTPConns, conn.RemoteAddr())
+				_ = conn.Close()
+			}
 		}
 	}()
 
@@ -109,20 +126,21 @@ func (s *SFTP) Run(ctx context.Context) error {
 func (s *SFTP) handleConnection(conn net.Conn, config *ssh.ServerConfig) {
 	defer conn.Close()
 
-	// apply idle timeout to the connection
-	timeoutConn := &timeoutConn{
-		Conn:         conn,
-		idleTimeout:  10 * time.Minute,
-		lastActivity: time.Now(),
-	}
+	// a fixed deadline for the handshake, so a client trickling bytes cannot hold the slot past it
+	tc := &timeoutConn{Conn: conn}
+	_ = conn.SetDeadline(time.Now().Add(sftpHandshakeTimeout))
 
-	// perform SSH handshake
-	sshConn, chans, reqs, err := ssh.NewServerConn(timeoutConn, config)
+	sshConn, chans, reqs, err := ssh.NewServerConn(tc, config)
 	if err != nil {
 		log.Printf("[WARN] SSH handshake failed: %v", err)
 		return
 	}
 	defer sshConn.Close()
+
+	// ssh's reader goroutine may already be blocked under the handshake deadline, so replace that
+	// deadline before idle refreshing takes over
+	_ = conn.SetDeadline(time.Now().Add(sftpIdleTimeout))
+	tc.idle.Store(int64(sftpIdleTimeout))
 
 	log.Printf("[DEBUG] new SSH connection from %s (%s)", sshConn.RemoteAddr(), sshConn.ClientVersion())
 
@@ -624,56 +642,27 @@ func loadOrGenerateHostKey(keyFile string) (ssh.Signer, error) {
 	return hostKey, nil
 }
 
-// timeoutConn wraps a net.Conn with an idle timeout
+// timeoutConn moves the connection deadline forward by idle on every read and write, so a connection
+// with no traffic for that long fails its pending call. While idle is zero no deadline is touched,
+// which leaves the fixed handshake deadline in force. ssh reads and writes from separate goroutines,
+// hence the atomic.
 type timeoutConn struct {
 	net.Conn
-	idleTimeout  time.Duration
-	lastActivity time.Time
-	mu           sync.Mutex
+	idle atomic.Int64 // time.Duration
 }
 
-// Read wraps the underlying Read method and updates lastActivity
 func (c *timeoutConn) Read(b []byte) (int, error) {
-	// first check for timeout with read lock
-	c.mu.Lock()
-	lastAct := c.lastActivity
-	c.mu.Unlock()
-
-	if time.Since(lastAct) > c.idleTimeout {
-		return 0, fmt.Errorf("idle timeout exceeded")
+	if d := time.Duration(c.idle.Load()); d > 0 {
+		_ = c.SetReadDeadline(time.Now().Add(d))
 	}
-
-	// read the data
-	n, err := c.Conn.Read(b)
-
-	// then update the activity time with write lock
-	c.mu.Lock()
-	c.lastActivity = time.Now()
-	c.mu.Unlock()
-
-	return n, err
+	return c.Conn.Read(b)
 }
 
-// Write wraps the underlying Write method and updates lastActivity
 func (c *timeoutConn) Write(b []byte) (int, error) {
-	// first check for timeout with read lock
-	c.mu.Lock()
-	lastAct := c.lastActivity
-	c.mu.Unlock()
-
-	if time.Since(lastAct) > c.idleTimeout {
-		return 0, fmt.Errorf("idle timeout exceeded")
+	if d := time.Duration(c.idle.Load()); d > 0 {
+		_ = c.SetWriteDeadline(time.Now().Add(d))
 	}
-
-	// write the data
-	n, err := c.Conn.Write(b)
-
-	// then update the activity time with write lock
-	c.mu.Lock()
-	c.lastActivity = time.Now()
-	c.mu.Unlock()
-
-	return n, err
+	return c.Conn.Write(b)
 }
 
 // bufferedFileReaderAt implements io.ReaderAt for large files

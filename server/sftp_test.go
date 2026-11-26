@@ -9,7 +9,9 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -1011,52 +1013,109 @@ func TestSFTPKeyPersistence(t *testing.T) {
 	cancel2()
 }
 
-// TestTimeoutConn tests the timeoutConn implementation
 func TestTimeoutConn(t *testing.T) {
-	// create a pipe to simulate network connection
-	clientConn, serverConn := net.Pipe()
-	defer clientConn.Close()
-	defer serverConn.Close()
+	synctest.Test(t, func(t *testing.T) {
+		clientConn, serverConn := net.Pipe()
+		defer clientConn.Close()
+		tc := &timeoutConn{Conn: serverConn}
+		tc.idle.Store(int64(time.Minute))
 
-	// create a timeout connection with a very short timeout for testing
-	timeoutConn := &timeoutConn{
-		Conn:         serverConn,
-		idleTimeout:  500 * time.Millisecond,
-		lastActivity: time.Now(),
+		go func() { _, _ = clientConn.Write([]byte("test data")) }()
+		buf := make([]byte, 10)
+		n, err := tc.Read(buf)
+		require.NoError(t, err)
+		assert.Equal(t, "test data", string(buf[:n]))
+
+		go func() { _, _ = clientConn.Read(make([]byte, 10)) }()
+		n, err = tc.Write([]byte("response"))
+		require.NoError(t, err)
+		assert.Equal(t, 8, n)
+
+		// regression: the idle check ran only before a read, so a read already blocked never timed out
+		start := time.Now()
+		_, err = tc.Read(buf)
+		require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+		assert.Equal(t, time.Minute, time.Since(start))
+
+		_, err = tc.Write([]byte("data"))
+		assert.ErrorIs(t, err, os.ErrDeadlineExceeded)
+	})
+}
+
+func TestSFTP_handleConnectionDropsSilentClient(t *testing.T) {
+	keyPath := filepath.Join(t.TempDir(), "host_key")
+	s := &SFTP{Config: Config{SFTPUser: "u", Auth: "p", SFTPKeyFile: keyPath}}
+	config, err := s.setupSSHServerConfig()
+	require.NoError(t, err)
+
+	synctest.Test(t, func(t *testing.T) {
+		clientConn, serverConn := net.Pipe()
+		defer clientConn.Close()
+		done := make(chan struct{})
+		go func() {
+			s.handleConnection(serverConn, config)
+			close(done)
+		}()
+
+		time.Sleep(sftpHandshakeTimeout - time.Second)
+		synctest.Wait()
+		select {
+		case <-done:
+			t.Fatal("dropped before the handshake timeout")
+		default:
+		}
+
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		select {
+		case <-done:
+		default:
+			t.Fatal("a client that never completes the handshake is still held")
+		}
+	})
+}
+
+func TestSFTP_RunRefusesConnectionsOverLimit(t *testing.T) {
+	rootDir := setupTestDirectoryStructure(t)
+	defer os.RemoveAll(rootDir)
+	port, cleanup := startSFTPServer(t, rootDir)
+	defer cleanup()
+
+	banner := func(c net.Conn) string {
+		_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+		buf := make([]byte, 64)
+		n, _ := c.Read(buf)
+		return string(buf[:n])
 	}
 
-	// test reading within timeout
-	go func() {
-		_, err := clientConn.Write([]byte("test data"))
-		require.NoError(t, err)
+	conns := make([]net.Conn, 0, maxSFTPConns)
+	defer func() {
+		for _, c := range conns {
+			_ = c.Close()
+		}
 	}()
-
-	buf := make([]byte, 10)
-	n, err := timeoutConn.Read(buf)
-	require.NoError(t, err)
-	assert.Equal(t, "test data", string(buf[:n]))
-
-	// test writing within timeout
-	go func() {
-		readBuf := make([]byte, 10)
-		_, err := clientConn.Read(readBuf)
+	for i := range maxSFTPConns {
+		c, err := net.Dial("tcp", "127.0.0.1:"+port)
 		require.NoError(t, err)
-	}()
+		conns = append(conns, c)
+		require.Contains(t, banner(c), "SSH-2.0-WebList-SFTP", "connection %d should be served", i+1)
+	}
 
-	n, err = timeoutConn.Write([]byte("response"))
+	extra, err := net.Dial("tcp", "127.0.0.1:"+port)
 	require.NoError(t, err)
-	assert.Equal(t, 8, n)
+	defer extra.Close()
+	assert.Empty(t, banner(extra), "connection over the limit is closed without a banner")
 
-	// test timeout
-	time.Sleep(600 * time.Millisecond) // wait for timeout to occur
-
-	_, err = timeoutConn.Read(buf)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "idle timeout exceeded")
-
-	_, err = timeoutConn.Write([]byte("data"))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "idle timeout exceeded")
+	require.NoError(t, conns[0].Close())
+	conns = conns[1:]
+	require.Eventually(t, func() bool {
+		c, err := net.Dial("tcp", "127.0.0.1:"+port)
+		if err != nil {
+			return false
+		}
+		conns = append(conns, c)
+		return strings.Contains(banner(c), "SSH-2.0-WebList-SFTP")
+	}, 5*time.Second, 100*time.Millisecond, "a freed slot is reused")
 }
 
 // TestMemReaderAt tests the memReaderAt implementation
