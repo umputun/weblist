@@ -715,8 +715,9 @@ func TestHTMLRendering(t *testing.T) {
 		body := rr.Body.String()
 		// check that we're using the iframe for HTML files
 		assert.Contains(t, body, `<iframe src="/view/test.html?theme=light"`)
-		// check that the sandbox attribute is set correctly
-		assert.Contains(t, body, `sandbox="allow-same-origin allow-scripts allow-forms"`)
+		assert.Contains(t, body, `sandbox="allow-same-origin"`)
+		assert.NotContains(t, body, "allow-scripts")
+		assert.NotContains(t, body, "allow-forms")
 	})
 }
 
@@ -1237,6 +1238,64 @@ func TestHandleViewFile_CSV(t *testing.T) {
 	assert.Contains(t, body, "<td>Alice</td><td>30</td><td>New York</td>")
 	assert.Contains(t, body, "<td>Bob</td><td>25</td><td>London</td>")
 	assert.NotContains(t, body, "Name,Age,City") // raw csv should not appear
+}
+
+func TestHandleViewFile_BlocksScriptsInFileContent(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"page.html": `<p>hi</p><script>alert(1)</script>`,
+		"notes.txt": "plain text",
+		"readme.md": "# title",
+		"data.csv":  "a,b\n1,2\n",
+		"pic.png":   "\x89PNG\r\n\x1a\n",
+	}
+	for name, body := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o600))
+	}
+	wb := &Web{Config: Config{RootDir: root}, FS: os.DirFS(root)}
+	require.NoError(t, wb.initTemplates())
+
+	for name := range files {
+		t.Run(name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			wb.handleViewFile(rr, httptest.NewRequest(http.MethodGet, "/view/"+name, http.NoBody))
+			require.Equal(t, http.StatusOK, rr.Code)
+			csp := rr.Header().Get("Content-Security-Policy")
+			assert.Contains(t, csp, "script-src 'none'")
+			assert.Contains(t, csp, "form-action 'none'")
+			assert.Contains(t, csp, "base-uri 'none'")
+			assert.Contains(t, csp, "img-src 'self' data:")
+		})
+	}
+}
+
+func TestHandleViewFile_HighlightWrapperPrefixIsEscaped(t *testing.T) {
+	// regression: file content starting with the highlighter's wrapper was rendered as raw HTML
+	payload := `<div class="highlight-wrapper"><img src=x onerror="alert(1)">`
+	tbl := []struct {
+		name      string
+		file      string
+		content   string
+		highlight bool
+	}{
+		{name: "text without highlighting", file: "note.txt", content: payload},
+		{name: "malformed csv with highlighting", file: "bad.csv", content: payload + "\n\"a,\"b\n", highlight: true},
+		{name: "malformed csv without highlighting", file: "bad.csv", content: payload + "\n\"a,\"b\n"},
+	}
+	for _, tc := range tbl {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(root, tc.file), []byte(tc.content), 0o600))
+			wb := &Web{Config: Config{RootDir: root, EnableSyntaxHighlighting: tc.highlight}, FS: os.DirFS(root)}
+			require.NoError(t, wb.initTemplates())
+
+			rr := httptest.NewRecorder()
+			wb.handleViewFile(rr, httptest.NewRequest(http.MethodGet, "/view/"+tc.file, http.NoBody))
+			require.Equal(t, http.StatusOK, rr.Code)
+			assert.NotContains(t, rr.Body.String(), `<img src=x onerror`)
+			assert.Contains(t, rr.Body.String(), `&lt;img src=x onerror`)
+		})
+	}
 }
 
 func TestWeb_handleDownloadEscapesSpecialCharsInDirRedirect(t *testing.T) {

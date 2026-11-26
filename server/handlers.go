@@ -124,14 +124,21 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// viewCSP applies to every /view response. The body comes from served files, which may hold HTML,
+// SVG or text an untrusted uploader wrote, so nothing in it may run script or submit a form with the
+// viewer's session. form-action and base-uri do not fall back to default-src and are set explicitly.
+const viewCSP = "default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+	"font-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
+
 // viewFileData holds template data for the file view page
 type viewFileData struct {
-	FileName   string
-	Content    string
-	Theme      string
-	IsHTML     bool
-	IsMarkdown bool
-	IsCSV      bool
+	FileName    string
+	Content     string
+	Theme       string
+	IsHTML      bool
+	IsMarkdown  bool
+	IsCSV       bool
+	Highlighted bool // Content is the highlighter's escaped HTML output
 }
 
 // renderViewContent applies format-specific rendering (markdown, csv, syntax highlighting) to view data.
@@ -161,6 +168,7 @@ func (wb *Web) renderViewContent(data *viewFileData, ctInfo ContentTypeInfo, raw
 			log.Printf("[WARN] failed to highlight code: %v", err)
 		} else {
 			data.Content = highlighted
+			data.Highlighted = true
 		}
 	}
 }
@@ -202,6 +210,7 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 
 	// determine content type and file properties
 	ctInfo := DetermineContentType(filePath)
+	w.Header().Set("Content-Security-Policy", viewCSP)
 
 	// handle non-text files (images, PDFs, etc.)
 	if !ctInfo.IsText {

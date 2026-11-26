@@ -252,7 +252,8 @@ func TestServerIntegration(t *testing.T) {
 		assert.Equal(t, "/?path=dir1", resp.Header.Get("Location"))
 	})
 
-	// shutdown the server
+	// regression: a spare dialed connection that never sent a request holds Shutdown for up to 5s
+	client.CloseIdleConnections()
 	cancel()
 
 	// wait for server to shut down
