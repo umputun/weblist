@@ -119,7 +119,8 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	// check if the path exists
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("path not found: %s - %v", path, err), http.StatusNotFound)
+		log.Printf("[DEBUG] path not found: %s: %v", path, err)
+		http.Error(w, "path not found: "+path, http.StatusNotFound)
 		return
 	}
 
@@ -139,7 +140,8 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 
 	fileList, err := wb.getFileList(path, sortBy, sortDir)
 	if err != nil {
-		http.Error(w, "error reading directory: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("[WARN] error reading directory %s: %v", path, err)
+		http.Error(w, "error reading directory", http.StatusInternalServerError)
 		return
 	}
 

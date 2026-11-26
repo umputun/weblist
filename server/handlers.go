@@ -59,7 +59,8 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	// check if the path exists and is a directory
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("directory not found: %v", err), http.StatusNotFound)
+		log.Printf("[DEBUG] directory not found: %s: %v", path, err)
+		http.Error(w, "directory not found", http.StatusNotFound)
 		return
 	}
 
@@ -73,7 +74,8 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	// get the directory file list
 	fileList, err := wb.getFileList(path, sortBy, sortDir)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("error reading directory: %v", err), http.StatusInternalServerError)
+		log.Printf("[WARN] error reading directory %s: %v", path, err)
+		http.Error(w, "error reading directory", http.StatusInternalServerError)
 		return
 	}
 
@@ -515,8 +517,7 @@ func (wb *Web) handleDownloadSelected(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// get selected files from form
-	selectedFiles := r.Form["selected-files"]
+	selectedFiles := wb.uniqueSelection(r.Form["selected-files"])
 	if len(selectedFiles) == 0 {
 		http.Error(w, "No files selected", http.StatusBadRequest)
 		return
@@ -577,6 +578,22 @@ func (wb *Web) handleDownloadSelected(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[ERROR] failed to add file to ZIP: %s: %v", filePath, err)
 		}
 	}
+}
+
+// uniqueSelection cleans the selected paths and drops repeats, keeping the first occurrence's order.
+// Without it a selection naming one large file many times, in any spelling, archives it every time.
+func (wb *Web) uniqueSelection(paths []string) []string {
+	seen := make(map[string]bool, len(paths))
+	res := make([]string, 0, len(paths))
+	for _, p := range paths {
+		p = filepath.ToSlash(filepath.Clean(p))
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		res = append(res, p)
+	}
+	return res
 }
 
 // addFileToZip adds a single file to the ZIP archive
@@ -749,7 +766,8 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	// check if the path exists and is a directory
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
-		wb.writeJSONError(w, http.StatusNotFound, fmt.Sprintf("directory not found: %v", err))
+		log.Printf("[DEBUG] directory not found: %s: %v", path, err)
+		wb.writeJSONError(w, http.StatusNotFound, "directory not found")
 		return
 	}
 
@@ -765,7 +783,8 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	// get the file list
 	fileList, err := wb.getFileList(path, sortBy, sortDir)
 	if err != nil {
-		wb.writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("error reading directory: %v", err))
+		log.Printf("[WARN] error reading directory %s: %v", path, err)
+		wb.writeJSONError(w, http.StatusInternalServerError, "error reading directory")
 		return
 	}
 

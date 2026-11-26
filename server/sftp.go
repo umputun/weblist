@@ -911,8 +911,10 @@ func loadAuthorizedKeys(authorizedKeysFile string) ([]ssh.PublicKey, error) {
 			log.Printf("[DEBUG] Loaded authorized key: %s", comment)
 		}
 
-		// ignore options for now - we might want to handle these in the future
-		_ = options
+		if len(options) > 0 {
+			log.Printf("[WARN] authorized key %q has options %s; options are not enforced, the key is accepted without them",
+				comment, strings.Join(options, ","))
+		}
 
 		// add the key to our list
 		authorizedKeys = append(authorizedKeys, pubKey)

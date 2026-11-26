@@ -1435,3 +1435,56 @@ func TestHandleDownloadSelected_EntryCap(t *testing.T) {
 		assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
 	})
 }
+
+func TestHandleDownloadSelected_RepeatedPathsArchivedOnce(t *testing.T) {
+	// regression: a selection repeating one file was archived once per repeat, under the public-read cap too
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "big.bin"), []byte("payload"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "other.txt"), []byte("x"), 0o600))
+	web := &Web{Config: Config{RootDir: root, EnableMultiSelect: true, PublicRead: true}, FS: os.DirFS(root)}
+
+	form := url.Values{"selected-files": {"big.bin", "./big.bin", "big.bin", "sub/../big.bin", "other.txt"}}
+	r := httptest.NewRequest(http.MethodPost, "/download-selected", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	web.handleDownloadSelected(w, r)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	require.NoError(t, err)
+	names := make([]string, 0, len(zr.File))
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	assert.ElementsMatch(t, []string{"big.bin", "other.txt"}, names)
+}
+
+func TestHandlers_ErrorBodiesHideServerPaths(t *testing.T) {
+	root := t.TempDir()
+	web := &Web{Config: Config{RootDir: root}, FS: os.DirFS(root)}
+	require.NoError(t, web.initTemplates())
+
+	tbl := []struct {
+		name    string
+		handler http.HandlerFunc
+		target  string
+		htmx    bool
+	}{
+		{name: "full page", handler: web.handleRoot, target: "/?path=missing"},
+		{name: "dir contents", handler: web.handleDirContents, target: "/partials/dir-contents?path=missing", htmx: true},
+		{name: "api list", handler: web.handleAPIList, target: "/api/list?path=missing"},
+	}
+	for _, tc := range tbl {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, tc.target, http.NoBody)
+			if tc.htmx {
+				r.Header.Set("HX-Request", "true")
+			}
+			w := httptest.NewRecorder()
+			tc.handler(w, r)
+			assert.Equal(t, http.StatusNotFound, w.Code)
+			assert.NotContains(t, w.Body.String(), filepath.Base(root))
+			assert.NotContains(t, w.Body.String(), "no such file")
+		})
+	}
+}

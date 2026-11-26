@@ -1,11 +1,13 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
@@ -118,6 +120,27 @@ func generateTestSSHKey() (ssh.Signer, ssh.PublicKey, error) {
 	}
 
 	return signer, signer.PublicKey(), nil
+}
+
+func TestLoadAuthorizedKeys_WarnsAboutIgnoredOptions(t *testing.T) {
+	_, pubKey, err := generateTestSSHKey()
+	require.NoError(t, err)
+	_, plainKey, err := generateTestSSHKey()
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "authorized_keys")
+	content := `from="10.0.0.0/8",no-pty ` + string(ssh.MarshalAuthorizedKey(pubKey)) + string(ssh.MarshalAuthorizedKey(plainKey))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	keys, err := loadAuthorizedKeys(path)
+	require.NoError(t, err)
+	assert.Len(t, keys, 2, "keys with options still load")
+	assert.Contains(t, buf.String(), `[WARN]`)
+	assert.Contains(t, buf.String(), `from="10.0.0.0/8"`)
+	assert.Equal(t, 1, strings.Count(buf.String(), "options are not enforced"), "only the key with options warns")
 }
 
 func TestShouldExcludeForSFTP(t *testing.T) {
