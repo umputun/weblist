@@ -60,6 +60,9 @@
 - If test has too many subtests, consider splitting it to just multiple tests.
 - Never disable tests without a good reason. If you have a good reason, ask for approval first and if accepted, disable them with a comment explaining the reason.
 - Never update code with spacial conditions to just pass tests
+- `file.html`'s inline CSS contains the text `highlight-wrapper`; assert on `<div class="highlight-wrapper">`, or the check always passes
+- `TestServerIntegration` closes the client's idle connections before shutdown: a spare connection that never sent a request holds `Shutdown` for 5 s
+- Time-dependent tests (SFTP deadlines, lockout expiry) run in `testing/synctest`, with no timing hooks in production code
 
 ## Project Architecture
 
@@ -79,6 +82,12 @@
   - Multi-select handlers (`handleSelectionStatus`, `handleDownloadSelected`) check `EnableMultiSelect` themselves; the template gate alone left them reachable on every deployment
   - `handleDownloadSelected` bounds the archive at `maxZipEntries` only when `PublicRead` is set, counted over expanded entries before any ZIP header; every other server keeps the unlimited behavior it had
   - `upload.js` and `#upload-toast` are gated on `EnableUpload`, never `canUpload(r)`: they sit outside the htmx-swapped `page-content` while `#upload-controls` sits inside it, so a per-request gate can swap in controls whose script never loaded
+- `clientIPMiddleware` (replaces `rest.RealIP`) writes a bare client IP into `r.RemoteAddr`, believing `X-Forwarded-For` (rightmost hop that is not a trusted proxy) or `X-Real-IP` only from `TrustedProxies` (`--trusted-proxy`; `main.go` applies loopback and private networks when the option is empty); rate limits and the lockout key on it
+- The global tollbooth limiter sets `SetIgnoreURL(true)`: its default key includes the path, which gave every new URL a fresh bucket
+- `authFailures` locks an address (IPv6 grouped by /64) out for 10 minutes after 5 failures; `basicAuthLimitMiddleware` counts Basic Auth router-wide, `handleLoginSubmit` counts the form, successes are never counted. expirable-cache `Get` returns an expired entry's value with `ok=false`, so always check `ok`
+- The session signature covers `id.ts.password`: the dots keep a digit from moving between id and timestamp, and a password change ends sessions
+- Every `/view` response carries `viewCSP` (script-src, form-action and base-uri `'none'`), the template trusts the `Highlighted` flag rather than sniffing content, and the HTML preview iframe is `sandbox="allow-same-origin"`; text previews stop at `maxPreviewSize` (10 MB), highlighting at `maxHighlightSize` (1 MB)
+- SFTP: fixed 30 s handshake deadline, then `timeoutConn` moves the deadline 10 minutes forward on each read and write; at most `maxSFTPConns` (100) at once via a non-blocking slot channel
 - Static assets served from embedded filesystem (assets/*)
 - Templates stored in templates/* and embedded at compile time
 - Upload is optional - controlled by --upload.enabled flag
