@@ -1459,6 +1459,21 @@ func TestHandleDownloadSelected_RepeatedPathsArchivedOnce(t *testing.T) {
 	assert.ElementsMatch(t, []string{"big.bin", "other.txt"}, names)
 }
 
+func TestHandleFileModal_PDFPreviewIsAnIframe(t *testing.T) {
+	// regression: Safari fires no load event on an <embed>, so the PDF preview never left opacity 0
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "doc.pdf"), []byte("%PDF-1.4\n"), 0o600))
+	web := &Web{Config: Config{RootDir: root}, FS: os.DirFS(root)}
+	require.NoError(t, web.initTemplates())
+
+	w := httptest.NewRecorder()
+	web.handleFileModal(w, httptest.NewRequest(http.MethodGet, "/partials/file-modal?path=doc.pdf", http.NoBody))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	assert.Contains(t, w.Body.String(), `<iframe src="/view/doc.pdf"`)
+	assert.NotContains(t, w.Body.String(), "<embed")
+}
+
 func TestHandlers_ErrorBodiesHideServerPaths(t *testing.T) {
 	root := t.TempDir()
 	web := &Web{Config: Config{RootDir: root}, FS: os.DirFS(root)}

@@ -367,9 +367,9 @@
             <div class="loading-spinner"></div>
             <img src="/view/{{ .FilePath }}" alt="{{ .FileName }}" class="modal-image" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';" style="opacity: 0; transition: opacity 0.2s;">
         {{ else if .IsPDF }}
-            <!-- For PDFs, use an embed tag -->
+            <!-- an iframe, not an embed: WebKit never fires load on an embed, which left the preview hidden -->
             <div class="loading-spinner"></div>
-            <embed src="/view/{{ .FilePath }}" type="application/pdf" width="100%" height="100%" style="opacity: 0; transition: opacity 0.2s;" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';">
+            <iframe src="/view/{{ .FilePath }}" class="text-preview" style="opacity: 0; transition: opacity 0.2s;" onload="this.style.opacity='1'; this.previousElementSibling.style.display='none';"></iframe>
         {{ else if .IsHTML }}
             <!-- For HTML files, use iframe to show rendered content -->
             <div class="loading-spinner"></div>

@@ -140,4 +140,4 @@
 - Main server on port 18080 (no auth), auth tests on port 18081 (with auth) to avoid rate limiter conflicts
 - Run with `make e2e` (headless) or `make e2e-ui` (visible browser for debugging)
 - Setup browsers once with `make e2e-setup` (Chromium for the suite, WebKit for `TestView_DarkModalTextPreviewIsNotWhiteWhileLoading`, which holds `/view` pending and checks the iframe's initial blank document; WebKit paints that document white under a dark page, Chromium does not)
-- Previews in the modal (`<img>`, `<embed>`, both `<iframe>`s) start at `opacity: 0` and show on load, so the iframe's initial document is never displayed before `/view` responds
+- Previews in the modal (`<img>` and the `<iframe>`s) start at `opacity: 0` and show on load, so the iframe's initial document is never displayed before `/view` responds. PDFs use an `<iframe>`, never `<embed>`: WebKit fires no load event on an `<embed>`, so the preview would stay hidden. `TestHandleFileModal_PDFPreviewIsAnIframe` pins the markup; Playwright's WebKit has no PDF viewer and downloads the file, so no e2e test can show the Safari behavior
