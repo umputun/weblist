@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/umputun/weblist/server"
 )
@@ -1268,4 +1270,63 @@ func TestCheckSFTPKey(t *testing.T) {
 		assert.NoFileExists(t, filepath.Join(root, "new_rsa"))
 		assert.NoFileExists(t, filepath.Join(root, "host_rsa"))
 	})
+}
+
+func TestRunServer_HTTPAndSFTPShareLockout(t *testing.T) {
+	freePort := func() int {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		defer l.Close()
+		return l.Addr().(*net.TCPAddr).Port
+	}
+	httpAddr, sftpAddr := fmt.Sprintf("127.0.0.1:%d", freePort()), fmt.Sprintf("127.0.0.1:%d", freePort())
+
+	opts := &options{RootDir: t.TempDir(), Listen: httpAddr, Auth: "secret"}
+	opts.SFTP.Enabled = true
+	opts.SFTP.User = "weblist"
+	opts.SFTP.Address = sftpAddr
+	opts.SFTP.KeyFile = filepath.Join(t.TempDir(), "host_rsa")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- runServer(ctx, opts) }()
+	for _, addr := range []string{httpAddr, sftpAddr} {
+		require.Eventually(t, func() bool {
+			c, err := net.Dial("tcp", addr)
+			if err != nil {
+				return false
+			}
+			_ = c.Close()
+			return true
+		}, 5*time.Second, 20*time.Millisecond, addr)
+	}
+
+	sftpLogin := func() error {
+		cfg := &ssh.ClientConfig{User: "weblist", Auth: []ssh.AuthMethod{ssh.Password("secret")},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second} //nolint:gosec // test server
+		c, err := ssh.Dial("tcp", sftpAddr, cfg)
+		if err != nil {
+			return err
+		}
+		return c.Close()
+	}
+	require.NoError(t, sftpLogin(), "the right SFTP password works before any failure")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	for i := range 5 {
+		resp, err := client.PostForm("http://"+httpAddr+"/login", url.Values{"password": {"wrong"}})
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		require.Equal(t, http.StatusOK, resp.StatusCode, "wrong login %d", i+1)
+	}
+	assert.Error(t, sftpLogin(), "wrong HTTP passwords lock the same address out of SFTP")
+
+	client.CloseIdleConnections()
+	cancel()
+	select {
+	case err := <-errCh:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not shut down within expected time")
+	}
 }
