@@ -345,6 +345,28 @@ func TestSessionTokens(t *testing.T) {
 		tamperedToken = parts[0] + "." + parts[1] + ".AAAA"
 		assert.False(t, srv.validateSessionToken(tamperedToken), "Tampered signature should not validate")
 	})
+
+	t.Run("moving a digit across the separator changes the signature", func(t *testing.T) {
+		// regression: the signature covered id and timestamp with no separator, so shifting the
+		// last id digit into the timestamp signed the same bytes
+		assert.NotEqual(t, srv.sessionSignature("abc1", "1700000000"), srv.sessionSignature("abc", "11700000000"))
+	})
+
+	t.Run("future timestamp does not validate", func(t *testing.T) {
+		ts := strconv.FormatInt(time.Now().Add(time.Hour).Unix(), 10)
+		token := "some-id." + ts + "." + base64.StdEncoding.EncodeToString(srv.sessionSignature("some-id", ts))
+		assert.False(t, srv.validateSessionToken(token))
+
+		ts = strconv.FormatInt(time.Now().Add(30*time.Second).Unix(), 10)
+		token = "some-id." + ts + "." + base64.StdEncoding.EncodeToString(srv.sessionSignature("some-id", ts))
+		assert.True(t, srv.validateSessionToken(token), "small clock skew should be tolerated")
+	})
+
+	t.Run("password change invalidates existing tokens", func(t *testing.T) {
+		token := srv.generateSessionToken()
+		rotated := &Web{Config: Config{Auth: "new-password", SessionSecret: "test-session-secret"}}
+		assert.False(t, rotated.validateSessionToken(token))
+	})
 }
 
 func TestHandleLoginSubmit(t *testing.T) {
@@ -638,6 +660,8 @@ func TestWeb_AuthStateHelpers(t *testing.T) {
 		{"no password configured", &Web{Config: Config{EnableUpload: true}}, httptest.NewRequest("GET", "/", http.NoBody), false, true, false},
 		{"uploads disabled", &Web{Config: Config{Auth: "testpassword", SessionSecret: "s"}},
 			withBasic("weblist", "testpassword"), true, false, false},
+		{"public-read ignores valid basic", &Web{Config: Config{Auth: "testpassword", SessionSecret: "s", EnableUpload: true,
+			PublicRead: true}}, withBasic("weblist", "testpassword"), false, false, true},
 	}
 
 	for _, tt := range tests {
@@ -658,7 +682,6 @@ func TestWeb_UploadControlsRenderForBasicAuth(t *testing.T) {
 			AuthUser:      "weblist",
 			SessionSecret: "test-session-secret",
 			EnableUpload:  true,
-			PublicRead:    true,
 		},
 		FS: os.DirFS("testdata"),
 	}
@@ -701,5 +724,13 @@ func TestWeb_UploadControlsRenderForBasicAuth(t *testing.T) {
 
 	t.Run("htmx partial anonymous hides upload controls", func(t *testing.T) {
 		assert.NotContains(t, render(t, true, false), `id="upload-controls"`)
+	})
+
+	t.Run("public-read pages ignore basic auth", func(t *testing.T) {
+		srv.PublicRead = true
+		defer func() { srv.PublicRead = false }()
+		body := render(t, false, true)
+		assert.NotContains(t, body, `id="upload-controls"`)
+		assert.Contains(t, body, `href="/login"`)
 	})
 }

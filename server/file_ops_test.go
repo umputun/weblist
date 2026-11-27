@@ -1846,7 +1846,7 @@ func TestRenderMarkdown(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result, err := web.renderMarkdown(tt.content, tt.theme)
+			result, err := web.renderMarkdown(tt.content, tt.theme, true)
 			require.NoError(t, err)
 			for _, want := range tt.wantContains {
 				assert.Contains(t, result, want)
@@ -1854,6 +1854,44 @@ func TestRenderMarkdown(t *testing.T) {
 			for _, notWant := range tt.wantNotContains {
 				assert.NotContains(t, result, notWant)
 			}
+		})
+	}
+}
+
+func TestRenderMarkdown_TableCellLimit(t *testing.T) {
+	// regression: goldmark pads every row to the header width, so a wide header over short rows
+	// allocated cells quadratically in the input size
+	web := &Web{}
+	bomb := func(prefix string, cols, rows int) string {
+		var b strings.Builder
+		b.WriteString(prefix + strings.Repeat("|a", cols) + "|\n")
+		b.WriteString(prefix + strings.Repeat("|-", cols) + "|\n")
+		b.WriteString(strings.Repeat(prefix+"|\n", rows))
+		return b.String()
+	}
+
+	tests := []struct {
+		name    string
+		content string
+		wantErr bool
+	}{
+		{name: "wide table over short rows", content: bomb("", 1000, 1000), wantErr: true},
+		{name: "inside a blockquote", content: bomb("> ", 1000, 1000), wantErr: true},
+		{name: "inside a list item", content: "- x\n\n" + bomb("  ", 1000, 1000), wantErr: true},
+		{name: "with crlf line endings", content: strings.ReplaceAll(bomb("", 1000, 1000), "\n", "\r\n"), wantErr: true},
+		{name: "many small tables add up", content: strings.Repeat(bomb("", 50, 50)+"\n", 30), wantErr: true},
+		{name: "table at the limit renders", content: bomb("", 10, 4999)},
+		{name: "ascii table in a code fence is not counted", content: "```\n" + bomb("", 1000, 1000) + "```\n"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result, err := web.renderMarkdown(tt.content, "light", false)
+			if tt.wantErr {
+				require.Error(t, err)
+				return
+			}
+			require.NoError(t, err)
+			assert.Contains(t, result, "<div class=\"markdown-content\">")
 		})
 	}
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/netip"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -38,6 +39,7 @@ type options struct {
 
 	InsecureCookies bool          `long:"insecure-cookies" env:"INSECURE_COOKIES" description:"allow cookies without secure flag"`
 	SessionTTL      time.Duration `long:"session-ttl" env:"SESSION_TTL" default:"24h" description:"session timeout"`
+	TrustedProxies  []string      `long:"trusted-proxy" env:"TRUSTED_PROXY" env-delim:"," description:"trusted proxy IP or CIDR"`
 
 	AuthOpts struct {
 		PublicRead bool `long:"public-read" env:"PUBLIC_READ" description:"keep browsing and downloads public, require auth for uploads"`
@@ -142,6 +144,95 @@ func (o *options) checkPublicRead() error {
 	return nil
 }
 
+// prepare validates the options and resolves the root directory to an absolute path.
+func (o *options) prepare() error {
+	if err := o.checkPublicRead(); err != nil {
+		return err
+	}
+
+	absRootDir, err := filepath.Abs(o.RootDir)
+	if err != nil {
+		return fmt.Errorf("failed to get absolute path for root directory: %w", err)
+	}
+	o.RootDir = absRootDir
+
+	return o.checkSFTPKey()
+}
+
+// serverConfig builds the configuration shared by the HTTP and SFTP servers.
+func (o *options) serverConfig() (server.Config, error) {
+	trustedProxies, err := o.trustedProxies()
+	if err != nil {
+		return server.Config{}, err
+	}
+	return server.Config{
+		ListenAddr:               o.Listen,
+		Theme:                    o.Theme,
+		HideFooter:               o.HideFooter,
+		RootDir:                  o.RootDir,
+		EnableSyntaxHighlighting: o.EnableSyntaxHighlighting,
+		Version:                  versionInfo(),
+		Exclude:                  o.Exclude,
+		Auth:                     o.Auth,
+		AuthUser:                 o.AuthUser,
+		SessionSecret:            o.SessionSecret,
+		Title:                    o.Title,
+		CustomFooter:             o.CustomFooter,
+		SFTPUser:                 o.SFTP.User,
+		SFTPAddress:              o.SFTP.Address,
+		SFTPKeyFile:              o.SFTP.KeyFile,
+		SFTPAuthorized:           o.SFTP.Authorized,
+		BrandName:                o.Branding.Name,
+		BrandColor:               o.Branding.Color,
+		InsecureCookies:          o.InsecureCookies,
+		SessionTTL:               o.SessionTTL,
+		EnableMultiSelect:        o.EnableMultiSelect,
+		RecursiveMtime:           o.RecursiveMtime,
+		EnableUpload:             o.Upload.Enabled,
+		UploadMaxSize:            o.Upload.MaxSize * 1024 * 1024, // convert MB to bytes
+		UploadOverwrite:          o.Upload.Overwrite,
+		PublicRead:               o.AuthOpts.PublicRead,
+		TrustedProxies:           trustedProxies,
+	}, nil
+}
+
+// defaultTrustedProxies applies when --trusted-proxy is not set, so a proxy on the same host or a private
+// network keeps reporting client addresses without extra configuration
+var defaultTrustedProxies = []string{"127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"}
+
+// trustedProxies parses --trusted-proxy values, each an IP or a CIDR, falling back to
+// defaultTrustedProxies. IPv4-mapped IPv6 addresses are unmapped so they match the IPv4 form a
+// dual-stack listener reports.
+func (o *options) trustedProxies() ([]netip.Prefix, error) {
+	values := o.TrustedProxies
+	if len(values) == 0 {
+		values = defaultTrustedProxies
+	}
+	res := make([]netip.Prefix, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if strings.Contains(v, "/") {
+			p, err := netip.ParsePrefix(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid --trusted-proxy %q: %w", v, err)
+			}
+			// clientIP unmaps every address, so a mapped prefix would never match
+			if p.Addr().Is4In6() && p.Bits() >= 96 {
+				p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+			}
+			res = append(res, p.Masked())
+			continue
+		}
+		addr, err := netip.ParseAddr(v)
+		if err != nil {
+			return nil, fmt.Errorf("invalid --trusted-proxy %q: %w", v, err)
+		}
+		addr = addr.Unmap()
+		res = append(res, netip.PrefixFrom(addr, addr.BitLen()))
+	}
+	return res, nil
+}
+
 // checkSFTPKey rejects an SFTP host key path inside the served root, where HTTP and SFTP would serve
 // the private key as a file, a path through a dangling symlink, which key generation would follow,
 // and a path containing "..".
@@ -195,18 +286,7 @@ func (o *options) checkSFTPKey() error {
 }
 
 func runServer(ctx context.Context, opts *options) error {
-	if err := opts.checkPublicRead(); err != nil {
-		return err
-	}
-
-	// get the absolute path for root directory
-	absRootDir, err := filepath.Abs(opts.RootDir)
-	if err != nil {
-		return fmt.Errorf("failed to get absolute path for root directory: %w", err)
-	}
-	opts.RootDir = absRootDir
-
-	if err := opts.checkSFTPKey(); err != nil {
+	if err := opts.prepare(); err != nil {
 		return err
 	}
 
@@ -222,40 +302,19 @@ func runServer(ctx context.Context, opts *options) error {
 		return fmt.Errorf("failed to create root filesystem: %w", err)
 	}
 
-	// prepare common configuration
-	config := server.Config{
-		ListenAddr:               opts.Listen,
-		Theme:                    opts.Theme,
-		HideFooter:               opts.HideFooter,
-		RootDir:                  opts.RootDir,
-		EnableSyntaxHighlighting: opts.EnableSyntaxHighlighting,
-		Version:                  versionInfo(),
-		Exclude:                  opts.Exclude,
-		Auth:                     opts.Auth,
-		AuthUser:                 opts.AuthUser,
-		SessionSecret:            opts.SessionSecret,
-		Title:                    opts.Title,
-		CustomFooter:             opts.CustomFooter,
-		SFTPUser:                 opts.SFTP.User,
-		SFTPAddress:              opts.SFTP.Address,
-		SFTPKeyFile:              opts.SFTP.KeyFile,
-		SFTPAuthorized:           opts.SFTP.Authorized,
-		BrandName:                opts.Branding.Name,
-		BrandColor:               opts.Branding.Color,
-		InsecureCookies:          opts.InsecureCookies,
-		SessionTTL:               opts.SessionTTL,
-		EnableMultiSelect:        opts.EnableMultiSelect,
-		RecursiveMtime:           opts.RecursiveMtime,
-		EnableUpload:             opts.Upload.Enabled,
-		UploadMaxSize:            opts.Upload.MaxSize * 1024 * 1024, // convert MB to bytes
-		UploadOverwrite:          opts.Upload.Overwrite,
-		PublicRead:               opts.AuthOpts.PublicRead,
+	config, err := opts.serverConfig()
+	if err != nil {
+		return err
 	}
+
+	// one lockout for both servers, so failed passwords over HTTP and SFTP count together
+	lockout := &server.AuthLockout{}
 
 	// create HTTP server
 	srv := &server.Web{
-		Config: config,
-		FS:     fs,
+		Config:  config,
+		FS:      fs,
+		Lockout: lockout,
 	}
 
 	// create error channel for goroutines
@@ -276,8 +335,9 @@ func runServer(ctx context.Context, opts *options) error {
 		}
 
 		sftpSrv := &server.SFTP{
-			Config: config,
-			FS:     fs,
+			Config:  config,
+			FS:      fs,
+			Lockout: lockout,
 		}
 
 		go func() {

@@ -9,6 +9,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/cookiejar"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +19,7 @@ import (
 	"github.com/jessevdk/go-flags"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"golang.org/x/crypto/ssh"
 
 	"github.com/umputun/weblist/server"
 )
@@ -434,7 +436,9 @@ func TestRunServer(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 
-	// shutdown the server
+	// regression: a spare dialed connection that never sent a request holds Shutdown for up to 5s.
+	// every client here uses http.DefaultTransport, so this closes theirs too
+	client.CloseIdleConnections()
 	cancel()
 
 	// wait for server to shut down
@@ -658,7 +662,9 @@ func TestIntegration(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 
-	// shutdown the server
+	// regression: a spare dialed connection that never sent a request holds Shutdown for up to 5s.
+	// every client here uses http.DefaultTransport, so this closes theirs too
+	client.CloseIdleConnections()
 	cancel()
 
 	// wait for server to shut down
@@ -1041,7 +1047,9 @@ func TestIntegrationWithAuth(t *testing.T) {
 		assert.Equal(t, "/login", resp.Header.Get("Location"), "Logout should redirect to login page")
 	})
 
-	// shutdown the server
+	// regression: a spare dialed connection that never sent a request holds Shutdown for up to 5s.
+	// every client here uses http.DefaultTransport, so this closes theirs too
+	client.CloseIdleConnections()
 	cancel()
 
 	// wait for server to shut down
@@ -1096,6 +1104,68 @@ func TestRunServerPublicReadValidation(t *testing.T) {
 		assert.Equal(t, "secret", opts.Auth)
 		assert.True(t, opts.AuthOpts.PublicRead)
 	})
+}
+
+func TestOptions_trustedProxies(t *testing.T) {
+	t.Run("defaults trust loopback and private networks", func(t *testing.T) {
+		var opts options
+		_, err := flags.NewParser(&opts, flags.Default).ParseArgs(nil)
+		require.NoError(t, err)
+		prefixes, err := opts.trustedProxies()
+		require.NoError(t, err)
+		want := []string{"127.0.0.0/8", "::1/128", "10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16", "fc00::/7"}
+		got := make([]string, 0, len(prefixes))
+		for _, p := range prefixes {
+			got = append(got, p.String())
+		}
+		assert.Equal(t, want, got)
+	})
+
+	t.Run("explicit values replace the defaults", func(t *testing.T) {
+		var opts options
+		_, err := flags.NewParser(&opts, flags.Default).ParseArgs([]string{"--trusted-proxy=127.0.0.1/32"})
+		require.NoError(t, err)
+		prefixes, err := opts.trustedProxies()
+		require.NoError(t, err)
+		require.Len(t, prefixes, 1)
+		assert.Equal(t, "127.0.0.1/32", prefixes[0].String())
+	})
+
+	t.Run("env value is comma separated", func(t *testing.T) {
+		t.Setenv("TRUSTED_PROXY", "10.0.0.1,10.0.0.2")
+		var opts options
+		_, err := flags.NewParser(&opts, flags.Default).ParseArgs(nil)
+		require.NoError(t, err)
+		assert.Equal(t, []string{"10.0.0.1", "10.0.0.2"}, opts.TrustedProxies)
+	})
+
+	tbl := []struct {
+		in, want string
+		wantErr  bool
+	}{
+		{in: "203.0.113.7", want: "203.0.113.7/32"},
+		{in: "2001:db8::7", want: "2001:db8::7/128"},
+		{in: "::ffff:10.0.0.1", want: "10.0.0.1/32"},
+		{in: "::ffff:10.0.0.0/104", want: "10.0.0.0/8"},
+		{in: "10.1.2.3/8", want: "10.0.0.0/8"},
+		{in: " 192.168.1.0/24 ", want: "192.168.1.0/24"},
+		{in: "not-an-ip", wantErr: true},
+		{in: "10.0.0.0/33", wantErr: true},
+	}
+	for _, tc := range tbl {
+		t.Run(tc.in, func(t *testing.T) {
+			opts := options{TrustedProxies: []string{tc.in}}
+			prefixes, err := opts.trustedProxies()
+			if tc.wantErr {
+				require.Error(t, err)
+				assert.Contains(t, err.Error(), "--trusted-proxy")
+				return
+			}
+			require.NoError(t, err)
+			require.Len(t, prefixes, 1)
+			assert.Equal(t, tc.want, prefixes[0].String())
+		})
+	}
 }
 
 func TestCheckSFTPKey(t *testing.T) {
@@ -1200,4 +1270,63 @@ func TestCheckSFTPKey(t *testing.T) {
 		assert.NoFileExists(t, filepath.Join(root, "new_rsa"))
 		assert.NoFileExists(t, filepath.Join(root, "host_rsa"))
 	})
+}
+
+func TestRunServer_HTTPAndSFTPShareLockout(t *testing.T) {
+	freePort := func() int {
+		l, err := net.Listen("tcp", "127.0.0.1:0")
+		require.NoError(t, err)
+		defer l.Close()
+		return l.Addr().(*net.TCPAddr).Port
+	}
+	httpAddr, sftpAddr := fmt.Sprintf("127.0.0.1:%d", freePort()), fmt.Sprintf("127.0.0.1:%d", freePort())
+
+	opts := &options{RootDir: t.TempDir(), Listen: httpAddr, Auth: "secret"}
+	opts.SFTP.Enabled = true
+	opts.SFTP.User = "weblist"
+	opts.SFTP.Address = sftpAddr
+	opts.SFTP.KeyFile = filepath.Join(t.TempDir(), "host_rsa")
+
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- runServer(ctx, opts) }()
+	for _, addr := range []string{httpAddr, sftpAddr} {
+		require.Eventually(t, func() bool {
+			c, err := net.Dial("tcp", addr)
+			if err != nil {
+				return false
+			}
+			_ = c.Close()
+			return true
+		}, 5*time.Second, 20*time.Millisecond, addr)
+	}
+
+	sftpLogin := func() error {
+		cfg := &ssh.ClientConfig{User: "weblist", Auth: []ssh.AuthMethod{ssh.Password("secret")},
+			HostKeyCallback: ssh.InsecureIgnoreHostKey(), Timeout: 5 * time.Second} //nolint:gosec // test server
+		c, err := ssh.Dial("tcp", sftpAddr, cfg)
+		if err != nil {
+			return err
+		}
+		return c.Close()
+	}
+	require.NoError(t, sftpLogin(), "the right SFTP password works before any failure")
+
+	client := &http.Client{Timeout: 5 * time.Second}
+	for i := range 5 {
+		resp, err := client.PostForm("http://"+httpAddr+"/login", url.Values{"password": {"wrong"}})
+		require.NoError(t, err)
+		require.NoError(t, resp.Body.Close())
+		require.Equal(t, http.StatusOK, resp.StatusCode, "wrong login %d", i+1)
+	}
+	assert.Error(t, sftpLogin(), "wrong HTTP passwords lock the same address out of SFTP")
+
+	client.CloseIdleConnections()
+	cancel()
+	select {
+	case err := <-errCh:
+		assert.NoError(t, err)
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not shut down within expected time")
+	}
 }

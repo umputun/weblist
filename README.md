@@ -110,6 +110,7 @@ weblist [options]
 - `--session-secret`: Secret key for session tokens (auto-generated if not set) - env: `SESSION_SECRET`
 - `--session-ttl`: Session timeout duration (default: `24h`) - env: `SESSION_TTL`
 - `--insecure-cookies`: Allow cookies without secure flag - env: `INSECURE_COOKIES`
+- `--trusted-proxy`: Proxy IP or CIDR whose `X-Real-IP` and `X-Forwarded-For` headers name the client, can be repeated (default: loopback and private networks) - env: `TRUSTED_PROXY` (comma-separated)
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
 - `--syntax-highlight`: Enable syntax highlighting for code files - env: `SYNTAX_HIGHLIGHT`
@@ -178,8 +179,30 @@ When authentication is enabled:
 - The password is whatever you specify with the `--auth` parameter
 - Sessions are secured with HMAC-SHA256 signed tokens
 - Session secrets are automatically generated if not explicitly provided
-- Sessions expire after the specified timeout (default: 24 hours)
+- Sessions expire after the specified timeout (default: 24 hours); changing the password ends existing sessions
 - A logout button appears in the top right corner when logged in
+- After 5 wrong passwords from one address, through the login form, HTTP Basic Auth or SFTP together, that address is locked out for 10 minutes; requests with the right credentials are never counted, and neither are Basic Auth credentials for another username, such as a proxy's own
+
+### Client addresses behind a proxy
+
+Rate limits and the login lockout apply per client address. weblist takes that address from the connection,
+or, when the connection comes from a trusted proxy, from its `X-Real-IP` header, falling back to
+`X-Forwarded-For` (rightmost address that is not a trusted proxy) when `X-Real-IP` is missing or is
+itself a trusted address, as behind two proxies. By default loopback and private networks
+are trusted, which covers a reverse proxy on the same host or a Docker network. A proxy elsewhere needs
+`--trusted-proxy`; an untrusted proxy makes every client share one address, and so one rate limit and one
+lockout.
+
+The proxy must set `X-Real-IP` itself, since a value the client sent and the proxy passed on is believed:
+`proxy_set_header X-Real-IP $remote_addr;` in nginx, `header_up X-Real-IP {remote_host}` in Caddy.
+
+When weblist is reachable without a proxy through an address it sees as private, for example Docker Desktop
+port publishing, where every visitor appears as the Docker gateway, restrict trust to loopback so visitors
+cannot set their own address:
+
+```bash
+weblist --auth your_password --trusted-proxy 127.0.0.1/32
+```
 
 Authentication is completely optional and only activated when the `--auth` parameter is provided.
 
@@ -194,6 +217,8 @@ weblist --auth your_password --upload.enabled --auth.public-read
 
 Anonymous visitors get the full listing, downloads, file previews and the JSON API, and see a Login link
 instead of the upload buttons. After logging in the upload buttons appear and the link becomes Logout.
+The pages go by the login session alone, so a client sending HTTP Basic Auth sees them as anonymous;
+`POST /upload` still accepts Basic Auth, for example `curl -u weblist:your_password -F file=@report.pdf https://files.example.com/upload`.
 
 The flag refuses to start without `--auth`, since without a password there is nothing to require and
 uploads would accept anonymous writes. It only affects HTTP: SFTP still requires the password or an
@@ -225,6 +250,9 @@ When SFTP is enabled:
   - Public key authentication: Uses OpenSSH-format authorized_keys file (requires `--sftp.authorized` parameter)
 - The username for SFTP is specified with the `--sftp.user` parameter
 - SFTP access is read-only for security reasons
+- Options in authorized_keys entries, such as `from=`, are not enforced; such keys still work, and weblist logs a warning naming the ignored options
+- Wrong passwords count toward the same lockout as HTTP logins (5 per address, then 10 minutes)
+- At most 100 connections are served at once, 10 from one address (IPv6 addresses grouped by /64); a client has 30 seconds to log in, and a session with no traffic for 10 minutes is closed
 - SSH host keys are stored to prevent client warnings about changing keys
   - By default, the key is stored as `weblist_rsa` in the current directory, which works only when `--root` points to another directory
   - You can specify a custom key file with `--sftp.key`
@@ -424,6 +452,8 @@ GET /view/{path/to/file}
 ```
 
 Markdown files (`.md`, `.markdown`) are automatically rendered as formatted HTML with support for GFM (GitHub Flavored Markdown) — headings, tables, task lists, fenced code blocks with syntax highlighting, and more. This happens automatically without any configuration.
+
+Previews never run scripts from the served files: `/view` responses carry a Content-Security-Policy that blocks script and form submission, so an HTML file shows its markup, styles and images but not its JavaScript; download the file to use it fully. Text files over 10 MB are not previewed, and syntax highlighting is skipped above 1 MB. A Markdown file whose tables would hold more than 50,000 cells is shown as plain text.
 
 All file access respects the same authentication and exclusion rules as the web interface.
 

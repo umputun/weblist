@@ -1,15 +1,19 @@
 package server
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/rsa"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/pkg/sftp"
@@ -18,48 +22,43 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func TestSFTPAuthRateLimit(t *testing.T) {
-	// create a test SFTP server with rate limiting
-	sftpServer := &SFTP{
-		Config: Config{
-			SFTPUser:    "testuser",
-			Auth:        "password123",
-			RootDir:     "testdata",
-			SFTPKeyFile: filepath.Join(os.TempDir(), "test_sftp_key"),
-		},
-		FS:         os.DirFS("testdata"),
-		ipAttempts: make(map[string]ipAttemptsInfo),
+func TestSFTP_PasswordLoginUsesSharedLockout(t *testing.T) {
+	lockout := &AuthLockout{}
+	s := &SFTP{Config: Config{SFTPUser: "testuser", Auth: "testpass", SFTPKeyFile: filepath.Join(t.TempDir(), "host_key")}, Lockout: lockout}
+	config, err := s.setupSSHServerConfig()
+	require.NoError(t, err)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	login := func(pass string) error {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			_, _, _, _ = ssh.NewServerConn(conn, config)
+		}()
+		defer func() { <-done }()
+		client, err := ssh.Dial("tcp", ln.Addr().String(), &ssh.ClientConfig{
+			User: "testuser", Auth: []ssh.AuthMethod{ssh.Password(pass)}, HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec // test
+		})
+		if err != nil {
+			return err
+		}
+		_ = client.Close()
+		return nil
 	}
 
-	// test the checkAuthRateLimit function directly
-	testIP := "192.168.1.1"
-
-	// first 5 attempts should succeed
-	for i := range 5 {
-		allowed := sftpServer.checkAuthRateLimit(testIP)
-		assert.True(t, allowed, "Attempt %d should be allowed", i+1)
+	require.NoError(t, login("testpass"))
+	for i := range maxAuthFailures {
+		require.Error(t, login("wrong"), "attempt %d", i+1)
 	}
-
-	// 6th attempt should be blocked
-	allowed := sftpServer.checkAuthRateLimit(testIP)
-	assert.False(t, allowed, "6th attempt should be blocked by rate limit")
-
-	// check the recorded attempts
-	sftpServer.ipAttemptsMu.Lock()
-	info, exists := sftpServer.ipAttempts[testIP]
-	sftpServer.ipAttemptsMu.Unlock()
-
-	assert.True(t, exists, "IP should be tracked in rate limiter")
-	assert.Equal(t, 6, info.count, "Attempt count should be 6")
-
-	// test that resetAuthRateLimit clears the record
-	sftpServer.resetAuthRateLimit(testIP)
-
-	sftpServer.ipAttemptsMu.Lock()
-	_, exists = sftpServer.ipAttempts[testIP]
-	sftpServer.ipAttemptsMu.Unlock()
-
-	assert.False(t, exists, "IP record should be cleared after successful auth")
+	assert.Error(t, login("testpass"), "right password refused once locked out")
+	assert.False(t, (&Web{Lockout: lockout}).lockout().allow("127.0.0.1", true), "web logins see the same lockout")
 }
 
 func TestLoadAuthorizedKeys(t *testing.T) {
@@ -116,6 +115,27 @@ func generateTestSSHKey() (ssh.Signer, ssh.PublicKey, error) {
 	}
 
 	return signer, signer.PublicKey(), nil
+}
+
+func TestLoadAuthorizedKeys_WarnsAboutIgnoredOptions(t *testing.T) {
+	_, pubKey, err := generateTestSSHKey()
+	require.NoError(t, err)
+	_, plainKey, err := generateTestSSHKey()
+	require.NoError(t, err)
+	path := filepath.Join(t.TempDir(), "authorized_keys")
+	content := `from="10.0.0.0/8",no-pty ` + string(ssh.MarshalAuthorizedKey(pubKey)) + string(ssh.MarshalAuthorizedKey(plainKey))
+	require.NoError(t, os.WriteFile(path, []byte(content), 0o600))
+
+	var buf bytes.Buffer
+	log.SetOutput(&buf)
+	defer log.SetOutput(os.Stderr)
+
+	keys, err := loadAuthorizedKeys(path)
+	require.NoError(t, err)
+	assert.Len(t, keys, 2, "keys with options still load")
+	assert.Contains(t, buf.String(), `[WARN]`)
+	assert.Contains(t, buf.String(), `from="10.0.0.0/8"`)
+	assert.Equal(t, 1, strings.Count(buf.String(), "options are not enforced"), "only the key with options warns")
 }
 
 func TestShouldExcludeForSFTP(t *testing.T) {
@@ -1011,52 +1031,131 @@ func TestSFTPKeyPersistence(t *testing.T) {
 	cancel2()
 }
 
-// TestTimeoutConn tests the timeoutConn implementation
 func TestTimeoutConn(t *testing.T) {
-	// create a pipe to simulate network connection
-	clientConn, serverConn := net.Pipe()
-	defer clientConn.Close()
-	defer serverConn.Close()
+	synctest.Test(t, func(t *testing.T) {
+		clientConn, serverConn := net.Pipe()
+		defer clientConn.Close()
+		tc := &timeoutConn{Conn: serverConn}
+		tc.idle.Store(int64(time.Minute))
 
-	// create a timeout connection with a very short timeout for testing
-	timeoutConn := &timeoutConn{
-		Conn:         serverConn,
-		idleTimeout:  500 * time.Millisecond,
-		lastActivity: time.Now(),
+		go func() { _, _ = clientConn.Write([]byte("test data")) }()
+		buf := make([]byte, 10)
+		n, err := tc.Read(buf)
+		require.NoError(t, err)
+		assert.Equal(t, "test data", string(buf[:n]))
+
+		go func() { _, _ = clientConn.Read(make([]byte, 10)) }()
+		n, err = tc.Write([]byte("response"))
+		require.NoError(t, err)
+		assert.Equal(t, 8, n)
+
+		// regression: the idle check ran only before a read, so a read already blocked never timed out
+		start := time.Now()
+		_, err = tc.Read(buf)
+		require.ErrorIs(t, err, os.ErrDeadlineExceeded)
+		assert.Equal(t, time.Minute, time.Since(start))
+
+		_, err = tc.Write([]byte("data"))
+		assert.ErrorIs(t, err, os.ErrDeadlineExceeded)
+	})
+}
+
+func TestSFTP_handleConnectionDropsSilentClient(t *testing.T) {
+	keyPath := filepath.Join(t.TempDir(), "host_key")
+	s := &SFTP{Config: Config{SFTPUser: "u", Auth: "p", SFTPKeyFile: keyPath}}
+	config, err := s.setupSSHServerConfig()
+	require.NoError(t, err)
+
+	synctest.Test(t, func(t *testing.T) {
+		clientConn, serverConn := net.Pipe()
+		defer clientConn.Close()
+		done := make(chan struct{})
+		go func() {
+			s.handleConnection(serverConn, config)
+			close(done)
+		}()
+
+		time.Sleep(sftpHandshakeTimeout - time.Second)
+		synctest.Wait()
+		select {
+		case <-done:
+			t.Fatal("dropped before the handshake timeout")
+		default:
+		}
+
+		time.Sleep(2 * time.Second)
+		synctest.Wait()
+		select {
+		case <-done:
+		default:
+			t.Fatal("a client that never completes the handshake is still held")
+		}
+	})
+}
+
+func TestSFTP_RunRefusesConnectionsOverLimit(t *testing.T) {
+	rootDir := setupTestDirectoryStructure(t)
+	defer os.RemoveAll(rootDir)
+	port, cleanup := startSFTPServer(t, rootDir)
+	defer cleanup()
+
+	banner := func(c net.Conn) string {
+		_ = c.SetReadDeadline(time.Now().Add(2 * time.Second))
+		buf := make([]byte, 64)
+		n, _ := c.Read(buf)
+		return string(buf[:n])
 	}
 
-	// test reading within timeout
-	go func() {
-		_, err := clientConn.Write([]byte("test data"))
-		require.NoError(t, err)
+	conns := make([]net.Conn, 0, maxSFTPConnsPerAddr)
+	defer func() {
+		for _, c := range conns {
+			_ = c.Close()
+		}
 	}()
-
-	buf := make([]byte, 10)
-	n, err := timeoutConn.Read(buf)
-	require.NoError(t, err)
-	assert.Equal(t, "test data", string(buf[:n]))
-
-	// test writing within timeout
-	go func() {
-		readBuf := make([]byte, 10)
-		_, err := clientConn.Read(readBuf)
+	for i := range maxSFTPConnsPerAddr {
+		c, err := net.Dial("tcp", "127.0.0.1:"+port)
 		require.NoError(t, err)
-	}()
+		conns = append(conns, c)
+		require.Contains(t, banner(c), "SSH-2.0-WebList-SFTP", "connection %d should be served", i+1)
+	}
 
-	n, err = timeoutConn.Write([]byte("response"))
+	// regression: one address could hold every slot, refusing all other clients
+	extra, err := net.Dial("tcp", "127.0.0.1:"+port)
 	require.NoError(t, err)
-	assert.Equal(t, 8, n)
+	defer extra.Close()
+	require.NoError(t, extra.SetReadDeadline(time.Now().Add(2*time.Second)))
+	n, err := extra.Read(make([]byte, 64))
+	assert.Zero(t, n, "no banner over the per-address limit")
+	assert.ErrorIs(t, err, io.EOF, "the server closes the connection rather than holding it")
 
-	// test timeout
-	time.Sleep(600 * time.Millisecond) // wait for timeout to occur
+	require.NoError(t, conns[0].Close())
+	conns = conns[1:]
+	require.Eventually(t, func() bool {
+		c, err := net.Dial("tcp", "127.0.0.1:"+port)
+		if err != nil {
+			return false
+		}
+		conns = append(conns, c)
+		return strings.Contains(banner(c), "SSH-2.0-WebList-SFTP")
+	}, 5*time.Second, 100*time.Millisecond, "a freed slot is reused")
+}
 
-	_, err = timeoutConn.Read(buf)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "idle timeout exceeded")
+func TestConnSlots(t *testing.T) {
+	var cs connSlots
+	for i := range maxSFTPConnsPerAddr {
+		require.True(t, cs.acquire("198.51.100.1"), "connection %d", i+1)
+	}
+	assert.False(t, cs.acquire("198.51.100.1"), "per-address limit")
+	cs.release("198.51.100.1")
+	assert.True(t, cs.acquire("198.51.100.1"), "a released slot is reused")
 
-	_, err = timeoutConn.Write([]byte("data"))
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "idle timeout exceeded")
+	for i := maxSFTPConnsPerAddr; i < maxSFTPConns; i++ {
+		require.True(t, cs.acquire(fmt.Sprintf("203.0.113.%d", i)), "connection %d", i+1)
+	}
+	assert.False(t, cs.acquire("192.0.2.1"), "total limit holds for a new address")
+	cs.release("203.0.113.50")
+	assert.True(t, cs.acquire("192.0.2.1"))
+	assert.Len(t, cs.perAddr, maxSFTPConns-maxSFTPConnsPerAddr+1, "a released address's count is dropped")
 }
 
 // TestMemReaderAt tests the memReaderAt implementation
@@ -1151,53 +1250,6 @@ func TestListerAt(t *testing.T) {
 
 // Since ssh.Request.Reply field is not exported, we can't properly test the replyRequest function
 // in isolation. The integration tests above verify that it works correctly in the real flow.
-
-// TestAuthRateLimit tests the rate limiting functionality
-func TestAuthRateLimit(t *testing.T) {
-	s := &SFTP{
-		Config: Config{
-			SFTPUser:    "testuser",
-			SFTPAddress: "127.0.0.1:0",
-			Auth:        "testpass",
-		},
-		ipAttempts: make(map[string]ipAttemptsInfo),
-	}
-
-	ip := "192.168.1.1"
-
-	// first attempt should be allowed
-	allowed := s.checkAuthRateLimit(ip)
-	assert.True(t, allowed)
-
-	// record should exist now
-	s.ipAttemptsMu.Lock()
-	info, exists := s.ipAttempts[ip]
-	s.ipAttemptsMu.Unlock()
-	assert.True(t, exists)
-	assert.Equal(t, 1, info.count)
-
-	// make more attempts up to the limit
-	for range 4 {
-		allowed = s.checkAuthRateLimit(ip)
-		assert.True(t, allowed)
-	}
-
-	// the next attempt should be blocked (6th attempt)
-	allowed = s.checkAuthRateLimit(ip)
-	assert.False(t, allowed)
-
-	// test resetting limit
-	s.resetAuthRateLimit(ip)
-
-	s.ipAttemptsMu.Lock()
-	_, exists = s.ipAttempts[ip]
-	s.ipAttemptsMu.Unlock()
-	assert.False(t, exists)
-
-	// should be allowed again
-	allowed = s.checkAuthRateLimit(ip)
-	assert.True(t, allowed)
-}
 
 // TestReadlink tests the Readlink implementation
 func TestReadlink(t *testing.T) {
@@ -1449,9 +1501,6 @@ func TestSetupSSHServerConfig(t *testing.T) {
 			assert.Equal(t, "SSH-2.0-WebList-SFTP", config.ServerVersion)
 			assert.Equal(t, false, config.NoClientAuth)
 			assert.Equal(t, 6, config.MaxAuthTries)
-
-			// verify the auth rate limiter is initialized
-			assert.NotNil(t, s.ipAttempts)
 		})
 	}
 }

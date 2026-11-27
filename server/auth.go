@@ -51,9 +51,13 @@ func (wb *Web) handleLoginSubmit(w http.ResponseWriter, r *http.Request) {
 	}
 
 	password := r.FormValue("password")
-
 	passwordCorrect := subtle.ConstantTimeCompare([]byte(password), []byte(wb.Auth)) == 1
 
+	if !wb.lockout().allow(r.RemoteAddr, passwordCorrect) {
+		w.WriteHeader(http.StatusTooManyRequests)
+		wb.renderLoginError(w, "Too many login attempts, please try again later")
+		return
+	}
 	if !passwordCorrect {
 		wb.renderLoginError(w, "Invalid password")
 		return
@@ -119,9 +123,14 @@ func (wb *Web) isAuthenticatedByCookie(r *http.Request) bool {
 
 // isAuthenticated reports whether the request carries valid credentials, by session cookie or basic auth.
 // Always false without a password configured, so callers can treat it as "this visitor logged in".
+// Under PublicRead only the cookie counts: public pages that honored Basic Auth would be an uncounted
+// password oracle, and counting there locks out readers behind a proxy sending its own credentials.
 func (wb *Web) isAuthenticated(r *http.Request) bool {
 	if wb.Auth == "" {
 		return false
+	}
+	if wb.PublicRead {
+		return wb.isAuthenticatedByCookie(r)
 	}
 	return wb.isAuthenticatedByCookie(r) || wb.checkBasicAuth(r)
 }
@@ -205,28 +214,19 @@ func (wb *Web) normalizeBrandColor(color string) string {
 // generateSessionToken creates a secure session token based on a random value
 // and the current timestamp, signed with a secret key
 func (wb *Web) generateSessionToken() string {
-	// create a unique random ID
 	tokenID := uuid.NewString()
-
-	// use SessionSecret as the signing key
-	secret := []byte(wb.SessionSecret)
-
-	// create HMAC using the secret key
-	h := hmac.New(sha256.New, secret)
-
-	// add the token ID to the HMAC
-	h.Write([]byte(tokenID))
-
-	// add timestamp to prevent reuse if secret changes and for expiration validation
 	timestamp := strconv.FormatInt(time.Now().Unix(), 10)
-	h.Write([]byte(timestamp))
+	return tokenID + "." + timestamp + "." + base64.StdEncoding.EncodeToString(wb.sessionSignature(tokenID, timestamp))
+}
 
-	// get the signature
-	signature := h.Sum(nil)
-
-	// combine the token ID, timestamp and signature
-	token := tokenID + "." + timestamp + "." + base64.StdEncoding.EncodeToString(signature)
-	return token
+// sessionSignature signs a token's id and issue time with SessionSecret. The password is part of the
+// signed input, so changing it ends existing sessions.
+func (wb *Web) sessionSignature(tokenID, timestamp string) []byte {
+	h := hmac.New(sha256.New, []byte(wb.SessionSecret))
+	// the dots keep the fields apart: without them a digit moved from the id to the timestamp
+	// signs the same bytes. Neither id nor timestamp can hold a dot, validateSessionToken splits on it
+	h.Write([]byte(tokenID + "." + timestamp + "." + wb.Auth))
+	return h.Sum(nil)
 }
 
 // validateSessionToken validates the session token
@@ -240,13 +240,7 @@ func (wb *Web) validateSessionToken(token string) bool {
 	timestamp := parts[1]
 	signatureB64 := parts[2]
 
-	// recreate the HMAC signature using the session secret initialized at startup
-	secret := []byte(wb.SessionSecret)
-
-	h := hmac.New(sha256.New, secret)
-	h.Write([]byte(tokenID))
-	h.Write([]byte(timestamp))
-	expectedSignature := h.Sum(nil)
+	expectedSignature := wb.sessionSignature(tokenID, timestamp)
 
 	// decode the provided signature
 	signature, err := base64.StdEncoding.DecodeString(signatureB64)
@@ -271,9 +265,9 @@ func (wb *Web) validateSessionToken(token string) bool {
 		maxAge = 24 * time.Hour
 	}
 
-	// check if token has expired
-	tokenTime := time.Unix(timestampInt, 0)
-	return time.Since(tokenTime) <= maxAge
+	// a timestamp ahead of the clock never expires; allow only small skew
+	age := time.Since(time.Unix(timestampInt, 0))
+	return age >= -time.Minute && age <= maxAge
 }
 
 // isRequestSecure checks if the request is secure by examining TLS status and common proxy headers

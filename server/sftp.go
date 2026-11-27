@@ -13,31 +13,64 @@ import (
 	"io/fs"
 	"log"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/pkg/sftp"
 	"golang.org/x/crypto/ssh"
 )
 
+const (
+	maxSFTPConns         = 100              // connections served at once; each holds a goroutine and a descriptor
+	maxSFTPConnsPerAddr  = 10               // of those, from one client address, so one source cannot hold them all
+	sftpHandshakeTimeout = 30 * time.Second // to finish the SSH handshake and authenticate
+	sftpIdleTimeout      = 10 * time.Minute // without traffic after login
+)
+
+// connSlots bounds the SFTP connections served at once, in total and per client address key
+type connSlots struct {
+	mu      sync.Mutex
+	total   int
+	perAddr map[string]int
+}
+
+// acquire takes a slot for key, reporting false when the total or the key's share is used up
+func (c *connSlots) acquire(key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.total >= maxSFTPConns || c.perAddr[key] >= maxSFTPConnsPerAddr {
+		return false
+	}
+	if c.perAddr == nil {
+		c.perAddr = make(map[string]int)
+	}
+	c.total++
+	c.perAddr[key]++
+	return true
+}
+
+func (c *connSlots) release(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.total--
+	c.perAddr[key]--
+	if c.perAddr[key] <= 0 {
+		delete(c.perAddr, key)
+	}
+}
+
 // SFTP represents the SFTP server.
 type SFTP struct {
 	Config
-	FS fs.FS
+	FS      fs.FS
+	Lockout *AuthLockout // failed password attempts, shared with Web; nil gives this server its own
 
-	// simple rate limiter for authentication attempts
-	ipAttempts   map[string]ipAttemptsInfo
-	ipAttemptsMu sync.Mutex
-}
-
-// ipAttemptsInfo tracks authentication attempts from an IP
-type ipAttemptsInfo struct {
-	count     int       // number of attempts
-	firstSeen time.Time // when the first attempt was seen
-	lastSeen  time.Time // when the most recent attempt was seen
+	ownLockout AuthLockout
 }
 
 // Run starts the SFTP server.
@@ -64,6 +97,7 @@ func (s *SFTP) Run(ctx context.Context) error {
 
 	// channel for connection errors
 	errorCh := make(chan error, 1)
+	var slots connSlots
 
 	// handle connections in a separate goroutine
 	go func() {
@@ -86,8 +120,17 @@ func (s *SFTP) Run(ctx context.Context) error {
 				return
 			}
 
-			// handle connection in a goroutine
-			go s.handleConnection(conn, config)
+			// refuse rather than wait for a slot, or shutdown waits on the accept loop
+			key := lockoutKey(s.remoteIP(conn.RemoteAddr()))
+			if !slots.acquire(key) {
+				log.Printf("[WARN] SFTP connection limit reached, refusing %s", conn.RemoteAddr())
+				_ = conn.Close()
+				continue
+			}
+			go func() {
+				defer slots.release(key)
+				s.handleConnection(conn, config)
+			}()
 		}
 	}()
 
@@ -109,20 +152,21 @@ func (s *SFTP) Run(ctx context.Context) error {
 func (s *SFTP) handleConnection(conn net.Conn, config *ssh.ServerConfig) {
 	defer conn.Close()
 
-	// apply idle timeout to the connection
-	timeoutConn := &timeoutConn{
-		Conn:         conn,
-		idleTimeout:  10 * time.Minute,
-		lastActivity: time.Now(),
-	}
+	// a fixed deadline for the handshake, so a client trickling bytes cannot hold the slot past it
+	tc := &timeoutConn{Conn: conn}
+	_ = conn.SetDeadline(time.Now().Add(sftpHandshakeTimeout))
 
-	// perform SSH handshake
-	sshConn, chans, reqs, err := ssh.NewServerConn(timeoutConn, config)
+	sshConn, chans, reqs, err := ssh.NewServerConn(tc, config)
 	if err != nil {
 		log.Printf("[WARN] SSH handshake failed: %v", err)
 		return
 	}
 	defer sshConn.Close()
+
+	// ssh's reader goroutine may already be blocked under the handshake deadline, so replace that
+	// deadline before idle refreshing takes over
+	_ = conn.SetDeadline(time.Now().Add(sftpIdleTimeout))
+	tc.idle.Store(int64(sftpIdleTimeout))
 
 	log.Printf("[DEBUG] new SSH connection from %s (%s)", sshConn.RemoteAddr(), sshConn.ClientVersion())
 
@@ -624,56 +668,27 @@ func loadOrGenerateHostKey(keyFile string) (ssh.Signer, error) {
 	return hostKey, nil
 }
 
-// timeoutConn wraps a net.Conn with an idle timeout
+// timeoutConn moves the connection deadline forward by idle on every read and write, so a connection
+// with no traffic for that long fails its pending call. While idle is zero no deadline is touched,
+// which leaves the fixed handshake deadline in force. ssh reads and writes from separate goroutines,
+// hence the atomic.
 type timeoutConn struct {
 	net.Conn
-	idleTimeout  time.Duration
-	lastActivity time.Time
-	mu           sync.Mutex
+	idle atomic.Int64 // time.Duration
 }
 
-// Read wraps the underlying Read method and updates lastActivity
 func (c *timeoutConn) Read(b []byte) (int, error) {
-	// first check for timeout with read lock
-	c.mu.Lock()
-	lastAct := c.lastActivity
-	c.mu.Unlock()
-
-	if time.Since(lastAct) > c.idleTimeout {
-		return 0, fmt.Errorf("idle timeout exceeded")
+	if d := time.Duration(c.idle.Load()); d > 0 {
+		_ = c.SetReadDeadline(time.Now().Add(d))
 	}
-
-	// read the data
-	n, err := c.Conn.Read(b)
-
-	// then update the activity time with write lock
-	c.mu.Lock()
-	c.lastActivity = time.Now()
-	c.mu.Unlock()
-
-	return n, err
+	return c.Conn.Read(b)
 }
 
-// Write wraps the underlying Write method and updates lastActivity
 func (c *timeoutConn) Write(b []byte) (int, error) {
-	// first check for timeout with read lock
-	c.mu.Lock()
-	lastAct := c.lastActivity
-	c.mu.Unlock()
-
-	if time.Since(lastAct) > c.idleTimeout {
-		return 0, fmt.Errorf("idle timeout exceeded")
+	if d := time.Duration(c.idle.Load()); d > 0 {
+		_ = c.SetWriteDeadline(time.Now().Add(d))
 	}
-
-	// write the data
-	n, err := c.Conn.Write(b)
-
-	// then update the activity time with write lock
-	c.mu.Lock()
-	c.lastActivity = time.Now()
-	c.mu.Unlock()
-
-	return n, err
+	return c.Conn.Write(b)
 }
 
 // bufferedFileReaderAt implements io.ReaderAt for large files
@@ -795,29 +810,23 @@ func (s *SFTP) setupPublicKeyAuth(config *ssh.ServerConfig) {
 
 // setupSSHServerConfig configures the SSH server
 func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
-	// initialize the attempts tracking map
-	s.ipAttempts = make(map[string]ipAttemptsInfo)
-
 	config := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			// apply rate limiting based on source IP
-			remoteIP := c.RemoteAddr().(*net.TCPAddr).IP.String()
-			if !s.checkAuthRateLimit(remoteIP) {
-				log.Printf("[WARN] SFTP rate limit exceeded for IP %s", remoteIP)
-				// adding a small delay to slow down brute force attempts
-				time.Sleep(2 * time.Second)
-				return nil, fmt.Errorf("too many authentication attempts")
-			}
-
 			// if password auth is not enabled, reject
 			if s.Auth == "" {
 				log.Printf("[WARN] SFTP password authentication attempt when disabled for user %s from %s", c.User(), c.RemoteAddr())
 				return nil, fmt.Errorf("password authentication disabled")
 			}
 
-			if subtle.ConstantTimeCompare([]byte(c.User()), []byte(s.SFTPUser)) == 1 && subtle.ConstantTimeCompare(pass, []byte(s.Auth)) == 1 {
-				// successful login - clear rate limiting record
-				s.resetAuthRateLimit(remoteIP)
+			valid := subtle.ConstantTimeCompare([]byte(c.User()), []byte(s.SFTPUser)) == 1 &&
+				subtle.ConstantTimeCompare(pass, []byte(s.Auth)) == 1
+			if !s.lockout().allow(s.remoteIP(c.RemoteAddr()), valid) {
+				log.Printf("[WARN] SFTP login locked out for %s", c.RemoteAddr())
+				// adding a small delay to slow down brute force attempts
+				time.Sleep(2 * time.Second)
+				return nil, fmt.Errorf("too many authentication attempts")
+			}
+			if valid {
 				return &ssh.Permissions{}, nil
 			}
 			log.Printf("[WARN] SFTP password authentication failed for user %s from %s", c.User(), c.RemoteAddr())
@@ -845,46 +854,21 @@ func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
 	return config, nil
 }
 
-// checkAuthRateLimit implements a security mechanism to prevent brute-force attacks.
-// It tracks authentication attempts by IP address with the following rules:
-// 1. Maximum of 5 attempts allowed within a 10-minute sliding window
-// 2. Window starts with the first authentication attempt
-// 3. After 10 minutes of inactivity, the counter resets for that IP
-// 4. Successful authentication will reset the counter immediately
-//
-// Returns true if the attempt is allowed, false if it exceeds the rate limit.
-// This is a critical security feature to protect against password guessing.
-func (s *SFTP) checkAuthRateLimit(remoteIP string) bool {
-	s.ipAttemptsMu.Lock()
-	defer s.ipAttemptsMu.Unlock()
-
-	now := time.Now()
-	info, exists := s.ipAttempts[remoteIP]
-
-	// if no previous attempts or window has expired, reset
-	if !exists || now.Sub(info.firstSeen) > 10*time.Minute {
-		s.ipAttempts[remoteIP] = ipAttemptsInfo{
-			count:     1,
-			firstSeen: now,
-			lastSeen:  now,
-		}
-		return true
+// lockout returns the shared Lockout, or this server's own when none was given
+func (s *SFTP) lockout() *AuthLockout {
+	if s.Lockout != nil {
+		return s.Lockout
 	}
-
-	// update attempt record
-	info.count++
-	info.lastSeen = now
-	s.ipAttempts[remoteIP] = info
-
-	// enforce max 5 attempts in a 10-minute window
-	return info.count <= 5
+	return &s.ownLockout
 }
 
-// resetAuthRateLimit clears rate limiting data for an IP after successful auth
-func (s *SFTP) resetAuthRateLimit(remoteIP string) {
-	s.ipAttemptsMu.Lock()
-	defer s.ipAttemptsMu.Unlock()
-	delete(s.ipAttempts, remoteIP)
+// remoteIP returns the bare client IP the lockout keys on, or the whole address when it has no port
+func (s *SFTP) remoteIP(addr net.Addr) string {
+	ap, err := netip.ParseAddrPort(addr.String())
+	if err != nil {
+		return addr.String()
+	}
+	return ap.Addr().Unmap().String()
 }
 
 // loadAuthorizedKeys reads and parses an authorized_keys file
@@ -922,8 +906,10 @@ func loadAuthorizedKeys(authorizedKeysFile string) ([]ssh.PublicKey, error) {
 			log.Printf("[DEBUG] Loaded authorized key: %s", comment)
 		}
 
-		// ignore options for now - we might want to handle these in the future
-		_ = options
+		if len(options) > 0 {
+			log.Printf("[WARN] authorized key %q has options %s; options are not enforced, the key is accepted without them",
+				comment, strings.Join(options, ","))
+		}
 
 		// add the key to our list
 		authorizedKeys = append(authorizedKeys, pubKey)

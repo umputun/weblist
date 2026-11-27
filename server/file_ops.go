@@ -1,6 +1,7 @@
 package server
 
 import (
+	"bytes"
 	"encoding/csv"
 	"fmt"
 	"html/template"
@@ -21,7 +22,12 @@ import (
 	"github.com/alecthomas/chroma/v2/styles"
 	"github.com/yuin/goldmark"
 	highlighting "github.com/yuin/goldmark-highlighting/v2"
+	gast "github.com/yuin/goldmark/ast"
 	"github.com/yuin/goldmark/extension"
+	"github.com/yuin/goldmark/parser"
+	"github.com/yuin/goldmark/renderer"
+	"github.com/yuin/goldmark/text"
+	"github.com/yuin/goldmark/util"
 )
 
 // getTemplateFuncs returns the common template functions map
@@ -30,8 +36,7 @@ func (wb *Web) getTemplateFuncs() template.FuncMap {
 		"safe": func(s string) template.HTML {
 			return template.HTML(s) // nolint:gosec // safe to use with local embedded templates
 		},
-		"contains":  strings.Contains,
-		"hasPrefix": strings.HasPrefix,
+		"contains": strings.Contains,
 	}
 }
 
@@ -120,7 +125,8 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 	// check if the path exists
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("path not found: %s - %v", path, err), http.StatusNotFound)
+		log.Printf("[DEBUG] path not found: %s: %v", path, err)
+		http.Error(w, "path not found: "+path, http.StatusNotFound)
 		return
 	}
 
@@ -140,7 +146,8 @@ func (wb *Web) renderFullPage(w http.ResponseWriter, r *http.Request, path strin
 
 	fileList, err := wb.getFileList(path, sortBy, sortDir)
 	if err != nil {
-		http.Error(w, "error reading directory: "+err.Error(), http.StatusInternalServerError)
+		log.Printf("[WARN] error reading directory %s: %v", path, err)
+		http.Error(w, "error reading directory", http.StatusInternalServerError)
 		return
 	}
 
@@ -574,21 +581,30 @@ func (wb *Web) renderCSV(content string) (string, error) {
 
 // renderMarkdown converts markdown content to HTML using goldmark with GFM extensions.
 // the theme parameter controls the chroma style for fenced code blocks: "dark" uses monokai, any other value uses github.
+// highlight false renders fenced code blocks as plain code, bounding chroma's cost on large files.
 // the output is wrapped in a <div class="markdown-content"> element.
-func (wb *Web) renderMarkdown(content, theme string) (string, error) {
+func (wb *Web) renderMarkdown(content, theme string, highlight bool) (string, error) {
 	chromaStyle := "github"
 	if theme == "dark" {
 		chromaStyle = "monokai"
 	}
 
+	// extension.GFM with its table extension rebuilt around tableCellLimit, at the same priorities
+	limit := &tableCellLimit{inner: extension.NewTableParagraphTransformer()}
+	extensions := []goldmark.Extender{extension.Linkify, extension.Strikethrough, extension.TaskList}
+	if highlight {
+		extensions = append(extensions, highlighting.NewHighlighting(
+			highlighting.WithStyle(chromaStyle),
+			highlighting.WithFormatOptions(html.WithClasses(true)),
+		))
+	}
 	md := goldmark.New(
-		goldmark.WithExtensions(
-			extension.GFM,
-			highlighting.NewHighlighting(
-				highlighting.WithStyle(chromaStyle),
-				highlighting.WithFormatOptions(html.WithClasses(true)),
-			),
+		goldmark.WithExtensions(extensions...),
+		goldmark.WithParserOptions(
+			parser.WithParagraphTransformers(util.Prioritized(limit, 200)),
+			parser.WithASTTransformers(util.Prioritized(extension.NewTableASTTransformer(), 0)),
 		),
+		goldmark.WithRendererOptions(renderer.WithNodeRenderers(util.Prioritized(extension.NewTableHTMLRenderer(), 500))),
 	)
 
 	var buf strings.Builder
@@ -596,7 +612,63 @@ func (wb *Web) renderMarkdown(content, theme string) (string, error) {
 	if err := md.Convert([]byte(content), &buf); err != nil {
 		return "", fmt.Errorf("markdown conversion: %w", err)
 	}
+	if limit.exceeded {
+		return "", fmt.Errorf("markdown tables exceed %d cells", maxMarkdownTableCells)
+	}
 	buf.WriteString("</div>")
 
 	return buf.String(), nil
+}
+
+// maxMarkdownTableCells bounds the table cells one Markdown preview may build. goldmark pads every row
+// to the header width, so a wide header over short rows costs cells quadratic in the file size.
+const maxMarkdownTableCells = 50_000
+
+// tableCellLimit wraps goldmark's table paragraph transformer and stops building tables once their cells
+// pass maxMarkdownTableCells. It counts the lines goldmark hands the table transformer, after blockquote
+// and list markers are removed, so its count is never below what that transformer would build.
+type tableCellLimit struct {
+	inner    parser.ParagraphTransformer
+	cells    int64
+	exceeded bool
+}
+
+// Transform counts the cells the widest delimiter row of the paragraph would make, header included,
+// and passes the paragraph on only while the total stays within the limit.
+func (t *tableCellLimit) Transform(node *gast.Paragraph, reader text.Reader, pc parser.Context) {
+	if t.exceeded {
+		return
+	}
+	lines := node.Lines()
+	var most int64
+	for i := 1; i < lines.Len(); i++ {
+		seg := lines.At(i)
+		most = max(most, int64(t.delimColumns(seg.Value(reader.Source())))*int64(lines.Len()-i))
+	}
+	if t.cells += most; t.cells > maxMarkdownTableCells {
+		t.exceeded = true
+		return
+	}
+	t.inner.Transform(node, reader, pc)
+}
+
+// delimColumns returns the column count goldmark would read from a delimiter row, or 0 for a line
+// that cannot be one. It accepts every line goldmark's isTableDelim does, and some it does not.
+func (t *tableCellLimit) delimColumns(line []byte) int {
+	if !bytes.ContainsRune(line, '-') {
+		return 0
+	}
+	for _, b := range line {
+		if !util.IsSpace(b) && b != '-' && b != '|' && b != ':' {
+			return 0
+		}
+	}
+	cols := bytes.Split(line, []byte{'|'})
+	if util.IsBlank(cols[0]) {
+		cols = cols[1:]
+	}
+	if len(cols) > 0 && util.IsBlank(cols[len(cols)-1]) {
+		cols = cols[:len(cols)-1]
+	}
+	return len(cols)
 }

@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 	"strings"
 	"time"
+
+	"github.com/dustin/go-humanize"
 )
 
 // handleRoot displays the root directory listing
@@ -57,7 +59,8 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	// check if the path exists and is a directory
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("directory not found: %v", err), http.StatusNotFound)
+		log.Printf("[DEBUG] directory not found: %s: %v", path, err)
+		http.Error(w, "directory not found", http.StatusNotFound)
 		return
 	}
 
@@ -71,7 +74,8 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	// get the directory file list
 	fileList, err := wb.getFileList(path, sortBy, sortDir)
 	if err != nil {
-		http.Error(w, fmt.Sprintf("error reading directory: %v", err), http.StatusInternalServerError)
+		log.Printf("[WARN] error reading directory %s: %v", path, err)
+		http.Error(w, "error reading directory", http.StatusInternalServerError)
 		return
 	}
 
@@ -124,14 +128,26 @@ func (wb *Web) handleDirContents(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// viewCSP applies to every /view response. The body comes from served files, which may hold HTML,
+// SVG or text an untrusted uploader wrote, so nothing in it may run script or submit a form with the
+// viewer's session. form-action and base-uri do not fall back to default-src and are set explicitly.
+const viewCSP = "default-src 'self'; script-src 'none'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; " +
+	"font-src 'self'; form-action 'none'; base-uri 'none'; frame-ancestors 'self'"
+
+const (
+	maxPreviewSize   = 10 << 20 // text files above this are not previewed, rendering holds several copies in memory
+	maxHighlightSize = 1 << 20  // text files above this preview without syntax highlighting, which costs far more per byte
+)
+
 // viewFileData holds template data for the file view page
 type viewFileData struct {
-	FileName   string
-	Content    string
-	Theme      string
-	IsHTML     bool
-	IsMarkdown bool
-	IsCSV      bool
+	FileName    string
+	Content     string
+	Theme       string
+	IsHTML      bool
+	IsMarkdown  bool
+	IsCSV       bool
+	Highlighted bool // Content is the highlighter's escaped HTML output
 }
 
 // renderViewContent applies format-specific rendering (markdown, csv, syntax highlighting) to view data.
@@ -139,7 +155,7 @@ type viewFileData struct {
 func (wb *Web) renderViewContent(data *viewFileData, ctInfo ContentTypeInfo, rawContent []byte) {
 	switch {
 	case ctInfo.IsMarkdown:
-		rendered, err := wb.renderMarkdown(data.Content, data.Theme)
+		rendered, err := wb.renderMarkdown(data.Content, data.Theme, len(rawContent) <= maxHighlightSize)
 		if err != nil {
 			log.Printf("[WARN] failed to render markdown: %v", err)
 			data.IsMarkdown = false // fall back to plain text rendering with escaping
@@ -155,12 +171,13 @@ func (wb *Web) renderViewContent(data *viewFileData, ctInfo ContentTypeInfo, raw
 			data.Content = rendered
 			data.IsCSV = true
 		}
-	case !ctInfo.IsHTML && wb.EnableSyntaxHighlighting:
+	case !ctInfo.IsHTML && wb.EnableSyntaxHighlighting && len(rawContent) <= maxHighlightSize:
 		highlighted, err := wb.highlightCode(string(rawContent), data.FileName, data.Theme)
 		if err != nil {
 			log.Printf("[WARN] failed to highlight code: %v", err)
 		} else {
 			data.Content = highlighted
+			data.Highlighted = true
 		}
 	}
 }
@@ -202,6 +219,7 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 
 	// determine content type and file properties
 	ctInfo := DetermineContentType(filePath)
+	w.Header().Set("Content-Security-Policy", viewCSP)
 
 	// handle non-text files (images, PDFs, etc.)
 	if !ctInfo.IsText {
@@ -213,12 +231,15 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 
 	// from here, we're only handling text files
 
-	// read file content
-	fileContent, err := io.ReadAll(file)
-	if err != nil {
-		http.Error(w, "error reading file", http.StatusInternalServerError)
-		return
+	// the limited read catches a file that grew after the stat
+	var fileContent []byte
+	if fileInfo.Size() <= maxPreviewSize {
+		if fileContent, err = io.ReadAll(io.LimitReader(file, maxPreviewSize+1)); err != nil {
+			http.Error(w, "error reading file", http.StatusInternalServerError)
+			return
+		}
 	}
+	tooLarge := fileInfo.Size() > maxPreviewSize || len(fileContent) > maxPreviewSize
 
 	// use template for viewing
 	w.Header().Set("Content-Type", "text/html")
@@ -229,19 +250,16 @@ func (wb *Web) handleViewFile(w http.ResponseWriter, r *http.Request) {
 		theme = wb.Theme
 	}
 
-	// parse templates
-
-	// prepare data for the template
-	data := viewFileData{
-		FileName:   fileInfo.Name(),
-		Content:    string(fileContent),
-		Theme:      theme,
-		IsHTML:     ctInfo.IsHTML,
-		IsMarkdown: ctInfo.IsMarkdown,
+	data := viewFileData{FileName: fileInfo.Name(), Theme: theme}
+	if tooLarge {
+		data.Content = fmt.Sprintf("%s is too large to preview (over %s), download it instead.",
+			fileInfo.Name(), humanize.Bytes(maxPreviewSize))
+	} else {
+		data.Content = string(fileContent)
+		data.IsHTML = ctInfo.IsHTML
+		data.IsMarkdown = ctInfo.IsMarkdown
+		wb.renderViewContent(&data, ctInfo, fileContent)
 	}
-
-	// render content based on type
-	wb.renderViewContent(&data, ctInfo, fileContent)
 
 	// execute the file-view template
 	if err := wb.templates.fileTemplate.ExecuteTemplate(w, "file-view", data); err != nil {
@@ -499,8 +517,7 @@ func (wb *Web) handleDownloadSelected(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// get selected files from form
-	selectedFiles := r.Form["selected-files"]
+	selectedFiles := wb.uniqueSelection(r.Form["selected-files"])
 	if len(selectedFiles) == 0 {
 		http.Error(w, "No files selected", http.StatusBadRequest)
 		return
@@ -561,6 +578,23 @@ func (wb *Web) handleDownloadSelected(w http.ResponseWriter, r *http.Request) {
 			log.Printf("[ERROR] failed to add file to ZIP: %s: %v", filePath, err)
 		}
 	}
+}
+
+// uniqueSelection cleans the selected paths and drops repeats, keeping the first occurrence's order.
+// Without it a selection naming one large file many times archives it every time. Spellings equal
+// after filepath.Clean collapse; case variants on a case-insensitive volume do not.
+func (wb *Web) uniqueSelection(paths []string) []string {
+	seen := make(map[string]bool, len(paths))
+	res := make([]string, 0, len(paths))
+	for _, p := range paths {
+		p = filepath.ToSlash(filepath.Clean(p))
+		if seen[p] {
+			continue
+		}
+		seen[p] = true
+		res = append(res, p)
+	}
+	return res
 }
 
 // addFileToZip adds a single file to the ZIP archive
@@ -733,7 +767,8 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	// check if the path exists and is a directory
 	fileInfo, err := fs.Stat(wb.FS, path)
 	if err != nil {
-		wb.writeJSONError(w, http.StatusNotFound, fmt.Sprintf("directory not found: %v", err))
+		log.Printf("[DEBUG] directory not found: %s: %v", path, err)
+		wb.writeJSONError(w, http.StatusNotFound, "directory not found")
 		return
 	}
 
@@ -749,7 +784,8 @@ func (wb *Web) handleAPIList(w http.ResponseWriter, r *http.Request) {
 	// get the file list
 	fileList, err := wb.getFileList(path, sortBy, sortDir)
 	if err != nil {
-		wb.writeJSONError(w, http.StatusInternalServerError, fmt.Sprintf("error reading directory: %v", err))
+		log.Printf("[WARN] error reading directory %s: %v", path, err)
+		wb.writeJSONError(w, http.StatusInternalServerError, "error reading directory")
 		return
 	}
 

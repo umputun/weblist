@@ -7,6 +7,7 @@ require (
 	github.com/didip/tollbooth/v8 v8.0.1
 	github.com/dustin/go-humanize v1.0.1
 	github.com/fatih/color v1.19.0
+	github.com/go-pkgz/expirable-cache/v3 v3.1.1
 	github.com/go-pkgz/lcw/v2 v2.1.0
 	github.com/go-pkgz/lgr v0.12.4
 	github.com/go-pkgz/rest v1.24.0
@@ -25,7 +26,6 @@ require (
 	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/deckarep/golang-set/v2 v2.8.0 // indirect
 	github.com/dlclark/regexp2/v2 v2.7.1 // indirect
-	github.com/go-pkgz/expirable-cache/v3 v3.1.1 // indirect
 	github.com/go-stack/stack v1.8.1 // indirect
 	github.com/hashicorp/golang-lru/v2 v2.0.7 // indirect
 	github.com/kr/fs v0.1.0 // indirect

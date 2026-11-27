@@ -326,6 +326,8 @@ func TestFileViewAndModal(t *testing.T) {
 
 	// test handleViewFile
 	t.Run("view text file", func(t *testing.T) {
+		srv.EnableSyntaxHighlighting = true
+		defer func() { srv.EnableSyntaxHighlighting = false }()
 		req, err := http.NewRequest("GET", "/view/file1.txt", nil)
 		require.NoError(t, err)
 
@@ -337,9 +339,9 @@ func TestFileViewAndModal(t *testing.T) {
 		assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
 
 		body := rr.Body.String()
-		assert.Contains(t, body, "file1 content")     // the actual content from testdata/file1.txt
-		assert.Contains(t, body, "highlight-wrapper") // content should be wrapped in highlight-wrapper div
-		assert.Contains(t, body, "<!DOCTYPE html>")   // should render with HTML template
+		assert.Contains(t, body, "file1 content") // the actual content from testdata/file1.txt
+		assert.Contains(t, body, `<div class="highlight-wrapper">`)
+		assert.Contains(t, body, "<!DOCTYPE html>") // should render with HTML template
 	})
 
 	t.Run("view non-existent file", func(t *testing.T) {
@@ -715,8 +717,9 @@ func TestHTMLRendering(t *testing.T) {
 		body := rr.Body.String()
 		// check that we're using the iframe for HTML files
 		assert.Contains(t, body, `<iframe src="/view/test.html?theme=light"`)
-		// check that the sandbox attribute is set correctly
-		assert.Contains(t, body, `sandbox="allow-same-origin allow-scripts allow-forms"`)
+		assert.Contains(t, body, `sandbox="allow-same-origin"`)
+		assert.NotContains(t, body, "allow-scripts")
+		assert.NotContains(t, body, "allow-forms")
 	})
 }
 
@@ -1239,6 +1242,123 @@ func TestHandleViewFile_CSV(t *testing.T) {
 	assert.NotContains(t, body, "Name,Age,City") // raw csv should not appear
 }
 
+func TestHandleViewFile_BlocksScriptsInFileContent(t *testing.T) {
+	root := t.TempDir()
+	files := map[string]string{
+		"page.html": `<p>hi</p><script>alert(1)</script>`,
+		"notes.txt": "plain text",
+		"readme.md": "# title",
+		"data.csv":  "a,b\n1,2\n",
+		"pic.png":   "\x89PNG\r\n\x1a\n",
+	}
+	for name, body := range files {
+		require.NoError(t, os.WriteFile(filepath.Join(root, name), []byte(body), 0o600))
+	}
+	wb := &Web{Config: Config{RootDir: root}, FS: os.DirFS(root)}
+	require.NoError(t, wb.initTemplates())
+
+	for name := range files {
+		t.Run(name, func(t *testing.T) {
+			rr := httptest.NewRecorder()
+			wb.handleViewFile(rr, httptest.NewRequest(http.MethodGet, "/view/"+name, http.NoBody))
+			require.Equal(t, http.StatusOK, rr.Code)
+			csp := rr.Header().Get("Content-Security-Policy")
+			assert.Contains(t, csp, "script-src 'none'")
+			assert.Contains(t, csp, "form-action 'none'")
+			assert.Contains(t, csp, "base-uri 'none'")
+			assert.Contains(t, csp, "img-src 'self' data:")
+		})
+	}
+}
+
+func TestHandleViewFile_HighlightWrapperPrefixIsEscaped(t *testing.T) {
+	// regression: file content starting with the highlighter's wrapper was rendered as raw HTML
+	payload := `<div class="highlight-wrapper"><img src=x onerror="alert(1)">`
+	tbl := []struct {
+		name      string
+		file      string
+		content   string
+		highlight bool
+	}{
+		{name: "text without highlighting", file: "note.txt", content: payload},
+		{name: "malformed csv with highlighting", file: "bad.csv", content: payload + "\n\"a,\"b\n", highlight: true},
+		{name: "malformed csv without highlighting", file: "bad.csv", content: payload + "\n\"a,\"b\n"},
+	}
+	for _, tc := range tbl {
+		t.Run(tc.name, func(t *testing.T) {
+			root := t.TempDir()
+			require.NoError(t, os.WriteFile(filepath.Join(root, tc.file), []byte(tc.content), 0o600))
+			wb := &Web{Config: Config{RootDir: root, EnableSyntaxHighlighting: tc.highlight}, FS: os.DirFS(root)}
+			require.NoError(t, wb.initTemplates())
+
+			rr := httptest.NewRecorder()
+			wb.handleViewFile(rr, httptest.NewRequest(http.MethodGet, "/view/"+tc.file, http.NoBody))
+			require.Equal(t, http.StatusOK, rr.Code)
+			assert.NotContains(t, rr.Body.String(), `<img src=x onerror`)
+			assert.Contains(t, rr.Body.String(), `&lt;img src=x onerror`)
+		})
+	}
+}
+
+func TestHandleViewFile_LargeTextFiles(t *testing.T) {
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "huge.log"), bytes.Repeat([]byte("a"), maxPreviewSize+1), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "edge.log"), bytes.Repeat([]byte("b"), maxPreviewSize), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "big.go"), bytes.Repeat([]byte("var x = 1\n"), maxHighlightSize/10+1), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "small.go"), []byte("var x = 1\n"), 0o600))
+	fence := func(lines int) []byte { return []byte("```go\n" + strings.Repeat("var x = 1\n", lines) + "```\n") }
+	require.NoError(t, os.WriteFile(filepath.Join(root, "big.md"), fence(maxHighlightSize/10+1), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "small.md"), fence(1), 0o600))
+	wb := &Web{Config: Config{RootDir: root, EnableSyntaxHighlighting: true}, FS: os.DirFS(root)}
+	require.NoError(t, wb.initTemplates())
+
+	view := func(name string) *httptest.ResponseRecorder {
+		rr := httptest.NewRecorder()
+		wb.handleViewFile(rr, httptest.NewRequest(http.MethodGet, "/view/"+name, http.NoBody))
+		return rr
+	}
+
+	rr := view("huge.log")
+	assert.Equal(t, http.StatusOK, rr.Code)
+	assert.Less(t, rr.Body.Len(), 64*1024, "content must not be sent")
+	assert.True(t, strings.Contains(rr.Body.String(), "too large to preview"))
+
+	rr = view("edge.log")
+	assert.Greater(t, rr.Body.Len(), maxPreviewSize)
+	assert.False(t, strings.Contains(rr.Body.String(), "too large to preview"))
+
+	highlighted := `<div class="highlight-wrapper">`
+	assert.False(t, strings.Contains(view("big.go").Body.String(), highlighted), "highlighting is skipped above the limit")
+	assert.True(t, strings.Contains(view("small.go").Body.String(), highlighted))
+
+	// regression: markdown fences went through chroma at any size up to maxPreviewSize
+	chroma := `<pre class="chroma">`
+	assert.False(t, strings.Contains(view("big.md").Body.String(), chroma), "markdown highlighting is skipped above the limit")
+	assert.True(t, strings.Contains(view("small.md").Body.String(), chroma))
+}
+
+func TestHandleViewFile_MarkdownTableOverLimitIsPlainText(t *testing.T) {
+	root := t.TempDir()
+	bomb := strings.Repeat("|a", 1000) + "|\n" + strings.Repeat("|-", 1000) + "|\n" + strings.Repeat("|\n", 1000)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "bomb.md"), []byte(bomb), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "ok.md"), []byte("|a|b|\n|-|-|\n|1|2|\n"), 0o600))
+	wb := &Web{Config: Config{RootDir: root}, FS: os.DirFS(root)}
+	require.NoError(t, wb.initTemplates())
+
+	view := func(name string) string {
+		rr := httptest.NewRecorder()
+		wb.handleViewFile(rr, httptest.NewRequest(http.MethodGet, "/view/"+name, http.NoBody))
+		require.Equal(t, http.StatusOK, rr.Code)
+		return rr.Body.String()
+	}
+
+	body := view("bomb.md")
+	assert.NotContains(t, body, "<table>")
+	assert.Contains(t, body, "|a|a|a|", "the file is shown as text")
+	assert.Less(t, len(body), 64*1024)
+	assert.Contains(t, view("ok.md"), "<table>")
+}
+
 func TestWeb_handleDownloadEscapesSpecialCharsInDirRedirect(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "q&a"), 0o750))
@@ -1346,4 +1466,72 @@ func TestHandleDownloadSelected_EntryCap(t *testing.T) {
 		assert.Equal(t, http.StatusOK, w.Code)
 		assert.Equal(t, "application/zip", w.Header().Get("Content-Type"))
 	})
+}
+
+func TestHandleDownloadSelected_RepeatedPathsArchivedOnce(t *testing.T) {
+	// regression: a selection repeating one file was archived once per repeat, under the public-read cap too
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "big.bin"), []byte("payload"), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "other.txt"), []byte("x"), 0o600))
+	web := &Web{Config: Config{RootDir: root, EnableMultiSelect: true, PublicRead: true}, FS: os.DirFS(root)}
+
+	form := url.Values{"selected-files": {"big.bin", "./big.bin", "big.bin", "sub/../big.bin", "other.txt"}}
+	r := httptest.NewRequest(http.MethodPost, "/download-selected", strings.NewReader(form.Encode()))
+	r.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	w := httptest.NewRecorder()
+	web.handleDownloadSelected(w, r)
+	require.Equal(t, http.StatusOK, w.Code)
+
+	zr, err := zip.NewReader(bytes.NewReader(w.Body.Bytes()), int64(w.Body.Len()))
+	require.NoError(t, err)
+	names := make([]string, 0, len(zr.File))
+	for _, f := range zr.File {
+		names = append(names, f.Name)
+	}
+	assert.ElementsMatch(t, []string{"big.bin", "other.txt"}, names)
+}
+
+func TestHandleFileModal_PDFPreviewIsAnIframe(t *testing.T) {
+	// regression: Safari fires no load event on an <embed>, so the PDF preview never left opacity 0
+	root := t.TempDir()
+	require.NoError(t, os.WriteFile(filepath.Join(root, "doc.pdf"), []byte("%PDF-1.4\n"), 0o600))
+	web := &Web{Config: Config{RootDir: root}, FS: os.DirFS(root)}
+	require.NoError(t, web.initTemplates())
+
+	w := httptest.NewRecorder()
+	web.handleFileModal(w, httptest.NewRequest(http.MethodGet, "/partials/file-modal?path=doc.pdf", http.NoBody))
+	require.Equal(t, http.StatusOK, w.Code)
+
+	assert.Contains(t, w.Body.String(), `<iframe src="/view/doc.pdf"`)
+	assert.NotContains(t, w.Body.String(), "<embed")
+}
+
+func TestHandlers_ErrorBodiesHideServerPaths(t *testing.T) {
+	root := t.TempDir()
+	web := &Web{Config: Config{RootDir: root}, FS: os.DirFS(root)}
+	require.NoError(t, web.initTemplates())
+
+	tbl := []struct {
+		name    string
+		handler http.HandlerFunc
+		target  string
+		htmx    bool
+	}{
+		{name: "full page", handler: web.handleRoot, target: "/?path=missing"},
+		{name: "dir contents", handler: web.handleDirContents, target: "/partials/dir-contents?path=missing", htmx: true},
+		{name: "api list", handler: web.handleAPIList, target: "/api/list?path=missing"},
+	}
+	for _, tc := range tbl {
+		t.Run(tc.name, func(t *testing.T) {
+			r := httptest.NewRequest(http.MethodGet, tc.target, http.NoBody)
+			if tc.htmx {
+				r.Header.Set("HX-Request", "true")
+			}
+			w := httptest.NewRecorder()
+			tc.handler(w, r)
+			assert.Equal(t, http.StatusNotFound, w.Code)
+			assert.NotContains(t, w.Body.String(), filepath.Base(root))
+			assert.NotContains(t, w.Body.String(), "no such file")
+		})
+	}
 }
