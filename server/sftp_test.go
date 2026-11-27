@@ -1123,7 +1123,10 @@ func TestSFTP_RunRefusesConnectionsOverLimit(t *testing.T) {
 	extra, err := net.Dial("tcp", "127.0.0.1:"+port)
 	require.NoError(t, err)
 	defer extra.Close()
-	assert.Empty(t, banner(extra), "connection over the per-address limit is closed without a banner")
+	require.NoError(t, extra.SetReadDeadline(time.Now().Add(2*time.Second)))
+	n, err := extra.Read(make([]byte, 64))
+	assert.Zero(t, n, "no banner over the per-address limit")
+	assert.ErrorIs(t, err, io.EOF, "the server closes the connection rather than holding it")
 
 	require.NoError(t, conns[0].Close())
 	conns = conns[1:]
