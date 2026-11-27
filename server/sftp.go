@@ -13,6 +13,7 @@ import (
 	"io/fs"
 	"log"
 	"net"
+	"net/netip"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,18 +34,10 @@ const (
 // SFTP represents the SFTP server.
 type SFTP struct {
 	Config
-	FS fs.FS
+	FS      fs.FS
+	Lockout *AuthLockout // failed password attempts, shared with Web; nil gives this server its own
 
-	// simple rate limiter for authentication attempts
-	ipAttempts   map[string]ipAttemptsInfo
-	ipAttemptsMu sync.Mutex
-}
-
-// ipAttemptsInfo tracks authentication attempts from an IP
-type ipAttemptsInfo struct {
-	count     int       // number of attempts
-	firstSeen time.Time // when the first attempt was seen
-	lastSeen  time.Time // when the most recent attempt was seen
+	ownLockout AuthLockout
 }
 
 // Run starts the SFTP server.
@@ -784,29 +777,23 @@ func (s *SFTP) setupPublicKeyAuth(config *ssh.ServerConfig) {
 
 // setupSSHServerConfig configures the SSH server
 func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
-	// initialize the attempts tracking map
-	s.ipAttempts = make(map[string]ipAttemptsInfo)
-
 	config := &ssh.ServerConfig{
 		PasswordCallback: func(c ssh.ConnMetadata, pass []byte) (*ssh.Permissions, error) {
-			// apply rate limiting based on source IP
-			remoteIP := c.RemoteAddr().(*net.TCPAddr).IP.String()
-			if !s.checkAuthRateLimit(remoteIP) {
-				log.Printf("[WARN] SFTP rate limit exceeded for IP %s", remoteIP)
-				// adding a small delay to slow down brute force attempts
-				time.Sleep(2 * time.Second)
-				return nil, fmt.Errorf("too many authentication attempts")
-			}
-
 			// if password auth is not enabled, reject
 			if s.Auth == "" {
 				log.Printf("[WARN] SFTP password authentication attempt when disabled for user %s from %s", c.User(), c.RemoteAddr())
 				return nil, fmt.Errorf("password authentication disabled")
 			}
 
-			if subtle.ConstantTimeCompare([]byte(c.User()), []byte(s.SFTPUser)) == 1 && subtle.ConstantTimeCompare(pass, []byte(s.Auth)) == 1 {
-				// successful login - clear rate limiting record
-				s.resetAuthRateLimit(remoteIP)
+			valid := subtle.ConstantTimeCompare([]byte(c.User()), []byte(s.SFTPUser)) == 1 &&
+				subtle.ConstantTimeCompare(pass, []byte(s.Auth)) == 1
+			if !s.lockout().allow(s.remoteIP(c.RemoteAddr()), valid) {
+				log.Printf("[WARN] SFTP login locked out for %s", c.RemoteAddr())
+				// adding a small delay to slow down brute force attempts
+				time.Sleep(2 * time.Second)
+				return nil, fmt.Errorf("too many authentication attempts")
+			}
+			if valid {
 				return &ssh.Permissions{}, nil
 			}
 			log.Printf("[WARN] SFTP password authentication failed for user %s from %s", c.User(), c.RemoteAddr())
@@ -834,46 +821,21 @@ func (s *SFTP) setupSSHServerConfig() (*ssh.ServerConfig, error) {
 	return config, nil
 }
 
-// checkAuthRateLimit implements a security mechanism to prevent brute-force attacks.
-// It tracks authentication attempts by IP address with the following rules:
-// 1. Maximum of 5 attempts allowed within a 10-minute sliding window
-// 2. Window starts with the first authentication attempt
-// 3. After 10 minutes of inactivity, the counter resets for that IP
-// 4. Successful authentication will reset the counter immediately
-//
-// Returns true if the attempt is allowed, false if it exceeds the rate limit.
-// This is a critical security feature to protect against password guessing.
-func (s *SFTP) checkAuthRateLimit(remoteIP string) bool {
-	s.ipAttemptsMu.Lock()
-	defer s.ipAttemptsMu.Unlock()
-
-	now := time.Now()
-	info, exists := s.ipAttempts[remoteIP]
-
-	// if no previous attempts or window has expired, reset
-	if !exists || now.Sub(info.firstSeen) > 10*time.Minute {
-		s.ipAttempts[remoteIP] = ipAttemptsInfo{
-			count:     1,
-			firstSeen: now,
-			lastSeen:  now,
-		}
-		return true
+// lockout returns the shared Lockout, or this server's own when none was given
+func (s *SFTP) lockout() *AuthLockout {
+	if s.Lockout != nil {
+		return s.Lockout
 	}
-
-	// update attempt record
-	info.count++
-	info.lastSeen = now
-	s.ipAttempts[remoteIP] = info
-
-	// enforce max 5 attempts in a 10-minute window
-	return info.count <= 5
+	return &s.ownLockout
 }
 
-// resetAuthRateLimit clears rate limiting data for an IP after successful auth
-func (s *SFTP) resetAuthRateLimit(remoteIP string) {
-	s.ipAttemptsMu.Lock()
-	defer s.ipAttemptsMu.Unlock()
-	delete(s.ipAttempts, remoteIP)
+// remoteIP returns the bare client IP the lockout keys on, or the whole address when it has no port
+func (s *SFTP) remoteIP(addr net.Addr) string {
+	ap, err := netip.ParseAddrPort(addr.String())
+	if err != nil {
+		return addr.String()
+	}
+	return ap.Addr().Unmap().String()
 }
 
 // loadAuthorizedKeys reads and parses an authorized_keys file

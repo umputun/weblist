@@ -307,10 +307,14 @@ func runServer(ctx context.Context, opts *options) error {
 		return err
 	}
 
+	// one lockout for both servers, so failed passwords over HTTP and SFTP count together
+	lockout := &server.AuthLockout{}
+
 	// create HTTP server
 	srv := &server.Web{
-		Config: config,
-		FS:     fs,
+		Config:  config,
+		FS:      fs,
+		Lockout: lockout,
 	}
 
 	// create error channel for goroutines
@@ -331,8 +335,9 @@ func runServer(ctx context.Context, opts *options) error {
 		}
 
 		sftpSrv := &server.SFTP{
-			Config: config,
-			FS:     fs,
+			Config:  config,
+			FS:      fs,
+			Lockout: lockout,
 		}
 
 		go func() {

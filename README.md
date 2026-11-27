@@ -181,7 +181,7 @@ When authentication is enabled:
 - Session secrets are automatically generated if not explicitly provided
 - Sessions expire after the specified timeout (default: 24 hours); changing the password ends existing sessions
 - A logout button appears in the top right corner when logged in
-- After 5 wrong passwords from one address, through the login form or HTTP Basic Auth, that address is locked out for 10 minutes; requests with the right credentials are never counted
+- After 5 wrong passwords from one address, through the login form, HTTP Basic Auth or SFTP together, that address is locked out for 10 minutes; requests with the right credentials are never counted, and neither are Basic Auth credentials for another username, such as a proxy's own
 
 ### Client addresses behind a proxy
 

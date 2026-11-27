@@ -31,7 +31,8 @@ var content embed.FS
 // Web represents the web server.
 type Web struct {
 	Config
-	FS fs.FS
+	FS      fs.FS
+	Lockout *AuthLockout // failed password attempts, shared with SFTP; nil gives this server its own
 
 	// cached templates
 	templates struct {
@@ -42,7 +43,7 @@ type Web struct {
 	}
 
 	binaryCache lcw.LoadingCache[bool] // caches binary detection results by path+mtime
-	authFails   authFailures           // failed password attempts per client address
+	ownLockout  AuthLockout            // used when Lockout is nil
 }
 
 // Config represents server configuration.

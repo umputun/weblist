@@ -8,6 +8,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -16,46 +18,63 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestAuthFailures(t *testing.T) {
-	var af authFailures
-	for range maxAuthFailures - 1 {
-		af.fail("198.51.100.1")
+func TestAuthLockout(t *testing.T) {
+	var lk AuthLockout
+	for i := range maxAuthFailures {
+		require.True(t, lk.allow("198.51.100.1", false), "wrong attempt %d is honored", i+1)
 	}
-	assert.False(t, af.blocked("198.51.100.1"))
-	af.fail("198.51.100.1")
-	assert.True(t, af.blocked("198.51.100.1"))
-	assert.False(t, af.blocked("198.51.100.2"), "other addresses are unaffected")
+	assert.False(t, lk.allow("198.51.100.1", true), "right password refused once locked out")
+	assert.True(t, lk.allow("198.51.100.2", false), "other addresses are unaffected")
 
-	af.reset("198.51.100.1")
-	assert.False(t, af.blocked("198.51.100.1"))
+	for range maxAuthFailures - 1 {
+		lk.allow("198.51.100.3", false)
+	}
+	require.True(t, lk.allow("198.51.100.3", true))
+	for i := range maxAuthFailures {
+		require.True(t, lk.allow("198.51.100.3", false), "count restarts after a success, attempt %d", i+1)
+	}
 }
 
-func TestAuthFailures_ExpireAfterWindow(t *testing.T) {
+func TestAuthLockout_ExpireAfterWindow(t *testing.T) {
 	// regression: the cache returns an expired entry's value, so a lockout never ended
 	synctest.Test(t, func(t *testing.T) {
-		var af authFailures
+		var lk AuthLockout
 		for range maxAuthFailures {
-			af.fail("198.51.100.1")
+			lk.allow("198.51.100.1", false)
 		}
-		require.True(t, af.blocked("198.51.100.1"))
+		require.False(t, lk.allow("198.51.100.1", true))
 
 		time.Sleep(authFailureWindow + time.Second)
-		assert.False(t, af.blocked("198.51.100.1"), "lockout ends after the window")
-
-		for range maxAuthFailures - 1 {
-			af.fail("198.51.100.1")
+		for i := range maxAuthFailures {
+			require.True(t, lk.allow("198.51.100.1", false), "counting restarts from zero after expiry, attempt %d", i+1)
 		}
-		assert.False(t, af.blocked("198.51.100.1"), "counting restarts from zero after expiry")
+		assert.False(t, lk.allow("198.51.100.1", true))
 	})
 }
 
-func TestAuthFailures_IPv6SharesSlash64(t *testing.T) {
-	var af authFailures
+func TestAuthLockout_IPv6SharesSlash64(t *testing.T) {
+	var lk AuthLockout
 	for i := range maxAuthFailures {
-		af.fail(fmt.Sprintf("2001:db8:1:2::%x", i+1))
+		lk.allow(fmt.Sprintf("2001:db8:1:2::%x", i+1), false)
 	}
-	assert.True(t, af.blocked("2001:db8:1:2:ffff::1"), "addresses in one /64 share a counter")
-	assert.False(t, af.blocked("2001:db8:1:3::1"), "another /64 is unaffected")
+	assert.False(t, lk.allow("2001:db8:1:2:ffff::1", true), "addresses in one /64 share a counter")
+	assert.True(t, lk.allow("2001:db8:1:3::1", true), "another /64 is unaffected")
+}
+
+func TestAuthLockout_ParallelGuessesStopAtLimit(t *testing.T) {
+	// regression: the lockout check and the count took separate locks, so a burst passed the check at once
+	var lk AuthLockout
+	var honored atomic.Int32
+	var wg sync.WaitGroup
+	for range 50 {
+		wg.Go(func() {
+			if lk.allow("198.51.100.1", false) {
+				honored.Add(1)
+			}
+		})
+	}
+	wg.Wait()
+	assert.Equal(t, int32(maxAuthFailures), honored.Load())
 }
 
 func newLimitTestServer(t *testing.T) http.Handler {
@@ -100,6 +119,23 @@ func TestRouter_SuccessfulBasicAuthIsNeverCounted(t *testing.T) {
 		router.ServeHTTP(rr, basicAuthRequest("/", "right-pass", "203.0.113.9:4000"))
 		require.Equal(t, http.StatusOK, rr.Code, "request %d", i+1)
 	}
+}
+
+func TestRouter_ProxyBasicAuthIsNotCounted(t *testing.T) {
+	// regression: a proxy's own Basic Auth header counted as a failure on every request
+	router := newLimitTestServer(t)
+	for i := range maxAuthFailures * 2 {
+		req := httptest.NewRequest(http.MethodGet, "/login", http.NoBody)
+		req.SetBasicAuth("proxy-user", "proxy-pass")
+		req.RemoteAddr = "203.0.113.9:4000"
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code, "request %d", i+1)
+	}
+
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, basicAuthRequest("/", "right-pass", "203.0.113.9:4000"))
+	assert.Equal(t, http.StatusOK, rr.Code, "the address is not locked out")
 }
 
 func TestRouter_LoginFailuresLockOut(t *testing.T) {

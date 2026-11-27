@@ -22,48 +22,43 @@ import (
 	"golang.org/x/crypto/ssh"
 )
 
-func TestSFTPAuthRateLimit(t *testing.T) {
-	// create a test SFTP server with rate limiting
-	sftpServer := &SFTP{
-		Config: Config{
-			SFTPUser:    "testuser",
-			Auth:        "password123",
-			RootDir:     "testdata",
-			SFTPKeyFile: filepath.Join(os.TempDir(), "test_sftp_key"),
-		},
-		FS:         os.DirFS("testdata"),
-		ipAttempts: make(map[string]ipAttemptsInfo),
+func TestSFTP_PasswordLoginUsesSharedLockout(t *testing.T) {
+	lockout := &AuthLockout{}
+	s := &SFTP{Config: Config{SFTPUser: "testuser", Auth: "testpass", SFTPKeyFile: filepath.Join(t.TempDir(), "host_key")}, Lockout: lockout}
+	config, err := s.setupSSHServerConfig()
+	require.NoError(t, err)
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	require.NoError(t, err)
+	defer ln.Close()
+	login := func(pass string) error {
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			conn, err := ln.Accept()
+			if err != nil {
+				return
+			}
+			defer conn.Close()
+			_, _, _, _ = ssh.NewServerConn(conn, config)
+		}()
+		defer func() { <-done }()
+		client, err := ssh.Dial("tcp", ln.Addr().String(), &ssh.ClientConfig{
+			User: "testuser", Auth: []ssh.AuthMethod{ssh.Password(pass)}, HostKeyCallback: ssh.InsecureIgnoreHostKey(), //nolint:gosec // test
+		})
+		if err != nil {
+			return err
+		}
+		_ = client.Close()
+		return nil
 	}
 
-	// test the checkAuthRateLimit function directly
-	testIP := "192.168.1.1"
-
-	// first 5 attempts should succeed
-	for i := range 5 {
-		allowed := sftpServer.checkAuthRateLimit(testIP)
-		assert.True(t, allowed, "Attempt %d should be allowed", i+1)
+	require.NoError(t, login("testpass"))
+	for i := range maxAuthFailures {
+		require.Error(t, login("wrong"), "attempt %d", i+1)
 	}
-
-	// 6th attempt should be blocked
-	allowed := sftpServer.checkAuthRateLimit(testIP)
-	assert.False(t, allowed, "6th attempt should be blocked by rate limit")
-
-	// check the recorded attempts
-	sftpServer.ipAttemptsMu.Lock()
-	info, exists := sftpServer.ipAttempts[testIP]
-	sftpServer.ipAttemptsMu.Unlock()
-
-	assert.True(t, exists, "IP should be tracked in rate limiter")
-	assert.Equal(t, 6, info.count, "Attempt count should be 6")
-
-	// test that resetAuthRateLimit clears the record
-	sftpServer.resetAuthRateLimit(testIP)
-
-	sftpServer.ipAttemptsMu.Lock()
-	_, exists = sftpServer.ipAttempts[testIP]
-	sftpServer.ipAttemptsMu.Unlock()
-
-	assert.False(t, exists, "IP record should be cleared after successful auth")
+	assert.Error(t, login("testpass"), "right password refused once locked out")
+	assert.False(t, (&Web{Lockout: lockout}).lockout().allow("127.0.0.1", true), "web logins see the same lockout")
 }
 
 func TestLoadAuthorizedKeys(t *testing.T) {
@@ -1234,53 +1229,6 @@ func TestListerAt(t *testing.T) {
 // Since ssh.Request.Reply field is not exported, we can't properly test the replyRequest function
 // in isolation. The integration tests above verify that it works correctly in the real flow.
 
-// TestAuthRateLimit tests the rate limiting functionality
-func TestAuthRateLimit(t *testing.T) {
-	s := &SFTP{
-		Config: Config{
-			SFTPUser:    "testuser",
-			SFTPAddress: "127.0.0.1:0",
-			Auth:        "testpass",
-		},
-		ipAttempts: make(map[string]ipAttemptsInfo),
-	}
-
-	ip := "192.168.1.1"
-
-	// first attempt should be allowed
-	allowed := s.checkAuthRateLimit(ip)
-	assert.True(t, allowed)
-
-	// record should exist now
-	s.ipAttemptsMu.Lock()
-	info, exists := s.ipAttempts[ip]
-	s.ipAttemptsMu.Unlock()
-	assert.True(t, exists)
-	assert.Equal(t, 1, info.count)
-
-	// make more attempts up to the limit
-	for range 4 {
-		allowed = s.checkAuthRateLimit(ip)
-		assert.True(t, allowed)
-	}
-
-	// the next attempt should be blocked (6th attempt)
-	allowed = s.checkAuthRateLimit(ip)
-	assert.False(t, allowed)
-
-	// test resetting limit
-	s.resetAuthRateLimit(ip)
-
-	s.ipAttemptsMu.Lock()
-	_, exists = s.ipAttempts[ip]
-	s.ipAttemptsMu.Unlock()
-	assert.False(t, exists)
-
-	// should be allowed again
-	allowed = s.checkAuthRateLimit(ip)
-	assert.True(t, allowed)
-}
-
 // TestReadlink tests the Readlink implementation
 func TestReadlink(t *testing.T) {
 	// create jailed filesystem
@@ -1531,9 +1479,6 @@ func TestSetupSSHServerConfig(t *testing.T) {
 			assert.Equal(t, "SSH-2.0-WebList-SFTP", config.ServerVersion)
 			assert.Equal(t, false, config.NoClientAuth)
 			assert.Equal(t, 6, config.MaxAuthTries)
-
-			// verify the auth rate limiter is initialized
-			assert.NotNil(t, s.ipAttempts)
 		})
 	}
 }
