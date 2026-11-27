@@ -453,7 +453,7 @@ GET /view/{path/to/file}
 
 Markdown files (`.md`, `.markdown`) are automatically rendered as formatted HTML with support for GFM (GitHub Flavored Markdown) — headings, tables, task lists, fenced code blocks with syntax highlighting, and more. This happens automatically without any configuration.
 
-Previews never run scripts from the served files: `/view` responses carry a Content-Security-Policy that blocks script and form submission, so an HTML file shows its markup, styles and images but not its JavaScript; download the file to use it fully. Text files over 10 MB are not previewed, and syntax highlighting is skipped above 1 MB.
+Previews never run scripts from the served files: `/view` responses carry a Content-Security-Policy that blocks script and form submission, so an HTML file shows its markup, styles and images but not its JavaScript; download the file to use it fully. Text files over 10 MB are not previewed, and syntax highlighting is skipped above 1 MB. A Markdown file whose tables would hold more than 50,000 cells is shown as plain text.
 
 All file access respects the same authentication and exclusion rules as the web interface.
 

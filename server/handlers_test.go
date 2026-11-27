@@ -1335,6 +1335,28 @@ func TestHandleViewFile_LargeTextFiles(t *testing.T) {
 	assert.True(t, strings.Contains(view("small.md").Body.String(), chroma))
 }
 
+func TestHandleViewFile_MarkdownTableOverLimitIsPlainText(t *testing.T) {
+	root := t.TempDir()
+	bomb := strings.Repeat("|a", 1000) + "|\n" + strings.Repeat("|-", 1000) + "|\n" + strings.Repeat("|\n", 1000)
+	require.NoError(t, os.WriteFile(filepath.Join(root, "bomb.md"), []byte(bomb), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "ok.md"), []byte("|a|b|\n|-|-|\n|1|2|\n"), 0o600))
+	wb := &Web{Config: Config{RootDir: root}, FS: os.DirFS(root)}
+	require.NoError(t, wb.initTemplates())
+
+	view := func(name string) string {
+		rr := httptest.NewRecorder()
+		wb.handleViewFile(rr, httptest.NewRequest(http.MethodGet, "/view/"+name, http.NoBody))
+		require.Equal(t, http.StatusOK, rr.Code)
+		return rr.Body.String()
+	}
+
+	body := view("bomb.md")
+	assert.NotContains(t, body, "<table>")
+	assert.Contains(t, body, "|a|a|a|", "the file is shown as text")
+	assert.Less(t, len(body), 64*1024)
+	assert.Contains(t, view("ok.md"), "<table>")
+}
+
 func TestWeb_handleDownloadEscapesSpecialCharsInDirRedirect(t *testing.T) {
 	root := t.TempDir()
 	require.NoError(t, os.MkdirAll(filepath.Join(root, "q&a"), 0o750))
