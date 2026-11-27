@@ -1138,6 +1138,7 @@ func TestOptions_trustedProxies(t *testing.T) {
 		{in: "203.0.113.7", want: "203.0.113.7/32"},
 		{in: "2001:db8::7", want: "2001:db8::7/128"},
 		{in: "::ffff:10.0.0.1", want: "10.0.0.1/32"},
+		{in: "::ffff:10.0.0.0/104", want: "10.0.0.0/8"},
 		{in: "10.1.2.3/8", want: "10.0.0.0/8"},
 		{in: " 192.168.1.0/24 ", want: "192.168.1.0/24"},
 		{in: "not-an-ip", wantErr: true},

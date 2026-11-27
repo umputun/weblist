@@ -216,6 +216,10 @@ func (o *options) trustedProxies() ([]netip.Prefix, error) {
 			if err != nil {
 				return nil, fmt.Errorf("invalid --trusted-proxy %q: %w", v, err)
 			}
+			// clientIP unmaps every address, so a mapped prefix would never match
+			if p.Addr().Is4In6() && p.Bits() >= 96 {
+				p = netip.PrefixFrom(p.Addr().Unmap(), p.Bits()-96)
+			}
 			res = append(res, p.Masked())
 			continue
 		}

@@ -110,7 +110,7 @@ weblist [options]
 - `--session-secret`: Secret key for session tokens (auto-generated if not set) - env: `SESSION_SECRET`
 - `--session-ttl`: Session timeout duration (default: `24h`) - env: `SESSION_TTL`
 - `--insecure-cookies`: Allow cookies without secure flag - env: `INSECURE_COOKIES`
-- `--trusted-proxy`: Proxy IP or CIDR whose `X-Forwarded-For` and `X-Real-IP` headers name the client, can be repeated (default: loopback and private networks) - env: `TRUSTED_PROXY` (comma-separated)
+- `--trusted-proxy`: Proxy IP or CIDR whose `X-Real-IP` and `X-Forwarded-For` headers name the client, can be repeated (default: loopback and private networks) - env: `TRUSTED_PROXY` (comma-separated)
 - `-v, --version`: Show version and exit - env: `VERSION`
 - `--dbg`: Debug mode - env: `DEBUG`
 - `--syntax-highlight`: Enable syntax highlighting for code files - env: `SYNTAX_HIGHLIGHT`
@@ -186,10 +186,14 @@ When authentication is enabled:
 ### Client addresses behind a proxy
 
 Rate limits and the login lockout apply per client address. weblist takes that address from the connection,
-or from the `X-Forwarded-For` (rightmost address that is not a trusted proxy) or `X-Real-IP` header when the
-connection comes from a trusted proxy. By default loopback and private networks are trusted, which covers a
-reverse proxy on the same host or a Docker network. A proxy elsewhere needs `--trusted-proxy`; an untrusted
-proxy makes every client share one address, and so one rate limit and one lockout.
+or, when the connection comes from a trusted proxy, from its `X-Real-IP` header, falling back to
+`X-Forwarded-For` (rightmost address that is not a trusted proxy). By default loopback and private networks
+are trusted, which covers a reverse proxy on the same host or a Docker network. A proxy elsewhere needs
+`--trusted-proxy`; an untrusted proxy makes every client share one address, and so one rate limit and one
+lockout.
+
+The proxy must set `X-Real-IP` itself, since a value the client sent and the proxy passed on is believed:
+`proxy_set_header X-Real-IP $remote_addr;` in nginx, `header_up X-Real-IP {remote_host}` in Caddy.
 
 When weblist is reachable without a proxy through an address it sees as private, for example Docker Desktop
 port publishing, where every visitor appears as the Docker gateway, restrict trust to loopback so visitors
