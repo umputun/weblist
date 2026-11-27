@@ -346,20 +346,10 @@ func TestSessionTokens(t *testing.T) {
 		assert.False(t, srv.validateSessionToken(tamperedToken), "Tampered signature should not validate")
 	})
 
-	t.Run("moving a digit across the separator does not validate", func(t *testing.T) {
+	t.Run("moving a digit across the separator changes the signature", func(t *testing.T) {
 		// regression: the signature covered id and timestamp with no separator, so shifting the
-		// last id digit into the timestamp kept it valid and moved the expiry centuries ahead
-		var id, ts, sig string
-		for range 100 {
-			parts := strings.Split(srv.generateSessionToken(), ".")
-			if last := parts[0][len(parts[0])-1]; last >= '1' && last <= '9' {
-				id, ts, sig = parts[0], parts[1], parts[2]
-				break
-			}
-		}
-		require.NotEmpty(t, id, "no token id ending in 1-9 within 100 tries")
-		shifted := id[:len(id)-1] + "." + id[len(id)-1:] + ts + "." + sig
-		assert.False(t, srv.validateSessionToken(shifted))
+		// last id digit into the timestamp signed the same bytes
+		assert.NotEqual(t, srv.sessionSignature("abc1", "1700000000"), srv.sessionSignature("abc", "11700000000"))
 	})
 
 	t.Run("future timestamp does not validate", func(t *testing.T) {

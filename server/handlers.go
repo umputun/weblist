@@ -581,7 +581,8 @@ func (wb *Web) handleDownloadSelected(w http.ResponseWriter, r *http.Request) {
 }
 
 // uniqueSelection cleans the selected paths and drops repeats, keeping the first occurrence's order.
-// Without it a selection naming one large file many times, in any spelling, archives it every time.
+// Without it a selection naming one large file many times archives it every time. Spellings equal
+// after filepath.Clean collapse; case variants on a case-insensitive volume do not.
 func (wb *Web) uniqueSelection(paths []string) []string {
 	seen := make(map[string]bool, len(paths))
 	res := make([]string, 0, len(paths))
