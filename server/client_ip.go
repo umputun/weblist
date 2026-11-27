@@ -19,10 +19,11 @@ func (wb *Web) clientIPMiddleware(next http.Handler) http.Handler {
 }
 
 // clientIP returns the TCP peer, or, when the peer is a trusted proxy, the address it forwarded:
-// X-Real-IP when it parses, else the rightmost X-Forwarded-For hop that is not itself a trusted
-// proxy. Headers from any other peer are ignored, as a client can set them to anything. A proxy must
-// overwrite X-Real-IP or strip it, since a value the client sent and the proxy passed through wins.
-// ok is false for a peer that is not an ip:port, which a TCP listener never produces.
+// X-Real-IP when it parses and is not itself a trusted proxy, else the rightmost X-Forwarded-For hop
+// that is not a trusted proxy, else a trusted X-Real-IP. Headers from any other peer are ignored, as
+// a client can set them to anything. A proxy must overwrite X-Real-IP or strip it, since a value the
+// client sent and the proxy passed through wins. ok is false for a peer that is not an ip:port,
+// which a TCP listener never produces.
 func (wb *Web) clientIP(r *http.Request) (ip netip.Addr, ok bool) {
 	peerPort, err := netip.ParseAddrPort(r.RemoteAddr)
 	if err != nil {
@@ -33,8 +34,17 @@ func (wb *Web) clientIP(r *http.Request) (ip netip.Addr, ok bool) {
 		return peer, true
 	}
 
-	if realIP, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("X-Real-IP"))); err == nil {
-		return realIP.Unmap(), true
+	// a trusted X-Real-IP names the proxy in front of the one that set it, so the client is looked for
+	// in X-Forwarded-For first; master's rest.RealIP skipped such private values the same way
+	fallback := peer
+	realIP, err := netip.ParseAddr(strings.TrimSpace(r.Header.Get("X-Real-IP")))
+	haveRealIP := err == nil
+	if haveRealIP {
+		realIP = realIP.Unmap()
+		if !wb.isTrustedProxy(realIP) {
+			return realIP, true
+		}
+		fallback = realIP
 	}
 
 	// a proxy appends to the header a client may have sent already, so only the right end is reliable
@@ -44,17 +54,17 @@ func (wb *Web) clientIP(r *http.Request) (ip netip.Addr, ok bool) {
 			continue
 		}
 		if hop, err = netip.ParseAddr(h); err != nil {
-			return peer, true
+			return fallback, true
 		}
 		hop = hop.Unmap()
 		if !wb.isTrustedProxy(hop) {
 			return hop, true
 		}
 	}
-	if hop.IsValid() {
+	if !haveRealIP && hop.IsValid() {
 		return hop, true
 	}
-	return peer, true
+	return fallback, true
 }
 
 func (wb *Web) isTrustedProxy(addr netip.Addr) bool {

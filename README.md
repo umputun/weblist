@@ -187,7 +187,8 @@ When authentication is enabled:
 
 Rate limits and the login lockout apply per client address. weblist takes that address from the connection,
 or, when the connection comes from a trusted proxy, from its `X-Real-IP` header, falling back to
-`X-Forwarded-For` (rightmost address that is not a trusted proxy). By default loopback and private networks
+`X-Forwarded-For` (rightmost address that is not a trusted proxy) when `X-Real-IP` is missing or is
+itself a trusted address, as behind two proxies. By default loopback and private networks
 are trusted, which covers a reverse proxy on the same host or a Docker network. A proxy elsewhere needs
 `--trusted-proxy`; an untrusted proxy makes every client share one address, and so one rate limit and one
 lockout.
