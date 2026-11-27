@@ -229,9 +229,6 @@ func (wb *Web) router() (http.Handler, error) {
 	router.Use(logger.New(logger.Log(lgr.Default()), logger.Prefix("[DEBUG]")).Handler)
 	router.Use(rest.AppInfo("weblist", "umputun", wb.Version), rest.Ping)
 	router.Use(wb.securityHeadersMiddleware) // add security headers to all responses
-	if wb.Auth != "" {
-		router.Use(wb.basicAuthLimitMiddleware)
-	}
 
 	// serve static assets from embedded filesystem
 	assetsFS, err := fs.Sub(content, "assets")
@@ -243,7 +240,7 @@ func (wb *Web) router() (http.Handler, error) {
 	if wb.EnableUpload {
 		router.Group().Route(func(uploadGroup *routegroup.Bundle) {
 			if wb.Auth != "" {
-				uploadGroup.Use(wb.authMiddleware)
+				uploadGroup.Use(wb.basicAuthLimitMiddleware, wb.authMiddleware)
 			}
 			uploadGroup.HandleFunc("POST /upload", wb.handleUpload)
 		})
@@ -261,6 +258,11 @@ func (wb *Web) router() (http.Handler, error) {
 		}
 
 		main.Group().Route(func(auth *routegroup.Bundle) {
+			// counted only where Basic Auth is read: on /login and /assets a proxy's own credentials would
+			// lock a browser out before the form login issues a cookie
+			if wb.Auth != "" {
+				auth.Use(wb.basicAuthLimitMiddleware)
+			}
 			if wb.Auth != "" && !wb.PublicRead {
 				auth.Use(wb.authMiddleware)
 			}

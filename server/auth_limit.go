@@ -85,8 +85,9 @@ func (wb *Web) lockout() *AuthLockout {
 }
 
 // basicAuthLimitMiddleware counts wrong Basic Auth passwords per client address and answers 429 to
-// any guess once the address is locked out. It runs on every route, public ones included, because a
-// public page under PublicRead still reveals whether credentials were right. Only credentials naming
+// any guess once the address is locked out. It wraps the read and upload groups, the routes that read
+// Basic Auth, and stays on the read group under PublicRead, whose pages still reveal whether
+// credentials were right. Only credentials naming
 // weblist's user are counted: no other username can authenticate, and a proxy doing its own Basic
 // Auth forwards its credentials on every request. A request with a valid session cookie is never
 // counted either, as authMiddleware does not look at its credentials.

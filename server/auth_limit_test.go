@@ -138,6 +138,39 @@ func TestRouter_ProxyBasicAuthIsNotCounted(t *testing.T) {
 	assert.Equal(t, http.StatusOK, rr.Code, "the address is not locked out")
 }
 
+func TestRouter_ProxyBasicAuthWithWeblistUserAllowsFormLogin(t *testing.T) {
+	// regression: the counter ran router-wide, so the login page and its assets used up the
+	// failures before the form could be submitted
+	router := newLimitTestServer(t)
+	for _, path := range []string{"/", "/login", "/assets/favicon.png", "/assets/css/custom.css", "/assets/css/weblist-app.css"} {
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, basicAuthRequest(path, "proxy-pass", "203.0.113.9:4000"))
+		require.NotEqual(t, http.StatusTooManyRequests, rr.Code, path)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(url.Values{"password": {"right-pass"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth("weblist", "proxy-pass")
+	req.RemoteAddr = "203.0.113.9:4000"
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusSeeOther, rr.Code)
+	assert.NotEmpty(t, rr.Result().Cookies(), "form login issues a session")
+}
+
+func TestRouter_CookieSessionIgnoresBasicAuthHeader(t *testing.T) {
+	router := newLimitTestServer(t)
+	srv := &Web{Config: Config{Auth: "right-pass"}}
+	cookie := &http.Cookie{Name: "auth", Value: srv.generateSessionToken()}
+	for i := range maxAuthFailures * 2 {
+		req := basicAuthRequest("/", "proxy-pass", "203.0.113.9:4000")
+		req.AddCookie(cookie)
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, req)
+		require.Equal(t, http.StatusOK, rr.Code, "request %d", i+1)
+	}
+}
+
 func TestRouter_LoginFailuresLockOut(t *testing.T) {
 	router := newLimitTestServer(t)
 	login := func(pass string) *httptest.ResponseRecorder {
