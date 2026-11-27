@@ -326,6 +326,8 @@ func TestFileViewAndModal(t *testing.T) {
 
 	// test handleViewFile
 	t.Run("view text file", func(t *testing.T) {
+		srv.EnableSyntaxHighlighting = true
+		defer func() { srv.EnableSyntaxHighlighting = false }()
 		req, err := http.NewRequest("GET", "/view/file1.txt", nil)
 		require.NoError(t, err)
 
@@ -337,9 +339,9 @@ func TestFileViewAndModal(t *testing.T) {
 		assert.Equal(t, "text/html", rr.Header().Get("Content-Type"))
 
 		body := rr.Body.String()
-		assert.Contains(t, body, "file1 content")     // the actual content from testdata/file1.txt
-		assert.Contains(t, body, "highlight-wrapper") // content should be wrapped in highlight-wrapper div
-		assert.Contains(t, body, "<!DOCTYPE html>")   // should render with HTML template
+		assert.Contains(t, body, "file1 content") // the actual content from testdata/file1.txt
+		assert.Contains(t, body, `<div class="highlight-wrapper">`)
+		assert.Contains(t, body, "<!DOCTYPE html>") // should render with HTML template
 	})
 
 	t.Run("view non-existent file", func(t *testing.T) {
