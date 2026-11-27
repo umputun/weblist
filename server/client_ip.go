@@ -54,7 +54,12 @@ func (wb *Web) clientIP(r *http.Request) (ip netip.Addr, ok bool) {
 			continue
 		}
 		if hop, err = netip.ParseAddr(h); err != nil {
-			return fallback, true
+			// an AWS ALB with client port preservation writes ip:port
+			ap, perr := netip.ParseAddrPort(h)
+			if perr != nil {
+				return fallback, true
+			}
+			hop = ap.Addr()
 		}
 		hop = hop.Unmap()
 		if !wb.isTrustedProxy(hop) {

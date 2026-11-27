@@ -41,6 +41,8 @@ func TestWeb_clientIP(t *testing.T) {
 			realIP: "10.9.9.9", want: "198.51.100.1"},
 		{name: "trusted real-ip is kept without an untrusted hop", peer: "10.1.2.3:4000", xff: []string{"10.5.5.5"}, realIP: "10.9.9.9",
 			want: "10.9.9.9"},
+		{name: "forwarded hop with a port", peer: "10.1.2.3:4000", xff: []string{"198.51.100.7:8080"}, want: "198.51.100.7"},
+		{name: "forwarded ipv6 hop with a port", peer: "10.1.2.3:4000", xff: []string{"[2001:db8::1]:8080"}, want: "2001:db8::1"},
 		{name: "trusted real-ip is kept past an unparsable hop", peer: "10.1.2.3:4000", xff: []string{"garbage"}, realIP: "10.9.9.9",
 			want: "10.9.9.9"},
 		{name: "unparsable real-ip falls back to peer", peer: "10.1.2.3:4000", realIP: "nope", want: "10.1.2.3"},
