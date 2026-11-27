@@ -27,9 +27,42 @@ import (
 
 const (
 	maxSFTPConns         = 100              // connections served at once; each holds a goroutine and a descriptor
+	maxSFTPConnsPerAddr  = 10               // of those, from one client address, so one source cannot hold them all
 	sftpHandshakeTimeout = 30 * time.Second // to finish the SSH handshake and authenticate
 	sftpIdleTimeout      = 10 * time.Minute // without traffic after login
 )
+
+// connSlots bounds the SFTP connections served at once, in total and per client address key
+type connSlots struct {
+	mu      sync.Mutex
+	total   int
+	perAddr map[string]int
+}
+
+// acquire takes a slot for key, reporting false when the total or the key's share is used up
+func (c *connSlots) acquire(key string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.total >= maxSFTPConns || c.perAddr[key] >= maxSFTPConnsPerAddr {
+		return false
+	}
+	if c.perAddr == nil {
+		c.perAddr = make(map[string]int)
+	}
+	c.total++
+	c.perAddr[key]++
+	return true
+}
+
+func (c *connSlots) release(key string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.total--
+	c.perAddr[key]--
+	if c.perAddr[key] <= 0 {
+		delete(c.perAddr, key)
+	}
+}
 
 // SFTP represents the SFTP server.
 type SFTP struct {
@@ -64,7 +97,7 @@ func (s *SFTP) Run(ctx context.Context) error {
 
 	// channel for connection errors
 	errorCh := make(chan error, 1)
-	slots := make(chan struct{}, maxSFTPConns)
+	var slots connSlots
 
 	// handle connections in a separate goroutine
 	go func() {
@@ -87,17 +120,17 @@ func (s *SFTP) Run(ctx context.Context) error {
 				return
 			}
 
-			// never block the accept loop on a full semaphore, or shutdown waits on it
-			select {
-			case slots <- struct{}{}:
-				go func() {
-					defer func() { <-slots }()
-					s.handleConnection(conn, config)
-				}()
-			default:
-				log.Printf("[WARN] SFTP connection limit of %d reached, refusing %s", maxSFTPConns, conn.RemoteAddr())
+			// refuse rather than wait for a slot, or shutdown waits on the accept loop
+			key := lockoutKey(s.remoteIP(conn.RemoteAddr()))
+			if !slots.acquire(key) {
+				log.Printf("[WARN] SFTP connection limit reached, refusing %s", conn.RemoteAddr())
 				_ = conn.Close()
+				continue
 			}
+			go func() {
+				defer slots.release(key)
+				s.handleConnection(conn, config)
+			}()
 		}
 	}()
 

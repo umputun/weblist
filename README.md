@@ -247,6 +247,9 @@ When SFTP is enabled:
   - Public key authentication: Uses OpenSSH-format authorized_keys file (requires `--sftp.authorized` parameter)
 - The username for SFTP is specified with the `--sftp.user` parameter
 - SFTP access is read-only for security reasons
+- Options in authorized_keys entries, such as `from=`, are not enforced; such keys still work, and weblist logs a warning naming the ignored options
+- Wrong passwords count toward the same lockout as HTTP logins (5 per address, then 10 minutes)
+- At most 100 connections are served at once, 10 from one address (IPv6 addresses grouped by /64); a client has 30 seconds to log in, and a session with no traffic for 10 minutes is closed
 - SSH host keys are stored to prevent client warnings about changing keys
   - By default, the key is stored as `weblist_rsa` in the current directory, which works only when `--root` points to another directory
   - You can specify a custom key file with `--sftp.key`

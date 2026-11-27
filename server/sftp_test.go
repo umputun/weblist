@@ -1106,23 +1106,24 @@ func TestSFTP_RunRefusesConnectionsOverLimit(t *testing.T) {
 		return string(buf[:n])
 	}
 
-	conns := make([]net.Conn, 0, maxSFTPConns)
+	conns := make([]net.Conn, 0, maxSFTPConnsPerAddr)
 	defer func() {
 		for _, c := range conns {
 			_ = c.Close()
 		}
 	}()
-	for i := range maxSFTPConns {
+	for i := range maxSFTPConnsPerAddr {
 		c, err := net.Dial("tcp", "127.0.0.1:"+port)
 		require.NoError(t, err)
 		conns = append(conns, c)
 		require.Contains(t, banner(c), "SSH-2.0-WebList-SFTP", "connection %d should be served", i+1)
 	}
 
+	// regression: one address could hold every slot, refusing all other clients
 	extra, err := net.Dial("tcp", "127.0.0.1:"+port)
 	require.NoError(t, err)
 	defer extra.Close()
-	assert.Empty(t, banner(extra), "connection over the limit is closed without a banner")
+	assert.Empty(t, banner(extra), "connection over the per-address limit is closed without a banner")
 
 	require.NoError(t, conns[0].Close())
 	conns = conns[1:]
@@ -1134,6 +1135,24 @@ func TestSFTP_RunRefusesConnectionsOverLimit(t *testing.T) {
 		conns = append(conns, c)
 		return strings.Contains(banner(c), "SSH-2.0-WebList-SFTP")
 	}, 5*time.Second, 100*time.Millisecond, "a freed slot is reused")
+}
+
+func TestConnSlots(t *testing.T) {
+	var cs connSlots
+	for i := range maxSFTPConnsPerAddr {
+		require.True(t, cs.acquire("198.51.100.1"), "connection %d", i+1)
+	}
+	assert.False(t, cs.acquire("198.51.100.1"), "per-address limit")
+	cs.release("198.51.100.1")
+	assert.True(t, cs.acquire("198.51.100.1"), "a released slot is reused")
+
+	for i := maxSFTPConnsPerAddr; i < maxSFTPConns; i++ {
+		require.True(t, cs.acquire(fmt.Sprintf("203.0.113.%d", i)), "connection %d", i+1)
+	}
+	assert.False(t, cs.acquire("192.0.2.1"), "total limit holds for a new address")
+	cs.release("203.0.113.50")
+	assert.True(t, cs.acquire("192.0.2.1"))
+	assert.Len(t, cs.perAddr, maxSFTPConns-maxSFTPConnsPerAddr+1, "a released address's count is dropped")
 }
 
 // TestMemReaderAt tests the memReaderAt implementation
