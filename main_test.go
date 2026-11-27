@@ -434,7 +434,9 @@ func TestRunServer(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 
-	// shutdown the server
+	// regression: a spare dialed connection that never sent a request holds Shutdown for up to 5s.
+	// every client here uses http.DefaultTransport, so this closes theirs too
+	client.CloseIdleConnections()
 	cancel()
 
 	// wait for server to shut down
@@ -658,7 +660,9 @@ func TestIntegration(t *testing.T) {
 		assert.Equal(t, http.StatusNotFound, resp.StatusCode)
 	})
 
-	// shutdown the server
+	// regression: a spare dialed connection that never sent a request holds Shutdown for up to 5s.
+	// every client here uses http.DefaultTransport, so this closes theirs too
+	client.CloseIdleConnections()
 	cancel()
 
 	// wait for server to shut down
@@ -1041,7 +1045,9 @@ func TestIntegrationWithAuth(t *testing.T) {
 		assert.Equal(t, "/login", resp.Header.Get("Location"), "Logout should redirect to login page")
 	})
 
-	// shutdown the server
+	// regression: a spare dialed connection that never sent a request holds Shutdown for up to 5s.
+	// every client here uses http.DefaultTransport, so this closes theirs too
+	client.CloseIdleConnections()
 	cancel()
 
 	// wait for server to shut down
