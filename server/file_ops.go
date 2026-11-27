@@ -575,22 +575,22 @@ func (wb *Web) renderCSV(content string) (string, error) {
 
 // renderMarkdown converts markdown content to HTML using goldmark with GFM extensions.
 // the theme parameter controls the chroma style for fenced code blocks: "dark" uses monokai, any other value uses github.
+// highlight false renders fenced code blocks as plain code, bounding chroma's cost on large files.
 // the output is wrapped in a <div class="markdown-content"> element.
-func (wb *Web) renderMarkdown(content, theme string) (string, error) {
+func (wb *Web) renderMarkdown(content, theme string, highlight bool) (string, error) {
 	chromaStyle := "github"
 	if theme == "dark" {
 		chromaStyle = "monokai"
 	}
 
-	md := goldmark.New(
-		goldmark.WithExtensions(
-			extension.GFM,
-			highlighting.NewHighlighting(
-				highlighting.WithStyle(chromaStyle),
-				highlighting.WithFormatOptions(html.WithClasses(true)),
-			),
-		),
-	)
+	extensions := []goldmark.Extender{extension.GFM}
+	if highlight {
+		extensions = append(extensions, highlighting.NewHighlighting(
+			highlighting.WithStyle(chromaStyle),
+			highlighting.WithFormatOptions(html.WithClasses(true)),
+		))
+	}
+	md := goldmark.New(goldmark.WithExtensions(extensions...))
 
 	var buf strings.Builder
 	buf.WriteString(`<div class="markdown-content">`)

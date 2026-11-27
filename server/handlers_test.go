@@ -1304,6 +1304,9 @@ func TestHandleViewFile_LargeTextFiles(t *testing.T) {
 	require.NoError(t, os.WriteFile(filepath.Join(root, "edge.log"), bytes.Repeat([]byte("b"), maxPreviewSize), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "big.go"), bytes.Repeat([]byte("var x = 1\n"), maxHighlightSize/10+1), 0o600))
 	require.NoError(t, os.WriteFile(filepath.Join(root, "small.go"), []byte("var x = 1\n"), 0o600))
+	fence := func(lines int) []byte { return []byte("```go\n" + strings.Repeat("var x = 1\n", lines) + "```\n") }
+	require.NoError(t, os.WriteFile(filepath.Join(root, "big.md"), fence(maxHighlightSize/10+1), 0o600))
+	require.NoError(t, os.WriteFile(filepath.Join(root, "small.md"), fence(1), 0o600))
 	wb := &Web{Config: Config{RootDir: root, EnableSyntaxHighlighting: true}, FS: os.DirFS(root)}
 	require.NoError(t, wb.initTemplates())
 
@@ -1325,6 +1328,11 @@ func TestHandleViewFile_LargeTextFiles(t *testing.T) {
 	highlighted := `<div class="highlight-wrapper">`
 	assert.False(t, strings.Contains(view("big.go").Body.String(), highlighted), "highlighting is skipped above the limit")
 	assert.True(t, strings.Contains(view("small.go").Body.String(), highlighted))
+
+	// regression: markdown fences went through chroma at any size up to maxPreviewSize
+	chroma := `<pre class="chroma">`
+	assert.False(t, strings.Contains(view("big.md").Body.String(), chroma), "markdown highlighting is skipped above the limit")
+	assert.True(t, strings.Contains(view("small.md").Body.String(), chroma))
 }
 
 func TestWeb_handleDownloadEscapesSpecialCharsInDirRedirect(t *testing.T) {

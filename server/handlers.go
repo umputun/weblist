@@ -155,7 +155,7 @@ type viewFileData struct {
 func (wb *Web) renderViewContent(data *viewFileData, ctInfo ContentTypeInfo, rawContent []byte) {
 	switch {
 	case ctInfo.IsMarkdown:
-		rendered, err := wb.renderMarkdown(data.Content, data.Theme)
+		rendered, err := wb.renderMarkdown(data.Content, data.Theme, len(rawContent) <= maxHighlightSize)
 		if err != nil {
 			log.Printf("[WARN] failed to render markdown: %v", err)
 			data.IsMarkdown = false // fall back to plain text rendering with escaping
