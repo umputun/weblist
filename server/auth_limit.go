@@ -85,12 +85,11 @@ func (wb *Web) lockout() *AuthLockout {
 }
 
 // basicAuthLimitMiddleware counts wrong Basic Auth passwords per client address and answers 429 to
-// any guess once the address is locked out. It wraps the read and upload groups, the routes that read
-// Basic Auth, and stays on the read group under PublicRead, whose pages still reveal whether
-// credentials were right. Only credentials naming
-// weblist's user are counted: no other username can authenticate, and a proxy doing its own Basic
-// Auth forwards its credentials on every request. A request with a valid session cookie is never
-// counted either, as authMiddleware does not look at its credentials.
+// any guess once the address is locked out. It wraps the routes that read Basic Auth: the upload group,
+// and the read group unless PublicRead makes its pages cookie-only. Only credentials naming weblist's
+// user are counted: no other username can authenticate, and a proxy doing its own Basic Auth forwards
+// its credentials on every request. A request with a valid session cookie is never counted either,
+// as authMiddleware does not look at its credentials.
 func (wb *Web) basicAuthLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		user, _, ok := r.BasicAuth()

@@ -123,9 +123,14 @@ func (wb *Web) isAuthenticatedByCookie(r *http.Request) bool {
 
 // isAuthenticated reports whether the request carries valid credentials, by session cookie or basic auth.
 // Always false without a password configured, so callers can treat it as "this visitor logged in".
+// Under PublicRead only the cookie counts: public pages that honored Basic Auth would be an uncounted
+// password oracle, and counting there locks out readers behind a proxy sending its own credentials.
 func (wb *Web) isAuthenticated(r *http.Request) bool {
 	if wb.Auth == "" {
 		return false
+	}
+	if wb.PublicRead {
+		return wb.isAuthenticatedByCookie(r)
 	}
 	return wb.isAuthenticatedByCookie(r) || wb.checkBasicAuth(r)
 }

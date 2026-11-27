@@ -158,6 +158,30 @@ func TestRouter_ProxyBasicAuthWithWeblistUserAllowsFormLogin(t *testing.T) {
 	assert.NotEmpty(t, rr.Result().Cookies(), "form login issues a session")
 }
 
+func TestRouter_PublicReadIgnoresProxyBasicAuthOnReads(t *testing.T) {
+	// regression: under public-read every page load with a proxy's weblist-user header counted as a failure
+	testdataDir, err := filepath.Abs("testdata")
+	require.NoError(t, err)
+	srv := &Web{Config: Config{RootDir: testdataDir, Auth: "right-pass", Theme: "light", EnableUpload: true, PublicRead: true},
+		FS: os.DirFS(testdataDir)}
+	router, err := srv.router()
+	require.NoError(t, err)
+
+	for i := range maxAuthFailures * 2 {
+		rr := httptest.NewRecorder()
+		router.ServeHTTP(rr, basicAuthRequest("/", "proxy-pass", "203.0.113.9:4000"))
+		require.Equal(t, http.StatusOK, rr.Code, "request %d", i+1)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/login", strings.NewReader(url.Values{"password": {"right-pass"}}.Encode()))
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.SetBasicAuth("weblist", "proxy-pass")
+	req.RemoteAddr = "203.0.113.9:4000"
+	rr := httptest.NewRecorder()
+	router.ServeHTTP(rr, req)
+	assert.Equal(t, http.StatusSeeOther, rr.Code, "form login still works")
+}
+
 func TestRouter_CookieSessionIgnoresBasicAuthHeader(t *testing.T) {
 	router := newLimitTestServer(t)
 	srv := &Web{Config: Config{Auth: "right-pass"}}

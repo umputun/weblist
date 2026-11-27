@@ -259,12 +259,9 @@ func (wb *Web) router() (http.Handler, error) {
 
 		main.Group().Route(func(auth *routegroup.Bundle) {
 			// counted only where Basic Auth is read: on /login and /assets a proxy's own credentials would
-			// lock a browser out before the form login issues a cookie
-			if wb.Auth != "" {
-				auth.Use(wb.basicAuthLimitMiddleware)
-			}
+			// lock a browser out before the form login issues a cookie. Public-read pages ignore Basic Auth
 			if wb.Auth != "" && !wb.PublicRead {
-				auth.Use(wb.authMiddleware)
+				auth.Use(wb.basicAuthLimitMiddleware, wb.authMiddleware)
 			}
 			auth.HandleFunc("GET /", wb.handleRoot)
 			auth.HandleFunc("GET /partials/dir-contents", wb.handleDirContents)

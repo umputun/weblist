@@ -217,6 +217,8 @@ weblist --auth your_password --upload.enabled --auth.public-read
 
 Anonymous visitors get the full listing, downloads, file previews and the JSON API, and see a Login link
 instead of the upload buttons. After logging in the upload buttons appear and the link becomes Logout.
+The pages go by the login session alone, so a client sending HTTP Basic Auth sees them as anonymous;
+`POST /upload` still accepts Basic Auth, for example `curl -u weblist:your_password -F file=@report.pdf https://files.example.com/upload`.
 
 The flag refuses to start without `--auth`, since without a password there is nothing to require and
 uploads would accept anonymous writes. It only affects HTTP: SFTP still requires the password or an
